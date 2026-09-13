@@ -135,6 +135,54 @@ def _tidy(candidate: str) -> str:
     return " ".join(words).strip(" \t\-–—,;:.")
 
 
+#: Localities a merchant would name in a story or an address — towns and
+#: districts, as single tokens. "Shah Alam" and "Kota Damansara" are both
+#: two tokens; matching on the distinctive second word ("alam", "damansara")
+#: is what tells them apart. Generic state names are left out on purpose:
+#: "Selangor" in the story and "Selangor" in the address say nothing.
+_LOCALITY_TOKENS = frozenset({
+    "alam", "damansara", "bangi", "kajang", "klang", "puchong", "subang",
+    "petaling", "ampang", "cheras", "gombak", "rawang", "sepang", "nilai",
+    "seremban", "cyberjaya", "putrajaya", "serdang", "semenyih", "banting",
+    "rawang", "selayang", "sentul", "kepong", "setapak", "wangsa",
+    "bangsar", "brickfields", "bukit", "ipoh", "taiping", "melaka",
+    "malacca", "muar", "batu", "johor", "bahru", "kluang", "kuantan",
+    "kemaman", "terengganu", "kelantan", "bharu", "kedah", "alor", "setar",
+    "sungai", "penang", "pinang", "georgetown", "butterworth", "kangar",
+    "kuching", "kinabalu", "sandakan", "tawau", "miri", "sibu", "labuan",
+    "kl", "lumpur", "kuala",
+})
+
+#: Tokens that are localities only as part of a longer name. "Bukit" alone
+#: is any hill; "Kuala" alone is any river mouth. They count when paired.
+_LOCALITY_QUALIFIERS = frozenset({"bukit", "kuala", "sungai", "batu", "alor", "kota", "bandar", "taman"})
+#: Qualifiers that name a place with ANY following word ("Kota Damansara",
+#: "Bandar Utama", "Taman Melawati"). The others only pair with a known
+#: locality token, so "Sungai" before a street name is not a town. Note
+#: "Seksyen" is not here: it precedes a NUMBER, which the tokeniser drops,
+#: and "Seksyen 9, Shah Alam" then wrongly yielded "shah".
+_OPEN_QUALIFIERS = frozenset({"kota", "bandar", "taman"})
+
+
+def localities_in(text: str) -> frozenset:
+    """The locality tokens a piece of merchant text names.
+
+    Returns a set of lowercase tokens, so two texts can be compared for a
+    shared place. A qualifier ("Kota", "Bukit") counts only with the word
+    that follows it — "Kota Damansara" yields {"damansara"}, not {"kota"}.
+    """
+    tokens = [w.lower() for w in re.findall(r"[A-Za-z]+", str(text or ""))]
+    found = set()
+    for i, tok in enumerate(tokens):
+        if tok in _LOCALITY_TOKENS and tok not in _LOCALITY_QUALIFIERS:
+            found.add(tok)
+        elif tok in _LOCALITY_QUALIFIERS and i + 1 < len(tokens):
+            nxt = tokens[i + 1]
+            if nxt in _LOCALITY_TOKENS or (tok in _OPEN_QUALIFIERS and len(nxt) > 3):
+                found.add(nxt)
+    return frozenset(found)
+
+
 def is_generic_business_name(name: Optional[str]) -> bool:
     """True when `name` carries no business identity of its own.
 

@@ -184,6 +184,9 @@ class PublishRequest(BaseModel):
         description="Chosen subdomain name"
     )
     project_name: str = Field(..., min_length=2, max_length=100, description="Project name")
+    #: The merchant's business name. The project name is the site's label;
+    #: rows were storing the label as the business name.
+    business_name: Optional[str] = Field(default=None, max_length=120, description="Business name")
     user_id: str = Field(default="demo-user", description="User ID")
     description: Optional[str] = Field(default=None, description="Business description for type detection")
     business_type: Optional[str] = Field(default=None, description="Business type: food, clothing, services, general")
@@ -389,7 +392,7 @@ async def publish_website(
         _content_result = validate_generated_site(
             html_content,
             GenerationBrief(
-                business_name=request.project_name or "",
+                business_name=request.business_name or request.project_name or "",
                 description=request.description or "",
                 language=request.language or "ms",
             ),
@@ -618,7 +621,7 @@ async def publish_website(
             html_content = finalize_published_seo(
                 html_content,
                 f"https://{request.subdomain}.binaapp.my",
-                business_name=request.project_name or "",
+                business_name=request.business_name or request.project_name or "",
             )
         except Exception as _seo_err:
             logger.warning(f"🔎 Publish SEO finalisation skipped: {_seo_err}")
@@ -680,7 +683,7 @@ async def publish_website(
                     "id": project_id,
                     "user_id": request.user_id,
                     "name": request.project_name,
-                    "business_name": request.project_name,
+                    "business_name": request.business_name or request.project_name,
                     "subdomain": request.subdomain,
                     "html_content": html_content,
                     "status": "published",
@@ -707,7 +710,7 @@ async def publish_website(
                 update_data = {
                     "user_id": request.user_id,  # Update ownership (important for claiming)
                     "name": request.project_name,
-                    "business_name": request.project_name,
+                    "business_name": request.business_name or request.project_name,
                     "html_content": html_content,
                     "status": "published",
                     "public_url": public_url,

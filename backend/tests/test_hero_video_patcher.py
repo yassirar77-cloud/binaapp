@@ -210,6 +210,8 @@ class TestDetect:
             "poster_url": POSTER,
             "overlay": "light",
             "overlay_opacity": 0.25,
+            # Measured when the clip is stored; absent here, so None.
+            "poster_luminance": None,
             "text_mode": "keep",
             "show_on_mobile": False,
         }

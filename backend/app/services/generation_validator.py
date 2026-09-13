@@ -737,6 +737,30 @@ def _check_dead_links(html: str, brief: GenerationBrief) -> List[ValidationIssue
     )]
 
 
+def _check_address_locality(html: str, brief: GenerationBrief) -> List[ValidationIssue]:
+    """13. The address names a different town than the story — WARNING.
+
+    bji.binaapp.my: the brief said Seksyen 9, Shah Alam; the address field
+    carried Kota Damansara (nothing in the pipeline pre-fills it — the
+    evidence points at browser autofill on the form). Both went out on the
+    same page: hero copy and meta description in one town, contact block,
+    map and footer in another. For a walk-in business that is worse than a
+    broken video. The two inputs are compared here, before either reaches
+    a customer; the create page shows the same hint before Generate.
+    """
+    from app.services.business_identity import localities_in
+
+    story = localities_in(brief.description)
+    address = localities_in(brief.location_address or "")
+    if not story or not address or story & address:
+        return []
+    return [ValidationIssue(
+        "address_locality_conflict",
+        "The address names a different locality than the business story",
+        f"story: {', '.join(sorted(story))} / address: {', '.join(sorted(address))}",
+    )]
+
+
 _ERROR_CHECKS = (
     _check_placeholder_contacts,
     _check_derived_item_names,
@@ -753,6 +777,7 @@ _WARNING_CHECKS = (
     _check_invented_metrics,
     _check_contrast,
     _check_dead_links,
+    _check_address_locality,
 )
 
 

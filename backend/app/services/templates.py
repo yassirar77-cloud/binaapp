@@ -3899,9 +3899,14 @@ section:not([id="home"]):not([id="hero"]):not([id="laman-utama"]):not([id="page-
    blank space with content stuck at the bottom. Cap it and re-centre content.
    :has() guards mean this only kicks in when there's truly no <img> AND no
    inline background-image style on the hero or its descendants. */
-section[id="home"]:not(:has(img)):not(:has([style*="background-image"])),
-section[id="hero"]:not(:has(img)):not(:has([style*="background-image"])),
-section[id="laman-utama"]:not(:has(img)):not(:has([style*="background-image"])) {
+section[id="home"]:not([data-binaapp-hero-video]):not(:has(img)):not(:has([style*="background-image"])),
+section[id="hero"]:not([data-binaapp-hero-video]):not(:has(img)):not(:has([style*="background-image"])),
+section[id="laman-utama"]:not([data-binaapp-hero-video]):not(:has(img)):not(:has([style*="background-image"])) {
+  /* A video hero is exempt EXPLICITLY. It used to be exempt by accident: the
+     injected layer carries an inline poster background-image, which stopped
+     the :has() test matching — the right outcome (a video hero deserves its
+     full height, and the patcher sets the floor itself) reached by a side
+     effect that would silently flip on any other :has(img) guard. */
   min-height: 60vh !important;
   height: auto !important;
   align-items: center !important;
