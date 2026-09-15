@@ -96,6 +96,10 @@ The wiring lives in `AIService.generate_website` (`_plan_brief_for`,
 
 - Apply `backend/migrations/057_design_plans_learning_loop.sql` to Supabase.
 - Weekly Render cron: `python cron_runner.py design-stats` → `docs/design/direction-stats.md`.
+  It needs `SUPABASE_URL` and a service key (`SUPABASE_SERVICE_ROLE_KEY`, or
+  `SUPABASE_SERVICE_KEY` / `SUPABASE_KEY`) **on the cron service itself** — Render env
+  vars do not carry over from `binaapp-backend`, so the blueprint inherits the key with
+  `fromService`. Without it the job exits 1 before reading anything.
 - Acceptance harness: `python scripts/designer_grade_acceptance.py` (offline checks always; add `--live` with API keys to generate, lint, critique and screenshot ten briefs into `docs/design/screenshots/`).
 
 ## Observability

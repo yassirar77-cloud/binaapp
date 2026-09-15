@@ -30,7 +30,9 @@ Or with specific Python:
 ENVIRONMENT VARIABLES REQUIRED:
 -------------------------------
 - SUPABASE_URL
-- SUPABASE_SERVICE_ROLE_KEY
+- SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_SERVICE_KEY / SUPABASE_KEY -- the
+  same aliases app/main.py accepts; whichever is set is normalised into
+  SUPABASE_SERVICE_ROLE_KEY for the rest of the app)
 - SMTP_HOST
 - SMTP_PORT
 - SMTP_USER
@@ -78,13 +80,35 @@ def setup_logging():
         logger.warning(f"Could not set up file logging: {e}")
 
 
+#: The service key may arrive under any of these names -- app/main.py and
+#: app/services/design_plan_store.py already accept all three. The cron used
+#: to demand SUPABASE_SERVICE_ROLE_KEY exactly and exited 1 when only an
+#: alias was set.
+SERVICE_KEY_VARS = (
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "SUPABASE_SERVICE_KEY",
+    "SUPABASE_KEY",
+)
+
+
+def resolve_service_key():
+    """Return the Supabase service key under any accepted alias.
+
+    The winning value is written back to SUPABASE_SERVICE_ROLE_KEY so
+    ``app.config.settings`` -- which only reads that name -- sees it too.
+    """
+    for var in SERVICE_KEY_VARS:
+        value = (os.environ.get(var) or "").strip()
+        if value:
+            if var != "SUPABASE_SERVICE_ROLE_KEY":
+                os.environ["SUPABASE_SERVICE_ROLE_KEY"] = value
+                logger.info(f"Using {var} as SUPABASE_SERVICE_ROLE_KEY")
+            return value
+    return None
+
+
 def verify_environment():
     """Verify required environment variables are set"""
-    required_vars = [
-        "SUPABASE_URL",
-        "SUPABASE_SERVICE_ROLE_KEY",
-    ]
-
     optional_vars = [
         "SMTP_HOST",
         "SMTP_USER",
@@ -95,12 +119,20 @@ def verify_environment():
     ]
 
     missing = []
-    for var in required_vars:
-        if not os.environ.get(var):
-            missing.append(var)
+    if not (os.environ.get("SUPABASE_URL") or "").strip():
+        missing.append("SUPABASE_URL")
+    if not resolve_service_key():
+        missing.append(" or ".join(SERVICE_KEY_VARS))
 
     if missing:
         logger.error(f"Missing required environment variables: {', '.join(missing)}")
+        logger.error(
+            "On Render these are per-service values: a `sync: false` key in "
+            "render.yaml is created empty and must be filled in on THAT "
+            "service (Dashboard -> the cron service -> Environment), or "
+            "inherited from binaapp-backend via `fromService` in render.yaml. "
+            "Setting it on the web service alone does not reach the cron."
+        )
         return False
 
     # Log optional vars status
