@@ -907,21 +907,18 @@ function handleContactSubmit(e) {{
         # someone had pasted over the design.
         qr_html = f"""
 <!-- QR Code Section -->
-<div style="text-align:center;padding:40px 20px;background:transparent;color:inherit;">
-  <h3 style="font-size:1.5rem;margin-bottom:1rem;color:inherit;font-family:var(--font-heading, inherit);">📱 Scan to Visit</h3>
+<div style="text-align:center;padding:32px 20px 8px;background:inherit;color:inherit;">
+  <p style="font-size:1.1rem;font-weight:600;margin:0 0 1rem;color:inherit;">📱 Scan to Visit</p>
   <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data={url}"
-       alt="QR Code"
+       alt="QR Code" width="200" height="200"
        style="margin:0 auto;display:block;background:#fff;padding:8px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.15);">
 </div>
 """
 
-        # Inject before closing body tag
-        if "</body>" in html:
-            html = insert_before_body(html, qr_html)
-        else:
-            html += qr_html
-
-        return html
+        # Round 2 (§D13): inside the footer's last container, never a strip
+        # after the footer's bottom border.
+        from app.middleware.subdomain import insert_in_footer
+        return insert_in_footer(html, qr_html)
 
     def inject_delivery_section(
         self,

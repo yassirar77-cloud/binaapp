@@ -387,3 +387,52 @@ def apply_hierarchy_repairs(
         report.css_rules.append(css)
         out = _inject_css(out, css)
     return out, report
+
+
+# ---------------------------------------------------------------------------
+# §D14 logo fallback badge
+# ---------------------------------------------------------------------------
+
+_HEADER_RE = re.compile(r"<(header|nav)\b[^>]*>.*?</\1>", re.IGNORECASE | re.DOTALL)
+_BADGE_RE = re.compile(r"<(span|div|a)\b([^>]*)>\s*([A-Za-z0-9])\s*</\1>", re.IGNORECASE)
+
+
+def restyle_logo_badge(html: str, *, initial: str, accent: str, display_font: str) -> Tuple[str, int]:
+    """A single-letter logo badge in the header takes the plan's accent
+    colour and display font instead of a default blue square. Returns
+    (html, badges restyled)."""
+    if not html or not initial:
+        return html, 0
+    initial = initial.strip()[:1].upper()
+    count = 0
+
+    def _fix_header(hm: "re.Match") -> str:
+        nonlocal count
+        block = hm.group(0)
+
+        def _fix(m: "re.Match") -> str:
+            nonlocal count
+            if m.group(3).upper() != initial:
+                return m.group(0)
+            attrs = m.group(2)
+            # Strip Tailwind background/text-colour utilities and add the plan's.
+            cm = _CLASS_RE.search(attrs)
+            if cm:
+                classes = re.sub(r"(?<![\w-])(?:bg|text)-(?:[a-z]+-\d{2,3}|\[[^\]]+\])(?![\w-])", "", cm.group(2))
+                classes = re.sub(r"(?<![\w-])font-(?:sans|serif|mono|body)(?![\w-])", "", classes)
+                classes = re.sub(r"\s{2,}", " ", classes).strip() + " font-heading"
+                attrs = attrs.replace(cm.group(0), f"class={cm.group(1)}{classes.strip()}{cm.group(1)}", 1)
+            style = f"background:{accent};color:#fff;font-family:'{display_font}',sans-serif;"
+            sm = re.search(r"\bstyle=([\"'])(.*?)\1", attrs, re.IGNORECASE | re.DOTALL)
+            if sm:
+                kept = re.sub(r"(?:background(?:-color)?|color|font-family)\s*:[^;]*;?", "", sm.group(2))
+                attrs = attrs.replace(sm.group(0), f"style={sm.group(1)}{kept.strip()}{style}{sm.group(1)}", 1)
+            else:
+                attrs = f'{attrs} style="{style}"'
+            count += 1
+            return f"<{m.group(1)}{attrs}>{m.group(3)}</{m.group(1)}>"
+
+        return _BADGE_RE.sub(_fix, block)
+
+    out = _HEADER_RE.sub(_fix_header, html, count=1)
+    return out, count

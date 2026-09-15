@@ -702,7 +702,7 @@ def _inject_qr_block(html_content: str, subdomain: str, language: str = "ms") ->
     # instead of a hardcoded near-black that would vanish on a dark background.
     qr_block = f'''
 <!-- BinaApp QR Block -->
-<div style="text-align:center;padding:32px 20px;">
+<div style="text-align:center;padding:32px 20px 8px;background:inherit;color:inherit;">
   <p style="font-size:1.1rem;font-weight:600;margin:0 0 1rem;color:inherit;">{label}</p>
   <img src="{qr_src}" alt="{label}" width="200" height="200"
        style="margin:0 auto;display:block;width:200px;height:200px;background:#fff;padding:8px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.15);">
@@ -711,14 +711,27 @@ def _inject_qr_block(html_content: str, subdomain: str, language: str = "ms") ->
 
     # Inject INSIDE the footer (before its closing tag) so it never orphans
     # after </footer>. Fall back to before </body> when there's no footer.
-    if "</footer>" in html_content:
-        html_content = html_content.replace("</footer>", qr_block + "</footer>", 1)
-    elif "</body>" in html_content:
-        html_content = insert_before_body(html_content, qr_block)
-    else:
-        html_content += qr_block
+    return insert_in_footer(html_content, qr_block)
 
-    return html_content
+
+def insert_in_footer(html_content: str, block: str) -> str:
+    """Round 2 (§D13): put ``block`` INSIDE the footer's last container —
+    the last child of the innermost wrapper that closes right before
+    </footer> — so it sits above the footer's bottom border and inherits
+    the footer background instead of rendering on a white strip after it.
+    Falls back to just before </footer>, then before </body>."""
+    low = html_content.lower()
+    close = low.rfind("</footer>")
+    if close == -1:
+        if "</body>" in html_content:
+            return insert_before_body(html_content, block)
+        return html_content + block
+    open_idx = low.rfind("<footer", 0, close)
+    # The last </div> between the footer's open tag and its close tag closes
+    # the footer's top-level container (nested containers close earlier).
+    last_div = low.rfind("</div>", open_idx if open_idx != -1 else 0, close)
+    at = last_div if last_div != -1 else close
+    return html_content[:at] + block + html_content[at:]
 
 
 # Inline script injected once per served page. Guards against a blank contact
@@ -874,8 +887,23 @@ def _inject_widgets(html_content: str, website_id: str, business_type: str = "fo
             f'data-website-id="{website_id}" data-api-url="{settings.BACKEND_URL}" defer></script>'
         )
 
+    # Round 2 (§D13): the fixed bottom-right stack never overlaps. The chat
+    # bubble owns bottom:24px; the WhatsApp float moves above it (and above
+    # the order button when there is one); the page gets bottom padding on
+    # phones so the footer's QR can scroll clear of every float. The open
+    # badge stays bottom-left, out of the stack.
+    _wa_bottom = 168 if (has_delivery and chat_script_html) else (96 if chat_script_html else 24)
+    float_stack_css = f'''
+<style id="binaapp-float-stack">
+#whatsapp-button,a[href*="wa.me"][style*="position:fixed"],a[href*="wa.me"][style*="position: fixed"]{{bottom:{_wa_bottom}px!important;right:24px!important}}
+#binaapp-chat-btn{{bottom:24px!important;right:24px!important}}
+.binaapp-order-button{{bottom:96px!important;right:24px!important}}
+#binaapp-open-badge{{left:16px!important;right:auto!important;max-width:calc(100vw - 140px)}}
+@media (max-width:640px){{body{{padding-bottom:132px!important}}#binaapp-chat-window{{max-width:calc(100vw - 32px)!important}}}}
+</style>'''
     widget_injection = f'''
 <!-- BinaApp Widgets - Auto-injected with correct website_id -->
+{float_stack_css}
 <div id="binaapp-widget-container" data-website-id="{website_id}"></div>
 <script>window.BINAAPP_WEBSITE_ID = "{website_id}";</script>
 {chat_script_html}{order_button_html}

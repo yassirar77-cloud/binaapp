@@ -9570,6 +9570,18 @@ IMPORTANT INSTRUCTIONS:
                 self._last_fact_guard = _fact_report.as_dict()
             except Exception as _fact_err:
                 logger.warning(f"🧾 Fact guard skipped: {_fact_err}")
+            # Round 2 (§D14): a single-letter logo badge takes the plan's
+            # accent colour and display font, never a default blue square.
+            if plan is not None:
+                try:
+                    from app.services.page_hierarchy import restyle_logo_badge
+                    html, _n_badge = restyle_logo_badge(
+                        html, initial=request.business_name, accent=plan.palette["accent"], display_font=plan.type["display"],
+                    )
+                    if _n_badge:
+                        logger.info(f"🔤 Logo badge restyled to the plan accent ({_n_badge})")
+                except Exception as _badge_err:
+                    logger.warning(f"🔤 Logo badge restyle skipped: {_badge_err}")
             # SEO / social metadata, emitted deterministically from data the
             # pipeline already has. Malaysian SMEs share by pasting the link
             # into WhatsApp; with no OG tags that renders as a bare URL.
