@@ -157,7 +157,7 @@ SUBJECTS: Tuple[ImageSubject, ...] = (
         hero_clause="flat-lay of folded garments on a plain surface or a garment on a mannequin, clean studio lighting",
         item_clause="flat-lay or mannequin shot of {item}, plain background, clean studio lighting, product photography",
         verticals=("clothing",),
-        keywords=("baju", "kurung", "kebaya", "hijab", "tudung", "fesyen", "fashion", "pakaian", "apparel", "streetwear", "butik", "boutique", "t-shirt", "jersey"),
+        keywords=("baju", "kurung", "kebaya", "hijab", "tudung", "fesyen", "fashion", "pakaian", "apparel", "clothing", "garment", "streetwear", "butik", "boutique", "t-shirt", "jersey"),
     ),
     ImageSubject(
         key="retail",

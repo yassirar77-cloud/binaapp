@@ -406,11 +406,12 @@ class TestHeroPrompts:
         assert service._autofill_item_prompt("food", "Nasi Kandar", "restaurant") == "Nasi Kandar"
         # Retail now grounds the item in the business type (gogoo fix) —
         # the item is still the leading subject.
+        # Round 2: a clothing store's item is a flat-lay / mannequin shot of
+        # the item, and nobody is in frame.
         retail = service._autofill_item_prompt("retail", "Baju Kurung", "clothing store")
-        assert retail.startswith(
-            "Professional product photography of Baju Kurung, a clothing store product"
-        )
-        assert "commercial product shot" in retail
+        assert retail.startswith("flat-lay or mannequin shot of Baju Kurung")
+        assert "no people's faces" in retail
+        assert "product photography" in retail
         assert NO_TEXT_SUFFIX in retail
         creative = service._autofill_item_prompt("creative", "Wedding Photography", "photography")
         assert "Wedding Photography" in creative

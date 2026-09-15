@@ -899,6 +899,7 @@ class AIService:
         # Round 2: images rejected by the vision check in the last build
         # (slot, reasons) — for logs, tests and the learning loop.
         self._last_image_rejections: List[Dict] = []
+        self._last_fact_guard: Optional[Dict] = None
         self.deepseek_model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
         self.deepseek_model_pro = os.getenv("DEEPSEEK_MODEL_PRO", "deepseek-v4-pro")
         # GLM / Z.ai — primary HTML generator when USE_GLM_FOR_HTML is on.
@@ -9529,6 +9530,26 @@ IMPORTANT INSTRUCTIONS:
                 html, _n_24 = enforce_24h_copy(html, language)
                 if _n_24:
                     logger.info(f"🕒 Rewrote {_n_24} hours string(s) to 'Buka 24 jam'")
+            # Round 2 (§B8): no section may state a fact the merchant did not
+            # supply. Invented sections are stripped; essential sections lose
+            # only the element carrying the invented fact.
+            try:
+                from app.services.fact_guard import FactSources, guard_facts
+                _fact_sources = FactSources.from_texts(
+                    [
+                        request.description, request.business_name, getattr(request, "location_address", None),
+                        getattr(request, "opening_hours", None), getattr(request, "whatsapp_number", None),
+                        self._normalize_wa_digits(getattr(request, "whatsapp_number", None)),
+                        getattr(request, "design_brief", None),
+                    ] + [f"{i.get('name', '')} {i.get('price', '')} {i.get('description', '')}" for i in self._normalize_supplied_menu_items(getattr(request, "menu_items", None))],
+                    is_24h=bool(getattr(request, "is_24h", False)),
+                )
+                html, _fact_report = guard_facts(html, _fact_sources)
+                if _fact_report.changed:
+                    logger.warning(f"🧾 Fact guard: stripped sections={_fact_report.stripped_sections} elements={_fact_report.stripped_elements} facts={_fact_report.facts[:8]}")
+                self._last_fact_guard = _fact_report.as_dict()
+            except Exception as _fact_err:
+                logger.warning(f"🧾 Fact guard skipped: {_fact_err}")
             # SEO / social metadata, emitted deterministically from data the
             # pipeline already has. Malaysian SMEs share by pasting the link
             # into WhatsApp; with no OG tags that renders as a bare URL.
