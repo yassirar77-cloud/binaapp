@@ -221,6 +221,30 @@ def hours_are_24h(*sources: Optional[str]) -> bool:
     return False
 
 
+_HOURS_2359_RE = re.compile(
+    r"(?:buka\s+sekarang\s*[·\-–—]?\s*)?(?:tutup|closes?)\s*(?:pada\s+)?23[:.]59"
+    r"|00[:.]00\s*(?:-|–|—|hingga|to|sampai)\s*(?:23[:.]59|00[:.]00|24[:.]00)"
+    r"|12[:.]00\s*am\s*(?:-|–|—|to)\s*11[:.]59\s*pm",
+    re.IGNORECASE,
+)
+
+
+def enforce_24h_copy(html: str, language: str = "ms") -> Tuple[str, int]:
+    """A 24-hour business never reads "tutup 23:59" or "00:00 - 23:59" on
+    the page: every such string in visible text becomes "Buka 24 jam"."""
+    label = "Buka 24 jam" if not str(language or "ms").lower().startswith("en") else "Open 24 hours"
+    count = 0
+
+    def _text(segment: str) -> str:
+        nonlocal count
+        new, n = _HOURS_2359_RE.subn(label, segment)
+        count += n
+        return new
+
+    parts = re.split(r"(<[^>]+>)", html or "")
+    return "".join(p if p.startswith("<") else _text(p) for p in parts), count
+
+
 @dataclass
 class HoursInfo:
     is_24h: bool
@@ -250,16 +274,18 @@ def normalize_hours(structured: Optional[str], story: Optional[str] = None, lang
 # Prices
 # ---------------------------------------------------------------------------
 
-_PRICE_INPUT_RE = re.compile(r"^\s*(?:rm)?\s*(\d{1,6})(?:[.,](\d{1,2}))?\s*$", re.IGNORECASE)
+#: "RM6", "6.5", "RM 12,50", and a decimal with a unit ("RM18/pax", "12 / kg").
+_PRICE_INPUT_RE = re.compile(r"^\s*(?:rm)?\s*(\d{1,6})(?:[.,](\d{1,2}))?\s*(?:/\s*([a-z]{1,12}))?\s*$", re.IGNORECASE)
 #: A price whose decimal part is not digits: "RM25.oo", "RM6.", "RM12.5x".
 BAD_PRICE_RE = re.compile(r"RM\s?\d+\.(?!\d)[^\s<,;]*")
 #: Text that must never be substituted for a missing price.
 PRICE_PLACEHOLDER_RE = re.compile(r"atas permintaan|price on request|hubungi (?:kami )?untuk harga|\bTBA\b", re.IGNORECASE)
 
 
-def parse_price(raw: Any) -> Optional[Decimal]:
-    """Merchant input → Decimal, or None when it is not a number. Never
-    coerces letters to digits: "RM25.oo" is rejected, not read as 25.00."""
+def split_price(raw: Any) -> Optional[Tuple[Decimal, Optional[str]]]:
+    """Merchant input → (Decimal, unit), or None when it is not a number.
+    Never coerces letters to digits: "RM25.oo" is rejected, not read as
+    25.00. A unit after a slash ("RM18/pax") is kept as the unit."""
     if raw is None:
         return None
     if isinstance(raw, (int, float, Decimal)):
@@ -267,23 +293,32 @@ def parse_price(raw: Any) -> Optional[Decimal]:
             value = Decimal(str(raw))
         except InvalidOperation:
             return None
-        return value if value >= 0 else None
+        return (value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP), None) if value >= 0 else None
     m = _PRICE_INPUT_RE.match(str(raw))
     if not m:
         return None
-    whole, frac = m.group(1), m.group(2) or "0"
+    whole, frac, unit = m.group(1), m.group(2) or "0", m.group(3)
     try:
-        return Decimal(f"{whole}.{frac}").quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        return Decimal(f"{whole}.{frac}").quantize(Decimal("0.01"), rounding=ROUND_HALF_UP), (unit.lower() if unit else None)
     except InvalidOperation:
         return None
 
 
+def parse_price(raw: Any) -> Optional[Decimal]:
+    """Merchant input → Decimal (unit dropped), or None when not a number."""
+    parts = split_price(raw)
+    return parts[0] if parts else None
+
+
 def format_price(value: Any) -> Optional[str]:
-    """The single renderer: ``RM6.00``, ``RM12.50``. None for no price."""
-    dec = value if isinstance(value, Decimal) else parse_price(value)
-    if dec is None:
+    """The single renderer: ``RM6.00``, ``RM12.50``, ``RM18.00/pax``. None for no price."""
+    if isinstance(value, Decimal):
+        return f"RM{value.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)}"
+    parts = split_price(value)
+    if parts is None:
         return None
-    return f"RM{dec.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)}"
+    dec, unit = parts
+    return f"RM{dec}" + (f"/{unit}" if unit else "")
 
 
 def find_bad_prices(html: str) -> List[str]:
@@ -308,7 +343,7 @@ def reformat_prices(html: str) -> Tuple[str, int]:
                 return formatted
             return m.group(0)
 
-        return re.sub(r"RM\s?\d{1,6}(?:[.,]\d{1,2})?(?!\d)", _sub, segment)
+        return re.sub(r"RM\s?\d{1,6}(?:[.,]\d{1,2})?(?:\s*/\s*[a-z]{1,12})?(?![\d.])", _sub, segment, flags=re.IGNORECASE)
 
     parts = re.split(r"(<[^>]+>)", html or "")
     out = [p if p.startswith("<") else _text(p) for p in parts]

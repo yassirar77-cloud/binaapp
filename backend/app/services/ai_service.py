@@ -50,6 +50,7 @@ from app.services import designer_prompt_blocks as dpb
 from app.services.anti_template_lint import lint_anti_template
 from app.services import image_subjects
 from app.services import image_vision_check
+from app.services.data_consistency import format_price as _format_price_dc, reformat_prices, enforce_24h_copy
 from app.services.quality_floor import apply_quality_floor
 from app.services import design_critique
 from app.services.widget_catalogue import (
@@ -3837,6 +3838,19 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
             logger.warning(f"🖼️ Hero cue unavailable: {err}")
             return None
 
+    @staticmethod
+    def _structured_hours_for(request) -> Optional[list]:
+        """Round 2 (§B5): the JSON-LD hours the open-now badge reads, from
+        the structured field only. 24h → every day 00:00–23:59; a parseable
+        daily range → every day; anything else → none (never guessed)."""
+        from app.services.data_consistency import hours_are_24h
+        text = (getattr(request, "opening_hours", None) or "").strip()
+        if bool(getattr(request, "is_24h", False)) or (text and hours_are_24h(text)):
+            return [{"days": "Isnin - Ahad", "hours": "00:00 - 23:59"}]
+        if text and re.search(r"\d", text) and re.search(r"-|–|—|hingga|to\b", text):
+            return [{"days": "Isnin - Ahad", "hours": text}]
+        return None
+
     async def record_last_plan(
         self,
         *,
@@ -3941,9 +3955,11 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
                 name = str(d.get("name") or "").strip()
                 if not name:
                     continue
+                _raw_price = str(d.get("price") or "").strip()
                 out.append({
                     "name": name,
-                    "price": str(d.get("price") or "").strip(),
+                    # Round 2 (§B6): one formatter everywhere ("380" → "RM380.00").
+                    "price": (_format_price_dc(_raw_price) or _raw_price) if _raw_price else "",
                     "description": str(d.get("description") or "").strip(),
                     "category": str(d.get("category") or "").strip(),
                 })
@@ -4812,7 +4828,7 @@ The merchant's own business data states the following: {_labels}.
         if show_prices:
             _price_rule = (
                 '- Copy each PRICE character-for-character, exactly as written (RM7.00 stays "RM7.00",\n'
-                '  RM18/pax stays "RM18/pax"). Never round, reformat, convert, or invent a price.'
+                '  RM18.00/pax stays "RM18.00/pax"). Never round, reformat, convert, or invent a price.'
             )
         else:
             _price_rule = (
@@ -7144,7 +7160,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                 if isinstance(item, dict):
                     name = item.get("name", item.get("item_name", f"Item {i+1}"))
                     price = item.get("price", item.get("item_price", ""))
-                    menu_lines.append(f"  - {name}: RM{price}")
+                    menu_lines.append(f"  - {name}: {_format_price_dc(price) or ('RM' + str(price))}")
                 elif isinstance(item, str):
                     menu_lines.append(f"  - {item}")
             menu_context = "Menu items provided:\n" + "\n".join(menu_lines)
@@ -7399,7 +7415,7 @@ IMPORTANT RULES:
                     <div class="p-6">
                         <div class="flex justify-between items-start mb-3">
                             <h3 class="text-xl font-heading font-bold">{name}</h3>
-                            <span class="{price_cls} font-bold text-lg">RM{price}</span>
+                            <span class="{price_cls} font-bold text-lg">{_format_price_dc(price) or ('RM' + str(price))}</span>
                         </div>
                         <p class="{desc_cls}">{desc}</p>
                     </div>
@@ -8200,12 +8216,18 @@ IMPORTANT RULES:
         if subject is None and category != "food":
             subject = image_subjects.subject_for(self._CATEGORY_TO_VERTICAL.get(category, "general"), business_context, biz_type)
         if subject is not None and category != "food":
-            base = merchant_prompt or (direction_cue or "").strip() or None
             _extra = self._COUPLE_COMPOSITION_CLAUSE if category == "creative" else None
             locked = image_subjects.lock_prompt("hero", subject, context=business_context, extra=_extra)
-            if base:
+            if merchant_prompt:
+                # The merchant's own words lead; the category clause still
+                # locks the subject behind them.
                 locked = image_subjects.with_negative(
-                    f"{subject.hero_clause}, {image_subjects.scrub_fnb_wording(base)}"
+                    f"{image_subjects.scrub_fnb_wording(merchant_prompt)}, {subject.hero_clause}"
+                    + (f", {_extra}" if _extra else "")
+                )
+            elif (direction_cue or "").strip():
+                locked = image_subjects.with_negative(
+                    f"{subject.hero_clause}, {image_subjects.scrub_fnb_wording(direction_cue.strip())}"
                     + (f", {_extra}" if _extra else "")
                 )
             logger.info(f"🖼️ Hero prompt: CATEGORY-LOCKED [{subject.key}]: {locked!r}")
@@ -9498,11 +9520,22 @@ IMPORTANT INSTRUCTIONS:
             # converge, so BOTH providers' output is sanitized (the prompt
             # rules exist only on the GLM side).
             html = self._sanitize_sensitive_claims(html, request, image_urls)
+            # Round 2 (§B5/§B6): every RM amount through the one formatter;
+            # a 24-hour business never reads "tutup 23:59" anywhere.
+            html, _n_prices = reformat_prices(html)
+            if _n_prices:
+                logger.info(f"💸 Reformatted {_n_prices} price(s) to RM0.00 form")
+            if bool(getattr(request, "is_24h", False)):
+                html, _n_24 = enforce_24h_copy(html, language)
+                if _n_24:
+                    logger.info(f"🕒 Rewrote {_n_24} hours string(s) to 'Buka 24 jam'")
             # SEO / social metadata, emitted deterministically from data the
             # pipeline already has. Malaysian SMEs share by pasting the link
             # into WhatsApp; with no OG tags that renders as a bare URL.
             # Runs BEFORE validation so its metadata warnings reflect reality.
-            html = self._inject_seo_metadata(html, request, image_urls)
+            html = self._inject_seo_metadata(
+                html, request, image_urls, operating_hours=self._structured_hours_for(request),
+            )
             # Quality floor (§8): lang, viewport, reduced-motion, visible
             # focus, lazy-loading, image dimensions — deterministic and
             # idempotent, applied to every generated page.

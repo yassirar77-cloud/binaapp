@@ -579,6 +579,16 @@ def _check_invented_metrics(html: str, brief: GenerationBrief) -> List[Validatio
     return issues
 
 
+def _check_price_format(html: str, brief: GenerationBrief) -> List[ValidationIssue]:
+    """Round 2 (§B6): ``RM25.oo`` — a price whose decimals are not digits.
+    ERROR: the build fails rather than publish a typo as a price."""
+    from app.services.data_consistency import find_bad_prices
+    bad = find_bad_prices(visible_text(html))
+    if not bad:
+        return []
+    return [ValidationIssue("bad_price_format", "Price with non-numeric decimals", ", ".join(sorted(set(bad))[:5]))]
+
+
 def _check_sanitizer_trace(html: str, brief: GenerationBrief) -> List[ValidationIssue]:
     """8. Sanitizer trace — ERROR on bare deletion.
 
@@ -762,6 +772,7 @@ def _check_address_locality(html: str, brief: GenerationBrief) -> List[Validatio
 
 
 _ERROR_CHECKS = (
+    _check_price_format,
     _check_placeholder_contacts,
     _check_derived_item_names,
     _check_price_integrity,

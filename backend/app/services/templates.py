@@ -6,6 +6,7 @@ Handles website type detection and feature injection
 from typing import List, Dict, Optional
 from loguru import logger
 import re
+from html import escape as html_escape
 import json
 
 from app.services.business_types import (
@@ -495,6 +496,7 @@ class TemplateService:
         theme_tokens: Optional[Dict[str, str]] = None,
         website_id: Optional[str] = None,
         generation_count: Optional[int] = None,
+        business_name: Optional[str] = None,
     ) -> str:
         """
         Inject Google Maps embed into HTML.
@@ -517,11 +519,16 @@ class TemplateService:
         heading_color = f"var(--primary-color, {tokens.get('primary', 'currentColor')})"
         heading_font = "var(--font-heading, inherit)"
         display_address = normalize_display_address(address)
+        # Round 2 (§B7): the map block heading is the business name; the
+        # address is body text beneath it, never a heading.
+        _name = (business_name or "").strip()
+        map_heading = html_escape(_name) if _name else "Lokasi Kami"
 
         # Inner contents (no outer <section> — caller decides container)
         maps_inner = f"""
   <div style="max-width:1200px;margin:0 auto;padding:60px 20px;">
-    <h2 style="text-align:center;font-size:clamp(1.75rem,4vw,2.5rem);margin-bottom:1rem;color:{heading_color};font-family:{heading_font};">📍 {display_address}</h2>
+    <h2 style="text-align:center;font-size:clamp(1.75rem,4vw,2.5rem);margin-bottom:0.5rem;color:{heading_color};font-family:{heading_font};">{map_heading}</h2>
+    <p style="text-align:center;margin:0 auto 1rem;max-width:40rem;">📍 {display_address}</p>
     <div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,0.15);">
       <iframe
         title="Peta lokasi {display_address}"
@@ -3690,6 +3697,7 @@ __BINAAPP_WIDGET_THEME_VARS__
                 theme_tokens=theme_tokens,
                 website_id=website_id_for_log,
                 generation_count=generation_count_for_log,
+                business_name=user_data.get("business_name") or user_data.get("name"),
             )
 
         # Shopping Cart

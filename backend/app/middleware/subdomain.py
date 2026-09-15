@@ -496,13 +496,18 @@ _OPEN_BADGE_SCRIPT = '''
     var now = (+get('hour') % 24) * 60 + (+get('minute'));
     if (dayIndex === undefined || isNaN(now)) return;
 
-    var open = false, closesAt = null;
+    var open = false, closesAt = null, always = false;
     for (var i = 0; i < all.length; i++) {
       var opens = minutes(all[i].opens), closes = minutes(all[i].closes);
       if (opens === null || closes === null) continue;
       var days = daysOf(all[i]);
       var today = days.indexOf(dayIndex) !== -1;
       var yesterday = days.indexOf((dayIndex + 6) % 7) !== -1;
+      // Always-open encoding (Mo-Su 00:00-23:59 / 00:00-00:00): the badge
+      // says "Buka 24 jam", never "tutup 23:59".
+      var allDay = opens === 0 && (closes >= 23 * 60 + 59 || closes === 0);
+      if (today && allDay) { open = true; closesAt = null; always = true; }
+      if (allDay) continue;
       if (today && closes > opens && now >= opens && now < closes) { open = true; closesAt = all[i].closes; }
       if (today && closes <= opens && now >= opens) { open = true; closesAt = all[i].closes; }
       if (yesterday && closes <= opens && now < closes) { open = true; closesAt = all[i].closes; }
@@ -527,7 +532,10 @@ _OPEN_BADGE_SCRIPT = '''
     var lang = (document.documentElement.lang || 'ms').toLowerCase();
     var ms = lang.indexOf('en') !== 0;
     var label, dotColor;
-    if (open) {
+    if (open && always) {
+      dotColor = '#22C55E';
+      label = ms ? 'Buka 24 jam' : 'Open 24 hours';
+    } else if (open) {
       dotColor = '#22C55E';
       label = (ms ? 'Buka sekarang' : 'Open now') +
         (closesAt ? ' · ' + (ms ? 'tutup ' : 'closes ') + closesAt : '');

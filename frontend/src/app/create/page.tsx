@@ -2664,8 +2664,15 @@ export default function CreatePage() {
                           <input
                             className="cr-input"
                             placeholder="12.50"
+                            inputMode="decimal"
+                            pattern="[0-9]*[.,]?[0-9]{0,2}"
                             value={it.price}
-                            onChange={(e) => updateMenuField(i, { price: e.target.value })}
+                            // Round 2: a price is digits and at most two decimals. Letters
+                            // never enter the field, so "RM25.oo" cannot be typed.
+                            onChange={(e) => {
+                              const cleaned = e.target.value.replace(/,/g, '.').replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1').replace(/^(\d*\.\d{0,2}).*$/, '$1')
+                              updateMenuField(i, { price: cleaned })
+                            }}
                             style={{ background: 'transparent', border: '1px solid rgba(255,255,255,.04)', height: 40, padding: '0 10px 0 32px', fontFamily: "'Geist Mono', monospace", width: '100%', minWidth: 0 }}
                           />
                         </div>

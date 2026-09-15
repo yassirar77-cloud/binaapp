@@ -44,7 +44,8 @@ SIX_ITEMS = [
     {"name": "Scalp Spa", "price": "RM120"},
     {"name": "Hair Treatment", "price": "RM150"},
 ]
-ALL_PRICES = ["RM380", "RM450", "RM320", "RM65", "RM120", "RM150"]
+# Round 2 (§B6): prices are decimals rendered by one formatter.
+ALL_PRICES = ["RM380.00", "RM450.00", "RM320.00", "RM65.00", "RM120.00", "RM150.00"]
 
 
 def _quota_client():
@@ -104,22 +105,22 @@ class TestSixPricedItemsReachTheTask:
         assert [i["name"] for i in got] == [i["name"] for i in SIX_ITEMS]
         assert [i["price"] for i in got] == ALL_PRICES
 
-    def test_prices_are_not_reformatted_or_rounded(self, client):
-        """Prices are strings on purpose: RM18/pax and RM5 - RM8 are real
-        Malaysian pricing forms a float cannot represent."""
-        odd = [
-            {"name": "Set Kenduri", "price": "RM18/pax"},
-            {"name": "Potong Kanak-kanak", "price": "RM25 - RM35"},
-            {"name": "Konsultasi", "price": "Percuma"},
-        ]
+    def test_prices_are_decimals_units_kept_words_refused(self, client):
+        """Round 2 (§B6): a price is a decimal (a unit like /pax may follow);
+        ranges and words are refused before any credit is spent."""
         resp, captured = _post(client, {
-            "description": SALON_DESC, "menu_items": odd,
+            "description": SALON_DESC, "menu_items": [{"name": "Set Kenduri", "price": "RM18/pax"}],
             "features": {"priceList": True}, "user_id": "u-1",
         })
         assert resp.status_code == 200, resp.text
-        assert [i["price"] for i in captured["menu_items"]] == [
-            "RM18/pax", "RM25 - RM35", "Percuma",
-        ]
+        assert [i["price"] for i in captured["menu_items"]] == ["RM18.00/pax"]
+        for bad in ("RM25 - RM35", "Percuma", "RM25.oo"):
+            resp, _ = _post(client, {
+                "description": SALON_DESC, "menu_items": [{"name": "Konsultasi", "price": bad}],
+                "features": {"priceList": True}, "user_id": "u-1",
+            })
+            assert resp.status_code == 400, bad
+            assert resp.json()["error"] == "invalid_price"
 
     def test_price_list_toggle_is_read(self, client):
         for flag in (True, False):
