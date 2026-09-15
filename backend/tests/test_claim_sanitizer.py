@@ -416,9 +416,8 @@ class TestHeroPrompts:
         creative = service._autofill_item_prompt("creative", "Wedding Photography", "photography")
         assert "Wedding Photography" in creative
         assert NO_TEXT_SUFFIX in creative
+        # Round 2: an aircond service item is the trade's tools on a
+        # workbench (category-locked), never a person at work.
         generic = service._autofill_item_prompt("generic", "Servis Aircond", "aircond service")
-        assert generic.startswith(
-            "Professional photography of Servis Aircond, aircond service, "
-            "high quality, sharp focus"
-        )
+        assert generic.startswith("Servis Aircond, the tools and parts for it")
         assert NO_TEXT_SUFFIX in generic
