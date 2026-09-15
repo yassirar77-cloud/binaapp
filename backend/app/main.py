@@ -1916,6 +1916,7 @@ async def run_generation_task(
     multi_style: bool = False,
     preferred_plan: Optional[dict] = None,
     request_stash: Optional[dict] = None,
+    location_fixups: Optional[dict] = None,
 ):
     """Generate website - SIMPLE VERSION with guaranteed completion"""
 
@@ -2106,6 +2107,13 @@ async def run_generation_task(
             progress_callback=progress_callback  # NEW: Pass progress callback
         )
         html = ai_response.html_content
+
+        # Round 2 (§B4): the losing location token never reaches the page.
+        if location_fixups:
+            from app.services.data_consistency import scrub_location_tokens
+            html, _n_loc = scrub_location_tokens(html, location_fixups)
+            if _n_loc:
+                logger.info(f"📍 Scrubbed {_n_loc} losing location token(s) from the page: {location_fixups}")
 
         logger.info(f"✅ Got HTML: {len(html)} chars")
 
@@ -2608,7 +2616,14 @@ async def listen_before_planning(request: Request):
     )
     pct = brief_completeness(brief)
     questions = listening_questions(brief) if pct < LISTENING_THRESHOLD_PCT else []
-    return {"success": True, "completeness": pct, "threshold": LISTENING_THRESHOLD_PCT, "questions": questions, "vertical": vertical}
+    # Round 2 (§B4): the story and the address must name the same place.
+    # A disagreement is a blocking question, answered before generation.
+    from app.services.data_consistency import location_conflicts as _location_conflicts
+    conflicts = [c.as_dict() for c in _location_conflicts(description, body.get("address") or "")]
+    return {
+        "success": True, "completeness": pct, "threshold": LISTENING_THRESHOLD_PCT, "questions": questions,
+        "vertical": vertical, "location_conflicts": conflicts,
+    }
 
 
 @app.post("/api/generate/refine")
@@ -2646,6 +2661,42 @@ async def _start_generation_from_body(body: dict, preferred_plan: Optional[dict]
     /api/generate/refine (a multi-style pick)."""
     # Extract parameters
     description = body.get("description") or body.get("business_description") or ""
+    # Round 2 (§B4): a story that says Seksyen 18 and an address that says
+    # Seksyen 7 never both reach the page. Unresolved → 409 with the
+    # question; resolved → the losing side is rewritten to the winner and
+    # the losing token is scrubbed from the generated HTML as well.
+    from app.services.data_consistency import apply_location_resolution, location_conflicts as _loc_conflicts
+    _raw_address = body.get("address") or ""
+    _conflicts = _loc_conflicts(description, _raw_address)
+    _resolution = body.get("location_resolution") if isinstance(body.get("location_resolution"), dict) else None
+    location_fixups: dict = {}
+    if _conflicts and not _resolution:
+        logger.warning(f"📍 Location conflict blocks generation: {[c.as_dict() for c in _conflicts]}")
+        return JSONResponse(
+            status_code=409,
+            content={
+                "success": False,
+                "error": "location_conflict",
+                "message": _conflicts[0].question_ms,
+                "location_conflicts": [c.as_dict() for c in _conflicts],
+            },
+        )
+    if _conflicts and _resolution:
+        for c in _conflicts:
+            choice = str(_resolution.get(c.kind) or "").lower()
+            if choice == "story":
+                location_fixups[c.address_value] = c.story_value
+            elif choice == "address":
+                location_fixups[c.story_value] = c.address_value
+        description, _resolved_address = apply_location_resolution(description, _raw_address, _resolution)
+        body = {**body, "description": description, "business_description": description, "address": _resolved_address}
+        if _loc_conflicts(description, _resolved_address):
+            return JSONResponse(
+                status_code=409,
+                content={"success": False, "error": "location_conflict", "message": _conflicts[0].question_ms,
+                         "location_conflicts": [c.as_dict() for c in _conflicts]},
+            )
+        logger.info(f"📍 Location conflict resolved: {location_fixups}")
     user_id = body.get("user_id", "anonymous")
     user_email = body.get("email", "")
     images = body.get("images", [])  # Extract uploaded images
@@ -3106,6 +3157,7 @@ MANDATORY REQUIREMENTS:
         multi_style=multi_style and preferred_plan is None,
         preferred_plan=preferred_plan,
         request_stash=_stash_request_body(body) if (multi_style and preferred_plan is None) else None,
+        location_fixups=location_fixups or None,
     ))
 
     logger.info(f"🚀 Job started: {job_id}")
