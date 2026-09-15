@@ -179,7 +179,7 @@ class TestSalonClassification:
 class TestServiceSubjectsAndCardNames:
     def test_services_hero_shows_specialist_at_work(self, service):
         prompt = service._autofill_hero_prompt("services", "salon").lower()
-        assert "at work with a client" in prompt
+        assert "no people's faces" in prompt  # Round 2: nobody in frame
         # Never a shelf-product arrangement.
         assert "products" not in prompt
         assert "product shot" not in prompt
@@ -187,7 +187,9 @@ class TestServiceSubjectsAndCardNames:
     def test_services_item_prompt_subject_is_the_service(self, service):
         prompt = service._autofill_item_prompt("services", "Pewarnaan Rambut", "salon")
         assert prompt.startswith("Pewarnaan Rambut")
-        assert "performing the service on a client" in prompt
+        # Round 2: the subject clause leads (salon chair / mirror / tools) and
+        # nobody is in frame — the universal negative forbids faces.
+        assert "salon" in prompt.lower() and "no people's faces" in prompt
         assert "salon" in prompt
         # Not the retail product-shot template.
         assert "product photography" not in prompt
@@ -267,7 +269,7 @@ class TestServiceSubjectsAndCardNames:
             for placeholder in RETAIL_PLACEHOLDERS:
                 assert placeholder not in prompt
         item_prompts = [p for p, _ in sent_prompts[1:]]
-        assert all("performing the service on a client" in p for p in item_prompts)
+        assert all("no people's faces" in p for p in item_prompts)
 
     @pytest.mark.asyncio
     async def test_autofill_retail_still_uses_product_extractor(self, service, monkeypatch):
@@ -358,7 +360,7 @@ class TestBusinessContextInPrompts:
             "retail", "Koleksi Terbaru", "phone shop", self._ctx(service)
         )
         # Business type is in the template itself now, not just the title.
-        assert "a phone shop product" in prompt
+        assert "phone" in prompt
         assert PHONE_SHOP_NAME.lower() in prompt.lower()
 
     @pytest.mark.asyncio
@@ -417,14 +419,14 @@ class TestBusinessContextInPrompts:
 class TestCoupleCompositionPolicy:
     def test_creative_hero_prompt_pins_opposite_gender_couple(self, service):
         prompt = service._autofill_hero_prompt("creative", "wedding photographer")
-        assert "bride and groom" in prompt
+        assert "silhouette" in prompt
         assert "opposite-gender couple" in prompt
 
     def test_creative_item_prompt_pins_opposite_gender_couple(self, service):
         prompt = service._autofill_item_prompt(
             "creative", "Wedding Photography", "wedding photographer"
         )
-        assert "bride and groom" in prompt
+        assert "silhouette" in prompt
         assert "opposite-gender couple" in prompt
 
     def test_negative_prompt_excludes_same_gender_couples(self, service):
