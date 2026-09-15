@@ -64,6 +64,9 @@ class ScreenshotBundle:
     hero_font_px: float = 0.0
     hero_text_visible: bool = True
     error: Optional[str] = None
+    #: Full measurement dicts per viewport (page_hierarchy reads these).
+    desktop_measured: Dict[str, Any] = field(default_factory=dict)
+    mobile_measured: Dict[str, Any] = field(default_factory=dict)
 
     @property
     def ok(self) -> bool:
@@ -119,19 +122,74 @@ class CritiqueResult:
 _MEASURE_JS = """
 () => {
   const doc = document.documentElement;
-  const hero = document.querySelector('section, header + *, main > *') || document.body;
+  const bodyPx = parseFloat(getComputedStyle(document.body).fontSize) || 16;
   const h1 = document.querySelector('h1');
   let fontPx = 0, visible = true;
+  const cssPath = (el) => {
+    const parts = [];
+    while (el && el.nodeType === 1 && el !== document.body) {
+      let part = el.tagName.toLowerCase();
+      if (el.id) { part += '#' + CSS.escape(el.id); parts.unshift(part); break; }
+      const parent = el.parentElement;
+      if (parent) {
+        const same = Array.from(parent.children).filter(c => c.tagName === el.tagName);
+        if (same.length > 1) part += ':nth-of-type(' + (same.indexOf(el) + 1) + ')';
+      }
+      parts.unshift(part);
+      el = parent;
+    }
+    return parts.join(' > ');
+  };
   if (h1) {
     fontPx = parseFloat(getComputedStyle(h1).fontSize) || 0;
     const r = h1.getBoundingClientRect();
     visible = r.width > 0 && r.height > 0 && r.top < window.innerHeight;
   }
+  // Every element with its own text: largest non-H1 text and small H2s.
+  const largerThanH1 = [], smallH2 = [];
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
+  let node;
+  while ((node = walker.nextNode())) {
+    if (['SCRIPT','STYLE','NOSCRIPT','SVG','PATH'].includes(node.tagName)) continue;
+    const hasText = Array.from(node.childNodes).some(n => n.nodeType === 3 && n.textContent.trim().length > 0);
+    if (!hasText) continue;
+    const px = parseFloat(getComputedStyle(node).fontSize) || 0;
+    if (node.tagName !== 'H1' && !node.closest('h1') && fontPx && px >= fontPx && largerThanH1.length < 12) {
+      largerThanH1.push({ path: cssPath(node), px: px, text: node.textContent.trim().slice(0, 40) });
+    }
+    if (node.tagName === 'H2' && px < 1.6 * bodyPx && smallH2.length < 12) {
+      smallH2.push({ path: cssPath(node), px: px, text: node.textContent.trim().slice(0, 40) });
+    }
+  }
+  // Hero text block: the H1's nearest block container with a photo behind it.
+  let heroText = null;
+  if (h1) {
+    let holder = h1.parentElement;
+    for (let i = 0; i < 4 && holder && holder !== document.body; i++) {
+      const cs = getComputedStyle(holder);
+      if (cs.backgroundColor && cs.backgroundColor !== 'rgba(0, 0, 0, 0)' && cs.backgroundColor !== 'transparent') break;
+      holder = holder.parentElement;
+    }
+    const block = h1.parentElement || h1;
+    const r = block.getBoundingClientRect();
+    const scrollY = window.scrollY || 0;
+    heroText = { path: cssPath(block), color: getComputedStyle(h1).color,
+      box: { x: r.left, y: r.top + scrollY, width: r.width, height: r.height } };
+  }
+  const floating = Array.from(document.querySelectorAll('[style*="position:fixed"], [style*="position: fixed"], #binaapp-open-badge, #binaapp-chat-btn, #whatsapp-button, .binaapp-order-button'))
+    .filter(el => getComputedStyle(el).position === 'fixed')
+    .map(el => { const r = el.getBoundingClientRect(); return { id: el.id || el.className || el.tagName, x: r.left, y: r.top, width: r.width, height: r.height }; });
   return {
     scrollWidth: Math.max(doc.scrollWidth, document.body ? document.body.scrollWidth : 0),
     innerWidth: window.innerWidth,
+    bodyFontPx: bodyPx,
+    h1FontPx: fontPx,
     heroFontPx: fontPx,
     heroVisible: visible,
+    largerThanH1: largerThanH1,
+    smallH2: smallH2,
+    heroText: heroText,
+    floating: floating,
   };
 }
 """
@@ -174,18 +232,22 @@ async def render_screenshots(html: str, *, timeout: float = SCREENSHOT_TIMEOUT_S
                         except Exception:
                             pass
                         png = await page.screenshot(full_page=True, type="png")
+                        try:
+                            m = await page.evaluate(_MEASURE_JS)
+                        except Exception as err:
+                            logger.warning(f"📐 {name} measurement failed: {err}")
+                            m = {}
                         if name == "desktop":
                             bundle.desktop_png = png
+                            bundle.desktop_measured = m or {}
                         else:
                             bundle.mobile_png = png
-                            try:
-                                m = await page.evaluate(_MEASURE_JS)
+                            bundle.mobile_measured = m or {}
+                            if m:
                                 bundle.mobile_scroll_width = int(m.get("scrollWidth") or 0)
                                 bundle.mobile_overflow = bundle.mobile_scroll_width > int(m.get("innerWidth") or w) + 2
                                 bundle.hero_font_px = float(m.get("heroFontPx") or 0)
                                 bundle.hero_text_visible = bool(m.get("heroVisible", True))
-                            except Exception as err:
-                                logger.warning(f"📐 Mobile measurement failed: {err}")
                         await page.close()
                 finally:
                     await browser.close()
@@ -302,6 +364,13 @@ def apply_measurements(result: CritiqueResult, bundle: Optional[ScreenshotBundle
     if bundle.mobile_overflow:
         result.scores["mobile"] = min(result.scores.get("mobile", 10), 4)
         result.notes.insert(0, f"Mobile: the page overflows horizontally at 390px ({bundle.mobile_scroll_width}px). Fix widths, grids and images so nothing exceeds the viewport.")
+    m = bundle.desktop_measured or {}
+    if m.get("largerThanH1"):
+        result.scores["typography"] = min(result.scores.get("typography", 10), 4)
+        result.notes.insert(0, f"Typography: {len(m['largerThanH1'])} element(s) are as large as the H1 ({m['largerThanH1'][0].get('text', '')!r}) — the H1 must be the largest text on the page.")
+    if m.get("smallH2"):
+        result.scores["typography"] = min(result.scores.get("typography", 10), 5)
+        result.notes.insert(0, f"Typography: {len(m['smallH2'])} section heading(s) render at body size — H2 must be at least 1.6× body with a distinct weight.")
     if bundle.ok and (not bundle.hero_text_visible or (0 < bundle.hero_font_px < 28)):
         result.scores["mobile"] = min(result.scores.get("mobile", 10), 5)
         result.notes.insert(0, "Mobile: the hero headline is not readable on a 390px screen (too small or not visible) — set it with clamp() so it is at least 28px.")
@@ -322,11 +391,13 @@ async def run_critique(
     language: str,
     call_model: Callable[[List[Dict[str, Any]]], Awaitable[Optional[str]]],
     render: bool = True,
+    bundle: Optional[ScreenshotBundle] = None,
 ) -> Optional[CritiqueResult]:
     """Screenshots (when possible) → model → parsed, measured result.
     Returns None only when neither the model nor a measurement produced
-    anything to gate on."""
-    bundle = await render_screenshots(html) if render else None
+    anything to gate on. A pre-rendered ``bundle`` skips the render."""
+    if bundle is None:
+        bundle = await render_screenshots(html) if render else None
     messages = build_critique_messages(plan, bundle, html, language)
     mode = "vision" if (bundle and bundle.ok) else "text"
     raw = None

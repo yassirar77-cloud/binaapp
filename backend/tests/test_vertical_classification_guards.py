@@ -173,7 +173,8 @@ class TestMerchantHeroPromptOverrides:
             prompt = service._autofill_hero_prompt(
                 "services", "salon", "Nadira", merchant_prompt=blank
             )
-            assert "professional at work with a client" in prompt
+            # Round 2: the salon subject clause, nobody in frame.
+            assert "salon" in prompt.lower() and "no people's faces" in prompt
 
     def test_merchant_prompt_still_forbids_lettering(self, service):
         prompt = service._autofill_hero_prompt(

@@ -100,6 +100,20 @@ class MenuItemInput(BaseModel):
     def strip_whitespace(cls, v):
         return v.strip() if isinstance(v, str) else v
 
+    @field_validator("price")
+    @classmethod
+    def normalise_price(cls, v):
+        """Round 2 (§B6): prices are decimals rendered by one formatter.
+        "6" → "RM6.00", "RM 12,50" → "RM12.50"; "RM25.oo" is rejected —
+        never coerced, never guessed."""
+        if v is None or not str(v).strip():
+            return None
+        from app.services.data_consistency import format_price
+        formatted = format_price(v)
+        if formatted is None:
+            raise ValueError(f"Harga tidak sah: '{v}'. Masukkan nombor sahaja, contoh 12.50")
+        return formatted
+
 
 class WebsiteGenerationRequest(BaseModel):
     description: str = Field(
@@ -215,6 +229,10 @@ class WebsiteGenerationRequest(BaseModel):
     multi_style: bool = Field(
         default=False,
         description="'Multi-style preview': Pass 1 returns 3 plans and the merchant picks one.",
+    )
+    is_24h: bool = Field(
+        default=False,
+        description="Round 2 (§B5): the business never closes (00:00–23:59, every day, or the story says 24 jam). The page and the open-now pill say 'Buka 24 jam'.",
     )
     preferred_plan: Optional[dict] = Field(
         default=None,
