@@ -102,9 +102,17 @@ async def test_run_critique_text_mode_without_browser():
 
 # ---- _run_plan_gate ----------------------------------------------------------
 
-CLEAN = """<!DOCTYPE html><html lang="ms"><head></head><body><section id="home"><h1>Ayam Goreng</h1>
-<a href="#menu">Lihat menu</a></section><section id="menu"><h2>Menu</h2></section><footer></footer></body></html>"""
-TEMPLATEY = CLEAN.replace("<h1>Ayam Goreng</h1>", '<h1>Ayam <span class="italic text-primary">Goreng</span></h1>').replace(
+import re as _re
+
+
+def _without_hierarchy_css(html: str) -> str:
+    """The gate injects the §C9/§C10 type floor; compare the page without it."""
+    return _re.sub(r'<style id="binaapp-hierarchy">.*?</style>\n?', "", html, flags=_re.DOTALL)
+
+
+CLEAN = """<!DOCTYPE html><html lang="ms"><head></head><body><section id="home"><h1 class="text-5xl">Ayam Goreng</h1>
+<a href="#menu">Lihat menu</a></section><section id="menu"><h2 class="text-3xl md:text-4xl">Menu</h2></section><footer></footer></body></html>"""
+TEMPLATEY = CLEAN.replace('<h1 class="text-5xl">Ayam Goreng</h1>', '<h1 class="text-5xl">Ayam <span class="italic text-primary">Goreng</span></h1>').replace(
     ">Lihat menu</a>", ">Lihat menu →</a>"
 )
 
@@ -122,7 +130,7 @@ def service(monkeypatch):
 async def test_gate_passes_clean_html_without_regenerating(service):
     service._regenerate_pass2 = AsyncMock()
     out = await service._run_plan_gate(CLEAN, plan=_plan(), prompt="P", has_images=False, designer_mode=True, language="ms")
-    assert out == CLEAN
+    assert _without_hierarchy_css(out) == CLEAN and 'id="binaapp-hierarchy"' in out
     service._regenerate_pass2.assert_not_awaited()
     assert service._last_plan_gate["attempts"] == 1 and service._last_plan_gate["critique"] is None
 
@@ -131,7 +139,7 @@ async def test_gate_passes_clean_html_without_regenerating(service):
 async def test_gate_regenerates_on_lint_failure_with_notes(service):
     service._regenerate_pass2 = AsyncMock(return_value=CLEAN)
     out = await service._run_plan_gate(TEMPLATEY, plan=_plan(), prompt="P", has_images=False, designer_mode=True, language="ms")
-    assert out == CLEAN
+    assert _without_hierarchy_css(out) == CLEAN
     service._regenerate_pass2.assert_awaited_once()
     feedback = service._regenerate_pass2.call_args.args[1]
     assert any("italic or recoloured" in line for line in feedback) and any("arrow" in line for line in feedback)

@@ -51,6 +51,7 @@ from app.services.anti_template_lint import lint_anti_template
 from app.services import image_subjects
 from app.services import image_vision_check
 from app.services.data_consistency import format_price as _format_price_dc, reformat_prices, enforce_24h_copy
+from app.services.page_hierarchy import apply_hierarchy_repairs
 from app.services.quality_floor import apply_quality_floor
 from app.services import design_critique
 from app.services.widget_catalogue import (
@@ -900,6 +901,7 @@ class AIService:
         # (slot, reasons) — for logs, tests and the learning loop.
         self._last_image_rejections: List[Dict] = []
         self._last_fact_guard: Optional[Dict] = None
+        self._last_hierarchy: Optional[Dict] = None
         self.deepseek_model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
         self.deepseek_model_pro = os.getenv("DEEPSEEK_MODEL_PRO", "deepseek-v4-pro")
         # GLM / Z.ai — primary HTML generator when USE_GLM_FOR_HTML is on.
@@ -5852,12 +5854,30 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                 f"🧹 Anti-template lint (attempt {attempt + 1}): {'clean' if lint.ok else str(len(lint.errors)) + ' failure(s)'} "
                 f"counts={lint.counts} repairs={lint.repairs}"
             )
+            # Round 2 (§C9–§C12): measure the render, repair the hierarchy
+            # (H1 largest, H2 ≥ 1.6× body, hero text panel, one hero image,
+            # no third CTA) and critique the repaired page.
+            bundle = None
+            try:
+                if design_critique_enabled():
+                    bundle = await design_critique.render_screenshots(linted)
+                measured = bundle.desktop_measured if bundle and bundle.ok else None
+                linted, hierarchy = apply_hierarchy_repairs(
+                    linted, measured=measured, hero_png=(bundle.desktop_png if bundle and bundle.ok else None),
+                )
+                if hierarchy.changed:
+                    logger.info(f"📐 Hierarchy repairs (attempt {attempt + 1}): {hierarchy.as_dict()}")
+                    self._last_hierarchy = hierarchy.as_dict()
+                    if bundle and bundle.ok:
+                        bundle = await design_critique.render_screenshots(linted)
+            except Exception as _h_err:
+                logger.warning(f"📐 Hierarchy repairs skipped: {_h_err}")
             critique = None
             if design_critique_enabled() and (self.zai_api_key or self.qwen_api_key):
                 try:
                     critique = await asyncio.wait_for(
                         design_critique.run_critique(
-                            linted, plan, language=language, call_model=self._call_vision_model,
+                            linted, plan, language=language, call_model=self._call_vision_model, bundle=bundle,
                         ),
                         timeout=DESIGN_CRITIQUE_TIMEOUT_SECONDS + design_critique.SCREENSHOT_TIMEOUT_SECONDS + 15,
                     )
