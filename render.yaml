@@ -128,8 +128,22 @@ services:
   # Weekly direction stats for designer-grade generation (docs/design/
   # DESIGNER_GRADE_GENERATION.md). Reads the design_plans table (migration
   # 057) and reports the directions with the lowest publish rate. Sunday
-  # 16:00 UTC = Monday 00:00 MYT. Secrets are shared with the web service:
-  # set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in the dashboard.
+  # 16:00 UTC = Monday 00:00 MYT.
+  #
+  # SUPABASE_SERVICE_ROLE_KEY is inherited from binaapp-backend rather than
+  # declared `sync: false`. Render only prompts for `sync: false` values
+  # when a blueprint is FIRST created -- "when you update an existing
+  # Blueprint, Render ignores any environment variables with sync: false"
+  # (render.com/docs/blueprint-spec). This cron was added to an existing
+  # blueprint, so its key was never asked for and never set, and the first
+  # run died with "Missing required environment variables:
+  # SUPABASE_SERVICE_ROLE_KEY" while binaapp-backend had the very same key
+  # set -- Render env vars are per-service and do not carry over.
+  # `fromService` copies the value across on every sync, so a rebuilt or
+  # duplicated environment comes up working instead of silently keyless.
+  # Fallback if the reference ever fails to resolve: set the key on this
+  # service directly (Dashboard -> binaapp-design-stats -> Environment).
+  # Both point at the same Supabase project as SUPABASE_URL below.
   - type: cron
     name: binaapp-design-stats
     runtime: python
@@ -147,4 +161,7 @@ services:
       - key: SUPABASE_URL
         value: "https://wjaztxkbaeqjabybxhct.supabase.co"
       - key: SUPABASE_SERVICE_ROLE_KEY
-        sync: false
+        fromService:
+          type: web
+          name: binaapp-backend
+          envVarKey: SUPABASE_SERVICE_ROLE_KEY
