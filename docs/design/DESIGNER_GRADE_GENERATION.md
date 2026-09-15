@@ -104,3 +104,27 @@ Log lines: `🎨 Plan step`, `🎨 Plan: {...}`, `🎨 Plan adjusted during vali
 `🧹 Anti-template lint`, `🧑‍⚖️ Critique`, `🔁 Plan gate failed … regenerating`,
 `🎯 Plan gate result`, `🧱 Quality floor applied`, `📊 Direction stats`.
 `AIService._last_design_plan` and `_last_plan_gate` hold the last plan and gate result.
+
+## Round 2 — after the Dobi Layan Diri test
+
+Reference site: bebe.binaapp.my (Servis, Cerah). Structure was right; the
+images, the data and the type hierarchy were not. Each fix has a
+regression test that uses the Dobi brief as its fixture.
+
+| Area | What changed | Module |
+|---|---|---|
+| Images | Every non-F&B prompt starts with a category subject clause (dobi → laundromat and front-load machines; salon → chair, mirror, tools; pakaian → flat-lay/mannequin), F&B wording is scrubbed, and the universal negative rides on every provider: no text, no letters, no logo, no watermark, no people's faces. | `image_subjects.py` |
+| Vision check | Each generated image is shown to Qwen-VL (GLM-4.5V fallback): rendered text / food / face / matches category. Fail → one stricter regeneration → drop the image (typographic tile). Rejections are logged with the reason. `IMAGE_CHECK_ENABLED`, `IMAGE_CHECK_QWEN_MODEL`. | `image_vision_check.py`, `AIService._vision_gate_image` |
+| Location | Story vs address place tokens (Seksyen N, Taman X, city). `/api/generate/listen` returns `location_conflicts`; `/api/generate/start` answers 409 until `location_resolution` says which side is right; the loser is rewritten before Pass 1 and scrubbed from the page. | `data_consistency.py` |
+| Hours | `is_24h` from 00:00–23:59 / every day / "24 jam"; badge says "Buka 24 jam"; JSON-LD hours come from the structured field only; "tutup 23:59" is rewritten. | `data_consistency.normalize_hours`, `subdomain._OPEN_BADGE_SCRIPT` |
+| Prices | Decimals through one formatter (`RM6.00`, `RM18.00/pax`); the form only accepts digits; start refuses typos (400); validator fails `RM\d+\.[^\d]`; publish never invents a price. | `data_consistency.format_price` |
+| Address | Title-cased, `l7/l` → `L7/1`; map heading is the business name, address is body text. | `data_consistency.normalize_address`, `templates.inject_google_maps` |
+| Invented sections | Facts (times, numbers with units, prices, counts) not in the brief strip the section (or the element, in essential sections). | `fact_guard.py` |
+| Type hierarchy | H1 largest (≥ 2× body), H2 ≥ 1.6× body — static Tailwind repairs plus measured repairs by CSS path from the critique render. | `page_hierarchy.py` |
+| Hero | Text background sampled on the screenshot; < 4.5:1 gets a panel. One hero image only. | `page_hierarchy.hero_readability_repair` |
+| CTAs | Nav = primary, hero = primary + secondary, no third repeat. | `page_hierarchy.dedupe_ctas` |
+| QR / floats | QR inside the footer container; chat bubble, WhatsApp float, order button and open badge stacked so nothing overlaps at 390px. | `subdomain.insert_in_footer`, `binaapp-float-stack` CSS |
+| Logo badge | Single-letter mark takes the plan accent and display font. | `page_hierarchy.restyle_logo_badge` |
+
+`python scripts/designer_grade_acceptance.py` now includes the Dobi offline
+checks; `--live` regenerates the brief and writes screenshots.

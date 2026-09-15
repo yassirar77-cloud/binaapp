@@ -1916,6 +1916,8 @@ async def run_generation_task(
     multi_style: bool = False,
     preferred_plan: Optional[dict] = None,
     request_stash: Optional[dict] = None,
+    location_fixups: Optional[dict] = None,
+    is_24h: bool = False,
 ):
     """Generate website - SIMPLE VERSION with guaranteed completion"""
 
@@ -2037,6 +2039,7 @@ async def run_generation_task(
             opening_hours=opening_hours,
             multi_style=bool(multi_style),
             preferred_plan=preferred_plan if isinstance(preferred_plan, dict) else None,
+            is_24h=bool(is_24h),
             # The address the merchant typed. Was hardcoded to "" — the prompt's
             # "use EXACTLY, do not invent" address line only exists when this
             # is set, so the model was reading the address out of the prose.
@@ -2106,6 +2109,13 @@ async def run_generation_task(
             progress_callback=progress_callback  # NEW: Pass progress callback
         )
         html = ai_response.html_content
+
+        # Round 2 (§B4): the losing location token never reaches the page.
+        if location_fixups:
+            from app.services.data_consistency import scrub_location_tokens
+            html, _n_loc = scrub_location_tokens(html, location_fixups)
+            if _n_loc:
+                logger.info(f"📍 Scrubbed {_n_loc} losing location token(s) from the page: {location_fixups}")
 
         logger.info(f"✅ Got HTML: {len(html)} chars")
 
@@ -2608,7 +2618,14 @@ async def listen_before_planning(request: Request):
     )
     pct = brief_completeness(brief)
     questions = listening_questions(brief) if pct < LISTENING_THRESHOLD_PCT else []
-    return {"success": True, "completeness": pct, "threshold": LISTENING_THRESHOLD_PCT, "questions": questions, "vertical": vertical}
+    # Round 2 (§B4): the story and the address must name the same place.
+    # A disagreement is a blocking question, answered before generation.
+    from app.services.data_consistency import location_conflicts as _location_conflicts
+    conflicts = [c.as_dict() for c in _location_conflicts(description, body.get("address") or "")]
+    return {
+        "success": True, "completeness": pct, "threshold": LISTENING_THRESHOLD_PCT, "questions": questions,
+        "vertical": vertical, "location_conflicts": conflicts,
+    }
 
 
 @app.post("/api/generate/refine")
@@ -2646,6 +2663,42 @@ async def _start_generation_from_body(body: dict, preferred_plan: Optional[dict]
     /api/generate/refine (a multi-style pick)."""
     # Extract parameters
     description = body.get("description") or body.get("business_description") or ""
+    # Round 2 (§B4): a story that says Seksyen 18 and an address that says
+    # Seksyen 7 never both reach the page. Unresolved → 409 with the
+    # question; resolved → the losing side is rewritten to the winner and
+    # the losing token is scrubbed from the generated HTML as well.
+    from app.services.data_consistency import apply_location_resolution, location_conflicts as _loc_conflicts
+    _raw_address = body.get("address") or ""
+    _conflicts = _loc_conflicts(description, _raw_address)
+    _resolution = body.get("location_resolution") if isinstance(body.get("location_resolution"), dict) else None
+    location_fixups: dict = {}
+    if _conflicts and not _resolution:
+        logger.warning(f"📍 Location conflict blocks generation: {[c.as_dict() for c in _conflicts]}")
+        return JSONResponse(
+            status_code=409,
+            content={
+                "success": False,
+                "error": "location_conflict",
+                "message": _conflicts[0].question_ms,
+                "location_conflicts": [c.as_dict() for c in _conflicts],
+            },
+        )
+    if _conflicts and _resolution:
+        for c in _conflicts:
+            choice = str(_resolution.get(c.kind) or "").lower()
+            if choice == "story":
+                location_fixups[c.address_value] = c.story_value
+            elif choice == "address":
+                location_fixups[c.story_value] = c.address_value
+        description, _resolved_address = apply_location_resolution(description, _raw_address, _resolution)
+        body = {**body, "description": description, "business_description": description, "address": _resolved_address}
+        if _loc_conflicts(description, _resolved_address):
+            return JSONResponse(
+                status_code=409,
+                content={"success": False, "error": "location_conflict", "message": _conflicts[0].question_ms,
+                         "location_conflicts": [c.as_dict() for c in _conflicts]},
+            )
+        logger.info(f"📍 Location conflict resolved: {location_fixups}")
     user_id = body.get("user_id", "anonymous")
     user_email = body.get("email", "")
     images = body.get("images", [])  # Extract uploaded images
@@ -2752,6 +2805,11 @@ async def _start_generation_from_body(body: dict, preferred_plan: Optional[dict]
                 continue
             price = entry.get("price")
             price = "" if price is None else str(price).strip()
+            # Round 2 (§B6): a parseable price is canonicalised here
+            # ("380" → "RM380.00"); an unparseable one is kept raw so the
+            # endpoint can refuse it with the merchant's own text.
+            from app.services.data_consistency import format_price as _fmt
+            price = _fmt(price) or price
             item = {"name": name[:120], "price": price[:40]}
             _desc = str(entry.get("description") or "").strip()
             if _desc:
@@ -2763,6 +2821,20 @@ async def _start_generation_from_body(body: dict, preferred_plan: Optional[dict]
         return items
 
     supplied_menu_items = _coerce_menu_items(body.get("menu_items"))
+    # Round 2 (§B6): a price is a decimal or it is refused here, before any
+    # credit is spent — "RM25.oo" never reaches the page.
+    from app.services.data_consistency import format_price as _format_price
+    for _item in supplied_menu_items or []:
+        _raw_price = (_item.get("price") or "").strip()
+        if _raw_price:
+            _formatted = _format_price(_raw_price)
+            if _formatted is None:
+                return JSONResponse(
+                    status_code=400,
+                    content={"success": False, "error": "invalid_price",
+                             "message": f"Harga '{_raw_price}' untuk '{_item.get('name')}' tidak sah — masukkan nombor sahaja, contoh 12.50"},
+                )
+            _item["price"] = _formatted
     _items_source = "menu_items"
     if not supplied_menu_items:
         supplied_menu_items = _coerce_menu_items(
@@ -2785,6 +2857,16 @@ async def _start_generation_from_body(body: dict, preferred_plan: Optional[dict]
     )
     if opening_hours is not None:
         opening_hours = str(opening_hours).strip()[:200] or None
+    # Round 2 (§B5): one canonical hours value. 00:00–23:59 / every day /
+    # "24 jam" in the story → is_24h, rendered as "Buka 24 jam" everywhere.
+    from app.services.data_consistency import normalize_address, normalize_hours
+    _hours_info = normalize_hours(opening_hours, description, language)
+    opening_hours = _hours_info.text
+    is_24h = _hours_info.is_24h
+    # Round 2 (§B7): the address is normalised once (title case, lot-number
+    # typo) before it reaches the prompt, the map and the row.
+    if address:
+        address = normalize_address(address) or None
 
     # Get dish names from request
     dish_names = body.get("dish_names", [])
@@ -3106,6 +3188,8 @@ MANDATORY REQUIREMENTS:
         multi_style=multi_style and preferred_plan is None,
         preferred_plan=preferred_plan,
         request_stash=_stash_request_body(body) if (multi_style and preferred_plan is None) else None,
+        location_fixups=location_fixups or None,
+        is_24h=is_24h,
     ))
 
     logger.info(f"🚀 Job started: {job_id}")
@@ -4193,19 +4277,22 @@ async def publish_website(
                 # Insert menu items (best-effort)
                 if menu_items_payload and category_id:
                     items_to_insert = []
-                    default_prices = [15, 12, 18, 10, 20, 14, 16, 13]
+                    from app.services.data_consistency import parse_price as _parse_price
                     for idx, it in enumerate(menu_items_payload):
                         if not isinstance(it, dict):
                             continue
                         name = it.get("name") or f"Item {idx+1}"
                         img = it.get("image_url") or it.get("url") or None
-                        price = it.get("price")
-                        if price is None:
-                            price = default_prices[idx % len(default_prices)]
-                        try:
-                            price = float(str(price).replace("RM", "").strip())
-                        except Exception:
-                            price = float(default_prices[idx % len(default_prices)])
+                        # Round 2 (§B6): a price is the merchant's decimal or
+                        # nothing. The old rotating default list invented
+                        # prices for the ordering menu; an item without a
+                        # valid price is left out of it (it can still be
+                        # asked about on WhatsApp) rather than priced by us.
+                        _dec = _parse_price(it.get("price"))
+                        if _dec is None:
+                            logger.warning(f"💸 Menu item '{name}' has no valid price — not added to the ordering menu")
+                            continue
+                        price = float(_dec)
                         items_to_insert.append({
                             "website_id": website_id,
                             "category_id": category_id,

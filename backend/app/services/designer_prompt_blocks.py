@@ -33,6 +33,10 @@ ANTI_TEMPLATE_RULES = """===== ANTI-TEMPLATE RULES (HARD RULES — the page is r
 8. No placeholder UI: no fake map card, no "Buka 9am–10pm" the merchant did not supply, no "coming soon", no empty gallery grid, no invented reviews or ratings.
 9. No inline style="font-size" on h1/h2/h3. Type sizes live in the <style> block using clamp() and the plan's scale.
 10. No third hero button. The hero CTA row is at most two actions.
+11. ONE real headline: the H1 is the largest text on the page (≥ 2× body, larger than any price, stat or card title). Section headings are real H2s at ≥ 1.6× body with a distinct weight — never body-sized text with a label above it.
+12. CTAs: the nav carries the primary action (WhatsApp / telefon); the hero carries the primary + one secondary; the same CTA text is never repeated a third time on the page.
+13. One hero image only — never a background photo plus an inset photo of the same subject. Hero text sits on a solid or gradient panel when it overlaps a bright photo.
+14. Logo: the full business name in the display font. If you add a letter mark, it is the name's initial in the display font on var(--accent-color) — never a default blue square.
 """
 
 

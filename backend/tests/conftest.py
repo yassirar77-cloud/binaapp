@@ -28,6 +28,9 @@ os.environ.setdefault("APP_ENV", "testing")
 # so no test reaches for a browser or the network.
 os.environ.setdefault("DESIGN_CRITIQUE_ENABLED", "false")
 os.environ.setdefault("DESIGN_PLAN_STORE_ENABLED", "false")
+# The post-generation image check calls a vision model; tests that cover it
+# enable it and mock the call.
+os.environ.setdefault("IMAGE_CHECK_ENABLED", "false")
 
 
 @pytest.fixture

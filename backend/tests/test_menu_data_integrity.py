@@ -74,19 +74,21 @@ class TestSuppliedMenuDataIsVerbatim:
         p = _prompt(service, menu_items=KAK_ROPIAH_ITEMS)
         for item in KAK_ROPIAH_ITEMS:
             assert item["name"] in p, f"missing item name: {item['name']}"
-            assert item["price"] in p, f"missing price: {item['price']}"
+            from app.services.data_consistency import format_price
+            assert (format_price(item["price"]) or item["price"]) in p, f"missing price: {item['price']}"
 
     def test_all_items_render_not_just_the_four_with_images(self, service):
         """The old pipeline capped the menu at the 4 image slots."""
         p = _prompt(service, menu_items=KAK_ROPIAH_ITEMS)
-        assert "Pakej Katering C" in p and "RM42/pax" in p
+        assert "Pakej Katering C" in p and "RM42.00/pax" in p
         assert f"these {len(KAK_ROPIAH_ITEMS)} item(s)" in p
 
-    def test_prices_are_not_reformatted(self, service):
+    def test_prices_are_canonical_decimals_with_their_unit(self, service):
+        """Round 2 (§B6): one formatter — the decimal is normalised, the
+        merchant's unit (/pax) survives, nothing is rounded away."""
         p = _prompt(service, menu_items=[{"name": "Set Ikan", "price": "RM18/pax"}])
-        assert "RM18/pax" in p
-        # No rounding/normalising into a plain decimal.
-        assert "RM18.00" not in p
+        assert '"RM18.00/pax"' in p
+        assert "RM18/pax" not in p
 
     def test_prompt_forbids_renaming_and_inventing(self, service):
         p = _prompt(service, menu_items=KAK_ROPIAH_ITEMS)

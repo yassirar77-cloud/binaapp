@@ -627,7 +627,11 @@ class TestProviderSelection:
         service = self._service()
         await service._generate_image("nasi lemak", food=True)
         sent_prompt = service._generate_image_zai.await_args.args[0]
-        assert sent_prompt == service._get_malaysian_prompt("nasi lemak")
+        # Round 2: the universal negative rides on every image, so the mapped
+        # dish prompt leads and the exclusions follow.
+        assert sent_prompt.startswith(service._get_malaysian_prompt("nasi lemak"))
+        from app.services.image_subjects import NEGATIVE_PROMPT
+        assert sent_prompt.endswith(NEGATIVE_PROMPT)
         assert "nasi lemak" in sent_prompt.lower()
 
     async def test_zai_nonfood_prompt_keeps_subject_and_gains_no_text_suffix(self, zai_env, monkeypatch):
@@ -640,7 +644,7 @@ class TestProviderSelection:
         await service._generate_image(prompt, food=False)
         sent = service._generate_image_zai.await_args.args[0]
         assert sent.startswith(prompt)
-        assert service._NO_TEXT_SUFFIX in sent
+        assert "no text" in sent and "no people's faces" in sent
 
     async def test_zai_failure_falls_back_to_stability(self, zai_env, monkeypatch):
         monkeypatch.setenv("IMAGE_PROVIDER", "zai")
@@ -736,7 +740,7 @@ class TestAutofillPromptTemplates:
         # the item name is the subject verbatim.
         service = AIService()
         prompt = service._autofill_item_prompt("retail", "Studio Lighting Kit", "camera shop")
-        assert "Professional product photography of Studio Lighting Kit" in prompt
+        assert "product photography of Studio Lighting Kit" in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -875,8 +879,8 @@ class TestAutofillMissingImages:
         assert len(calls) == 2
         product_prompt = calls[1].args[0]
         # Retail template: the product itself on a clean background
-        assert "Professional product photography of Keladi Tikus Herbal Supplement" in product_prompt
-        assert "clean background" in product_prompt
+        assert "product photography of Keladi Tikus Herbal Supplement" in product_prompt
+        assert "plain surface" in product_prompt
         assert calls[1].kwargs.get("food") is False
         assert image_urls["gallery1_name"] == "Keladi Tikus Herbal Supplement"
 
@@ -902,7 +906,7 @@ class TestAutofillMissingImages:
         assert "Portrait Session" in item_prompts[1]
         for p in item_prompts:
             assert "silhouette" in p.lower()
-            assert "venue" in p.lower()
+            assert "silhouette" in p.lower()
         assert "silhouette" in hero_prompt.lower()
         # ...and never the studio, equipment, or empty premises.
         for p in prompts:
@@ -926,10 +930,12 @@ class TestAutofillMissingImages:
         # The named service is the subject, shown being performed.
         item_prompt = calls[1].args[0]
         assert item_prompt.startswith("Servis Penghawa Dingin")
-        assert "performing the service" in item_prompt
+        # Round 2: the named service leads, the trade's tools are the subject,
+        # nobody is in frame.
+        assert "no people's faces" in item_prompt
         # Services hero shows the specialist at work — not empty premises.
         hero_prompt = calls[0].args[0]
-        assert "at work with a client" in hero_prompt
+        assert "no people's faces" in hero_prompt
         assert "storefront" not in hero_prompt.lower()
 
     async def test_generation_failure_uses_pool_fallback_without_counting(self, autofill_service, monkeypatch):

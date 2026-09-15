@@ -6,6 +6,7 @@ Handles website type detection and feature injection
 from typing import List, Dict, Optional
 from loguru import logger
 import re
+from html import escape as html_escape
 import json
 
 from app.services.business_types import (
@@ -495,6 +496,7 @@ class TemplateService:
         theme_tokens: Optional[Dict[str, str]] = None,
         website_id: Optional[str] = None,
         generation_count: Optional[int] = None,
+        business_name: Optional[str] = None,
     ) -> str:
         """
         Inject Google Maps embed into HTML.
@@ -517,11 +519,16 @@ class TemplateService:
         heading_color = f"var(--primary-color, {tokens.get('primary', 'currentColor')})"
         heading_font = "var(--font-heading, inherit)"
         display_address = normalize_display_address(address)
+        # Round 2 (§B7): the map block heading is the business name; the
+        # address is body text beneath it, never a heading.
+        _name = (business_name or "").strip()
+        map_heading = html_escape(_name) if _name else "Lokasi Kami"
 
         # Inner contents (no outer <section> — caller decides container)
         maps_inner = f"""
   <div style="max-width:1200px;margin:0 auto;padding:60px 20px;">
-    <h2 style="text-align:center;font-size:clamp(1.75rem,4vw,2.5rem);margin-bottom:1rem;color:{heading_color};font-family:{heading_font};">📍 {display_address}</h2>
+    <h2 style="text-align:center;font-size:clamp(1.75rem,4vw,2.5rem);margin-bottom:0.5rem;color:{heading_color};font-family:{heading_font};">{map_heading}</h2>
+    <p style="text-align:center;margin:0 auto 1rem;max-width:40rem;">📍 {display_address}</p>
     <div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,0.15);">
       <iframe
         title="Peta lokasi {display_address}"
@@ -900,21 +907,18 @@ function handleContactSubmit(e) {{
         # someone had pasted over the design.
         qr_html = f"""
 <!-- QR Code Section -->
-<div style="text-align:center;padding:40px 20px;background:transparent;color:inherit;">
-  <h3 style="font-size:1.5rem;margin-bottom:1rem;color:inherit;font-family:var(--font-heading, inherit);">📱 Scan to Visit</h3>
+<div style="text-align:center;padding:32px 20px 8px;background:inherit;color:inherit;">
+  <p style="font-size:1.1rem;font-weight:600;margin:0 0 1rem;color:inherit;">📱 Scan to Visit</p>
   <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data={url}"
-       alt="QR Code"
+       alt="QR Code" width="200" height="200"
        style="margin:0 auto;display:block;background:#fff;padding:8px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.15);">
 </div>
 """
 
-        # Inject before closing body tag
-        if "</body>" in html:
-            html = insert_before_body(html, qr_html)
-        else:
-            html += qr_html
-
-        return html
+        # Round 2 (§D13): inside the footer's last container, never a strip
+        # after the footer's bottom border.
+        from app.middleware.subdomain import insert_in_footer
+        return insert_in_footer(html, qr_html)
 
     def inject_delivery_section(
         self,
@@ -3690,6 +3694,7 @@ __BINAAPP_WIDGET_THEME_VARS__
                 theme_tokens=theme_tokens,
                 website_id=website_id_for_log,
                 generation_count=generation_count_for_log,
+                business_name=user_data.get("business_name") or user_data.get("name"),
             )
 
         # Shopping Cart

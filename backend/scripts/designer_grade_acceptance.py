@@ -53,8 +53,71 @@ CLEAN_FIXTURE = """<!DOCTYPE html><html lang="ms"><head><meta name="viewport" co
 <section id="menu"><h2>Menu</h2></section><section id="lokasi"><h2>Lokasi</h2><p>12, Jalan Tengku Ampuan</p></section><footer>&copy; <span id="binaapp-year"></span> X</footer></body></html>"""
 
 
+DOBI_STORY = (
+    "Dobi Layan Diri Seksyen 18 — dobi layan diri 24 jam di Seksyen 18, Shah Alam. "
+    "Mesin basuh 10kg dan 20kg, pengering panas, bayar dengan syiling atau QR. Buka setiap hari."
+)
+
+
+def round2_offline(failures: list) -> None:
+    """Round 2 acceptance on the Dobi Layan Diri brief, without models."""
+    from app.middleware.subdomain import _inject_qr_block
+    from app.services.data_consistency import (
+        enforce_24h_copy, find_bad_prices, format_price, location_conflicts, normalize_address, normalize_hours,
+    )
+    from app.services.fact_guard import FactSources, guard_facts
+    from app.services.image_subjects import has_fnb_wording, lock_prompt, subject_for
+    from app.services.page_hierarchy import apply_hierarchy_repairs, restyle_logo_badge
+
+    # A1: every Dobi image prompt is laundry-locked with the universal negative.
+    subject = subject_for("services", "Dobi Layan Diri Seksyen 18", DOBI_STORY)
+    prompts = [lock_prompt("hero", subject, context=DOBI_STORY)] + [
+        lock_prompt("item", subject, item=n, context=DOBI_STORY) for n in ("Basuh 10kg", "Basuh 20kg", "Pengering", "Cuci selimut")
+    ]
+    if subject.key != "laundry" or any(has_fnb_wording(p) or "no people's faces" not in p for p in prompts):
+        failures.append("Dobi image prompts are not laundry-locked")
+    # B4: the Seksyen 18 / Seksyen 7 conflict blocks.
+    conflicts = location_conflicts(DOBI_STORY, "l7/l, jalan 18/2, seksyen 7, shah alam")
+    if not conflicts or conflicts[0].question_ms != "Cerita sebut Seksyen 18 tapi alamat Seksyen 7 — yang mana betul?":
+        failures.append("location blocker did not fire on Seksyen 18 / Seksyen 7")
+    # B5: 24h → Buka 24 jam, never tutup 23:59.
+    hours = normalize_hours("00:00 - 23:59", DOBI_STORY, "ms")
+    page, _ = enforce_24h_copy("<p>Buka sekarang · tutup 23:59</p>", "ms")
+    if not hours.is_24h or hours.text != "Buka 24 jam" or "23:59" in page:
+        failures.append("24-hour hours not rendered as Buka 24 jam")
+    # B6: prices.
+    if format_price("6") != "RM6.00" or format_price("RM25.oo") is not None or find_bad_prices("<p>RM25.oo</p>") != ["RM25.oo"]:
+        failures.append("price formatter / lint wrong")
+    # B7: address.
+    if normalize_address("l7/l, jalan 18/2, seksyen 18, shah alam") != "L7/1, Jalan 18/2, Seksyen 18, Shah Alam":
+        failures.append("address normalisation wrong")
+    # B8: invented section stripped.
+    sources = FactSources.from_texts([DOBI_STORY, "Basuh 10kg RM6.00", "Basuh 20kg RM12.00", "L7/1, Jalan 18/2, Seksyen 18"], is_24h=True)
+    html = ('<html><body><section id="home"><h1>Dobi Layan Diri Seksyen 18</h1></section>'
+            '<section id="lengang"><h2>Waktu Paling Lengang</h2><p>6 pagi - 9 pagi</p></section>'
+            '<section id="servis"><h2>Servis</h2><p>Basuh 10kg RM6.00</p></section><footer></footer></body></html>')
+    out, report = guard_facts(html, sources)
+    if "Waktu Paling Lengang" in out or "RM6.00" not in out:
+        failures.append("fact guard did not strip the invented section")
+    # C9–C12 static + D13/D14.
+    hier_in = ('<html><head></head><body><nav><a href="#servis">Lihat servis</a></nav>'
+               '<section id="home"><h1 class="text-3xl">Dobi</h1><a href="#servis">Lihat servis</a><span class="text-6xl">Dari RM6.00</span></section>'
+               '<section id="servis"><h2 class="text-base">Perkhidmatan</h2><a href="#servis">Lihat servis</a></section><footer><div><p>x</p></div></footer></body></html>')
+    hier_out, hier = apply_hierarchy_repairs(hier_in)
+    if "text-6xl" in hier_out.split("</h1>")[1].split("</section>")[0] or hier.ctas_removed != 1 or 'id="binaapp-hierarchy"' not in hier_out:
+        failures.append("hierarchy repairs incomplete")
+    qr = _inject_qr_block(hier_out, "bebe", "ms")
+    if qr.index("BinaApp QR Block") > qr.index("</div></footer>"):
+        failures.append("QR block not inside the footer container")
+    badge_html = '<html><body><header><span class="bg-blue-600">D</span></header></body></html>'
+    badge_out, n = restyle_logo_badge(badge_html, initial="Dobi", accent="#0B4F9C", display_font="Rubik")
+    if n != 1 or "bg-blue-600" in badge_out:
+        failures.append("logo badge not restyled")
+
+
 def offline() -> int:
     failures = []
+    round2_offline(failures)
     history = {}
     used = []
     for vertical, name, desc, mode, style, brief_text in BRIEFS:
@@ -105,6 +168,7 @@ def offline() -> int:
         for f in failures:
             print("  - " + f)
         return 1
+    print("Round 2 (Dobi Layan Diri) offline checks: passed.")
     print("\nOffline acceptance: all checks passed.")
     return 0
 

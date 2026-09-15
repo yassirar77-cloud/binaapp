@@ -223,6 +223,12 @@ export default function CreatePage() {
   const [listenQuestions, setListenQuestions] = useState<string[]>([])
   const [listenAnswers, setListenAnswers] = useState<string[]>([])
   const [showListening, setShowListening] = useState(false)
+  // Location mismatch (Round 2): the story names one place and the address
+  // another. Generation is blocked until the merchant says which is right.
+  type LocationConflict = { kind: string; story: string; address: string; question: string; question_en: string }
+  const [locationConflicts, setLocationConflicts] = useState<LocationConflict[]>([])
+  const [locationResolution, setLocationResolution] = useState<Record<string, 'story' | 'address'>>({})
+  const [showLocationModal, setShowLocationModal] = useState(false)
   // A multi-style pick being refined into the full page: when its job
   // completes, open the design instead of showing a one-card gallery.
   const refiningRef = useRef(false)
@@ -934,12 +940,13 @@ export default function CreatePage() {
     }, 3000); // Poll every 3 seconds
   };
 
-  const handleGenerate = async (opts?: { skipListening?: boolean; descriptionOverride?: string } | unknown) => {
+  const handleGenerate = async (opts?: { skipListening?: boolean; descriptionOverride?: string; locationResolution?: Record<string, 'story' | 'address'> } | unknown) => {
     // The button passes its click event; only a plain options object counts.
     const o = (opts && typeof opts === 'object' && !('nativeEvent' in (opts as object)))
-      ? (opts as { skipListening?: boolean; descriptionOverride?: string })
+      ? (opts as { skipListening?: boolean; descriptionOverride?: string; locationResolution?: Record<string, 'story' | 'address'> })
       : {}
     const finalDescription = (o.descriptionOverride ?? description)
+    const resolvedLocation = o.locationResolution ?? locationResolution
     if (!finalDescription.trim()) return;
 
     // The backend refuses to name a site by fallback, so stop here with a
@@ -999,6 +1006,13 @@ export default function CreatePage() {
         })
         if (listenRes.ok) {
           const listen = await listenRes.json()
+          const conflicts: LocationConflict[] = Array.isArray(listen.location_conflicts) ? listen.location_conflicts : []
+          const unresolved = conflicts.filter(c => !resolvedLocation[c.kind])
+          if (unresolved.length > 0) {
+            setLocationConflicts(unresolved)
+            setShowLocationModal(true)
+            return
+          }
           if (Array.isArray(listen.questions) && listen.questions.length > 0) {
             setListenQuestions(listen.questions)
             setListenAnswers(listen.questions.map(() => ''))
@@ -1106,6 +1120,9 @@ export default function CreatePage() {
           ...buildDesignPayload({ designBrief, designFreedom, designStyle }),
           // Template gallery: pass selected design template if any
           template_id: selectedTemplateId || undefined,
+          // Location mismatch answer (Round 2): which side of a story/address
+          // disagreement is right. The server refuses to generate without it.
+          location_resolution: Object.keys(resolvedLocation).length > 0 ? resolvedLocation : undefined,
           // Multi-style preview: three design plans, three low-fidelity
           // previews; the pick is refined into the full page.
           multi_style: multiStyle && generatePreviews,
@@ -1142,6 +1159,12 @@ export default function CreatePage() {
 
       if (!startResponse.ok) {
         const errorData = await startResponse.json();
+        if (startResponse.status === 409 && errorData.error === 'location_conflict' && Array.isArray(errorData.location_conflicts)) {
+          setLocationConflicts(errorData.location_conflicts)
+          setShowLocationModal(true)
+          setLoading(false)
+          return
+        }
 
         // Handle subscription limit reached from backend
         if (startResponse.status === 403 && errorData.error === 'subscription_limit_reached') {
@@ -2641,8 +2664,15 @@ export default function CreatePage() {
                           <input
                             className="cr-input"
                             placeholder="12.50"
+                            inputMode="decimal"
+                            pattern="[0-9]*[.,]?[0-9]{0,2}"
                             value={it.price}
-                            onChange={(e) => updateMenuField(i, { price: e.target.value })}
+                            // Round 2: a price is digits and at most two decimals. Letters
+                            // never enter the field, so "RM25.oo" cannot be typed.
+                            onChange={(e) => {
+                              const cleaned = e.target.value.replace(/,/g, '.').replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1').replace(/^(\d*\.\d{0,2}).*$/, '$1')
+                              updateMenuField(i, { price: cleaned })
+                            }}
                             style={{ background: 'transparent', border: '1px solid rgba(255,255,255,.04)', height: 40, padding: '0 10px 0 32px', fontFamily: "'Geist Mono', monospace", width: '100%', minWidth: 0 }}
                           />
                         </div>
@@ -3706,6 +3736,53 @@ export default function CreatePage() {
         addon={selectedAddon}
         onClose={() => setShowAddonModal(false)}
       />
+
+      {/* Location mismatch: story vs address — blocking until answered */}
+      {showLocationModal && locationConflicts.length > 0 && (
+        <div role="dialog" aria-modal="true" aria-labelledby="cr-loc-title" style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(5,5,12,.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div className="cr-card" style={{ width: '100%', maxWidth: 520, padding: 24 }}>
+            <div id="cr-loc-title" style={{ fontSize: 16, fontWeight: 600, color: '#F5F5FA', marginBottom: 6 }}>Lokasi tak sepadan</div>
+            <div style={{ fontSize: 13, color: '#86869A', marginBottom: 16 }}>
+              Website tak boleh sebut dua tempat berbeza. Pilih yang betul — kami akan betulkan cerita atau alamat mengikut pilihan anda.
+            </div>
+            {locationConflicts.map((c) => (
+              <div key={c.kind} style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 13, color: '#D6D6E2', marginBottom: 8 }}>{language === 'en' ? c.question_en : c.question}</div>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    className="cr-btn"
+                    style={{ background: 'linear-gradient(180deg, #6B5CFF, #4F3DFF)', color: '#fff' }}
+                    onClick={() => {
+                      const next = { ...locationResolution, [c.kind]: 'story' as const }
+                      setLocationResolution(next)
+                      setShowLocationModal(false)
+                      void handleGenerate({ skipListening: false, locationResolution: next })
+                    }}
+                  >
+                    {c.story} (ikut cerita)
+                  </button>
+                  <button
+                    type="button"
+                    className="cr-btn cr-btn-ghost"
+                    onClick={() => {
+                      const next = { ...locationResolution, [c.kind]: 'address' as const }
+                      setLocationResolution(next)
+                      setShowLocationModal(false)
+                      void handleGenerate({ skipListening: false, locationResolution: next })
+                    }}
+                  >
+                    {c.address} (ikut alamat)
+                  </button>
+                </div>
+              </div>
+            ))}
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button type="button" className="cr-btn cr-btn-ghost" onClick={() => setShowLocationModal(false)}>Batal — saya betulkan sendiri</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* AI listening: follow-up questions before planning a thin brief */}
       {showListening && (

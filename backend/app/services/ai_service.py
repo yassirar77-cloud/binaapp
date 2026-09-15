@@ -48,6 +48,10 @@ from app.services.design_plan import (
 from app.services import design_plan_store
 from app.services import designer_prompt_blocks as dpb
 from app.services.anti_template_lint import lint_anti_template
+from app.services import image_subjects
+from app.services import image_vision_check
+from app.services.data_consistency import format_price as _format_price_dc, reformat_prices, enforce_24h_copy
+from app.services.page_hierarchy import apply_hierarchy_repairs
 from app.services.quality_floor import apply_quality_floor
 from app.services import design_critique
 from app.services.widget_catalogue import (
@@ -288,6 +292,16 @@ DESIGN_CRITIQUE_MODEL = os.getenv("DESIGN_CRITIQUE_MODEL", "glm-4.5v")
 DESIGN_CRITIQUE_TIMEOUT_SECONDS = float(os.getenv("DESIGN_CRITIQUE_TIMEOUT_SECONDS", "60"))
 DESIGN_CRITIQUE_MAX_TOKENS = int(os.getenv("DESIGN_CRITIQUE_MAX_TOKENS", "1200"))
 DESIGN_GATE_MAX_RETRIES = int(os.getenv("DESIGN_GATE_MAX_RETRIES", str(design_critique.MAX_RETRIES)))
+
+
+# Round 2 (§A2): post-generation image check with the Qwen vision model.
+IMAGE_CHECK_ENABLED = os.getenv("IMAGE_CHECK_ENABLED", "true").strip().lower() in ("1", "true", "yes", "on")
+IMAGE_CHECK_TIMEOUT_SECONDS = float(os.getenv("IMAGE_CHECK_TIMEOUT_SECONDS", "30"))
+
+
+def image_check_enabled() -> bool:
+    raw = os.getenv("IMAGE_CHECK_ENABLED", "true").strip().lower()
+    return raw in ("1", "true", "yes", "on")
 
 
 def design_critique_enabled() -> bool:
@@ -883,6 +897,11 @@ class AIService:
         # generation, plus its critique/lint results once the gate has run.
         self._last_design_plan: Optional[Dict] = None
         self._last_plan_gate: Optional[Dict] = None
+        # Round 2: images rejected by the vision check in the last build
+        # (slot, reasons) — for logs, tests and the learning loop.
+        self._last_image_rejections: List[Dict] = []
+        self._last_fact_guard: Optional[Dict] = None
+        self._last_hierarchy: Optional[Dict] = None
         self.deepseek_model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
         self.deepseek_model_pro = os.getenv("DEEPSEEK_MODEL_PRO", "deepseek-v4-pro")
         # GLM / Z.ai — primary HTML generator when USE_GLM_FOR_HTML is on.
@@ -2015,9 +2034,12 @@ Format: Just the image description, no explanations."""
                     files={"none": ""},
                     data={
                         "prompt": smart_prompt,
+                        # Round 2: the universal negative (no text, no
+                        # letters, no logo, no watermark, no people's faces)
+                        # rides on every image, whatever the category.
                         "negative_prompt": (
-                            f"{self._IMAGE_NEGATIVE_PROMPT}, {self._DOODLE_NEGATIVE_TERMS}"
-                            if doodle else self._IMAGE_NEGATIVE_PROMPT
+                            f"{self._IMAGE_NEGATIVE_PROMPT}, {image_subjects.NEGATIVE_TERMS}, {self._DOODLE_NEGATIVE_TERMS}"
+                            if doodle else f"{self._IMAGE_NEGATIVE_PROMPT}, {image_subjects.NEGATIVE_TERMS}"
                         ),
                         "output_format": "png",
                         "aspect_ratio": "16:9"
@@ -2299,6 +2321,9 @@ Format: Just the image description, no explanations."""
             # the same reason the Stability path does. doodle=True restyles
             # the result into a cartoon illustration.
             zai_prompt = self._shape_image_prompt(prompt, food, doodle)
+            # GLM-Image has no negative_prompt field: the universal negative
+            # goes on as positive-phrased exclusions (idempotent).
+            zai_prompt = image_subjects.with_negative(zai_prompt)
             url = None
             if not self._zai_phase_exhausted(zai_phase):
                 async with self._get_zai_image_lock():
@@ -3816,6 +3841,19 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
             logger.warning(f"🖼️ Hero cue unavailable: {err}")
             return None
 
+    @staticmethod
+    def _structured_hours_for(request) -> Optional[list]:
+        """Round 2 (§B5): the JSON-LD hours the open-now badge reads, from
+        the structured field only. 24h → every day 00:00–23:59; a parseable
+        daily range → every day; anything else → none (never guessed)."""
+        from app.services.data_consistency import hours_are_24h
+        text = (getattr(request, "opening_hours", None) or "").strip()
+        if bool(getattr(request, "is_24h", False)) or (text and hours_are_24h(text)):
+            return [{"days": "Isnin - Ahad", "hours": "00:00 - 23:59"}]
+        if text and re.search(r"\d", text) and re.search(r"-|–|—|hingga|to\b", text):
+            return [{"days": "Isnin - Ahad", "hours": text}]
+        return None
+
     async def record_last_plan(
         self,
         *,
@@ -3920,9 +3958,11 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
                 name = str(d.get("name") or "").strip()
                 if not name:
                     continue
+                _raw_price = str(d.get("price") or "").strip()
                 out.append({
                     "name": name,
-                    "price": str(d.get("price") or "").strip(),
+                    # Round 2 (§B6): one formatter everywhere ("380" → "RM380.00").
+                    "price": (_format_price_dc(_raw_price) or _raw_price) if _raw_price else "",
                     "description": str(d.get("description") or "").strip(),
                     "category": str(d.get("category") or "").strip(),
                 })
@@ -4791,7 +4831,7 @@ The merchant's own business data states the following: {_labels}.
         if show_prices:
             _price_rule = (
                 '- Copy each PRICE character-for-character, exactly as written (RM7.00 stays "RM7.00",\n'
-                '  RM18/pax stays "RM18/pax"). Never round, reformat, convert, or invent a price.'
+                '  RM18.00/pax stays "RM18.00/pax"). Never round, reformat, convert, or invent a price.'
             )
         else:
             _price_rule = (
@@ -5814,12 +5854,30 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                 f"🧹 Anti-template lint (attempt {attempt + 1}): {'clean' if lint.ok else str(len(lint.errors)) + ' failure(s)'} "
                 f"counts={lint.counts} repairs={lint.repairs}"
             )
+            # Round 2 (§C9–§C12): measure the render, repair the hierarchy
+            # (H1 largest, H2 ≥ 1.6× body, hero text panel, one hero image,
+            # no third CTA) and critique the repaired page.
+            bundle = None
+            try:
+                if design_critique_enabled():
+                    bundle = await design_critique.render_screenshots(linted)
+                measured = bundle.desktop_measured if bundle and bundle.ok else None
+                linted, hierarchy = apply_hierarchy_repairs(
+                    linted, measured=measured, hero_png=(bundle.desktop_png if bundle and bundle.ok else None),
+                )
+                if hierarchy.changed:
+                    logger.info(f"📐 Hierarchy repairs (attempt {attempt + 1}): {hierarchy.as_dict()}")
+                    self._last_hierarchy = hierarchy.as_dict()
+                    if bundle and bundle.ok:
+                        bundle = await design_critique.render_screenshots(linted)
+            except Exception as _h_err:
+                logger.warning(f"📐 Hierarchy repairs skipped: {_h_err}")
             critique = None
             if design_critique_enabled() and (self.zai_api_key or self.qwen_api_key):
                 try:
                     critique = await asyncio.wait_for(
                         design_critique.run_critique(
-                            linted, plan, language=language, call_model=self._call_vision_model,
+                            linted, plan, language=language, call_model=self._call_vision_model, bundle=bundle,
                         ),
                         timeout=DESIGN_CRITIQUE_TIMEOUT_SECONDS + design_critique.SCREENSHOT_TIMEOUT_SECONDS + 15,
                     )
@@ -7123,7 +7181,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                 if isinstance(item, dict):
                     name = item.get("name", item.get("item_name", f"Item {i+1}"))
                     price = item.get("price", item.get("item_price", ""))
-                    menu_lines.append(f"  - {name}: RM{price}")
+                    menu_lines.append(f"  - {name}: {_format_price_dc(price) or ('RM' + str(price))}")
                 elif isinstance(item, str):
                     menu_lines.append(f"  - {item}")
             menu_context = "Menu items provided:\n" + "\n".join(menu_lines)
@@ -7378,7 +7436,7 @@ IMPORTANT RULES:
                     <div class="p-6">
                         <div class="flex justify-between items-start mb-3">
                             <h3 class="text-xl font-heading font-bold">{name}</h3>
-                            <span class="{price_cls} font-bold text-lg">RM{price}</span>
+                            <span class="{price_cls} font-bold text-lg">{_format_price_dc(price) or ('RM' + str(price))}</span>
                         </div>
                         <p class="{desc_cls}">{desc}</p>
                     </div>
@@ -8003,10 +8061,9 @@ IMPORTANT RULES:
     # hero prompts only; gallery/item prompts shipped without it and their
     # card-title subjects ("Produk Pilihan" etc.) came back baked into the
     # image as garbled text — hence the blanket enforcement now.
-    _NO_TEXT_SUFFIX = (
-        "no text, no letters, no words, no lettering, no captions, "
-        "no signage, no labels, no watermark, no logo anywhere in the image"
-    )
+    # Round 2: the universal negative (image_subjects.NEGATIVE_PROMPT) — one
+    # wording everywhere, including "no people's faces".
+    _NO_TEXT_SUFFIX = image_subjects.NEGATIVE_PROMPT
     # Legacy alias — earlier code/tests reference the hero-specific name.
     _HERO_NO_TEXT_SUFFIX = _NO_TEXT_SUFFIX
 
@@ -8144,10 +8201,14 @@ IMPORTANT RULES:
             parts.append(desc[:100])
         return ", ".join(parts)
 
+    #: Prompt-template category → the vertical the subject table is keyed on.
+    _CATEGORY_TO_VERTICAL = {"services": "services", "creative": "services", "retail": "general", "generic": "general"}
+
     def _autofill_hero_prompt(
         self, category: str, biz_type: str, business_context: str = "",
         food_subtype: str = "general", merchant_prompt: Optional[str] = None,
         direction_cue: Optional[str] = None,
+        subject: Optional["image_subjects.ImageSubject"] = None,
     ) -> str:
         """Hero banner prompt per category.
 
@@ -8170,6 +8231,28 @@ IMPORTANT RULES:
         # not. Only the no-text suffix is appended (garbled AI lettering is
         # never wanted, whoever wrote the prompt).
         merchant_prompt = (merchant_prompt or "").strip()
+        # Round 2 (§A1): every non-F&B image starts with the category's
+        # subject clause, F&B wording is scrubbed, and the universal negative
+        # is appended — a laundry never gets a chef or a handshake.
+        if subject is None and category != "food":
+            subject = image_subjects.subject_for(self._CATEGORY_TO_VERTICAL.get(category, "general"), business_context, biz_type)
+        if subject is not None and category != "food":
+            _extra = self._COUPLE_COMPOSITION_CLAUSE if category == "creative" else None
+            locked = image_subjects.lock_prompt("hero", subject, context=business_context, extra=_extra)
+            if merchant_prompt:
+                # The merchant's own words lead; the category clause still
+                # locks the subject behind them.
+                locked = image_subjects.with_negative(
+                    f"{image_subjects.scrub_fnb_wording(merchant_prompt)}, {subject.hero_clause}"
+                    + (f", {_extra}" if _extra else "")
+                )
+            elif (direction_cue or "").strip():
+                locked = image_subjects.with_negative(
+                    f"{subject.hero_clause}, {image_subjects.scrub_fnb_wording(direction_cue.strip())}"
+                    + (f", {_extra}" if _extra else "")
+                )
+            logger.info(f"🖼️ Hero prompt: CATEGORY-LOCKED [{subject.key}]: {locked!r}")
+            return locked
         if merchant_prompt:
             logger.info(
                 f"🖼️ Hero prompt: MERCHANT-SUPPLIED (overriding category="
@@ -8234,7 +8317,8 @@ IMPORTANT RULES:
         )
 
     def _autofill_item_prompt(
-        self, category: str, name: str, biz_type: str, business_context: str = ""
+        self, category: str, name: str, biz_type: str, business_context: str = "",
+        subject: Optional["image_subjects.ImageSubject"] = None,
     ) -> str:
         """Per-item prompt: the item itself is ALWAYS the subject.
 
@@ -8260,6 +8344,17 @@ IMPORTANT RULES:
         ctx = f", for the business: {business_context}" if business_context else ""
         if category == "food":
             return name
+        if subject is None:
+            # The business decides the subject (its words and vertical), not
+            # the item name — a "Studio Lighting Kit" sold by a camera shop is
+            # a product shot, not a photo studio.
+            subject = image_subjects.subject_for(self._CATEGORY_TO_VERTICAL.get(category, "general"), business_context, biz_type)
+        if subject is not None:
+            # Round 2 (§A1): category-locked, F&B-scrubbed, negative appended.
+            return image_subjects.lock_prompt(
+                "item", subject, item=name, context=business_context,
+                extra=(self._COUPLE_COMPOSITION_CLAUSE if category == "creative" else None),
+            )
         if category == "creative":
             # The type of work named by the item is the subject; favour
             # artistic compositions (silhouettes, candid details, venue)
@@ -8294,6 +8389,80 @@ IMPORTANT RULES:
             f"Professional photography of {name}, {biz_type}{ctx}, high quality, "
             f"sharp focus, {self._NO_TEXT_SUFFIX}"
         )
+
+    async def _call_image_check_model(self, messages: List[Dict]) -> Optional[str]:
+        """Vision call for the image check: Qwen-VL first (the brief's
+        reviewer), GLM-4.5V as the fallback. None when neither answers."""
+        attempts: List[Tuple[str, str, str]] = []
+        if self.qwen_api_key:
+            attempts.append((self.qwen_base_url, self.qwen_api_key, os.getenv("IMAGE_CHECK_QWEN_MODEL", "qwen-vl-max")))
+        if self.zai_api_key:
+            attempts.append((self.zai_base_url, self.zai_api_key, DESIGN_CRITIQUE_MODEL))
+        for base_url, key, model in attempts:
+            try:
+                async with httpx.AsyncClient(timeout=IMAGE_CHECK_TIMEOUT_SECONDS) as client:
+                    r = await client.post(
+                        f"{base_url.rstrip('/')}/chat/completions",
+                        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                        json={"model": model, "messages": messages, "temperature": 0.0, "max_tokens": 300},
+                    )
+                if r.status_code != 200:
+                    logger.warning(f"👁️ Image check model {model} ❌ {r.status_code}: {r.text[:160]}")
+                    continue
+                content = ((r.json().get("choices") or [{}])[0].get("message") or {}).get("content", "")
+                if isinstance(content, list):
+                    content = "".join(part.get("text", "") for part in content if isinstance(part, dict))
+                if content and str(content).strip():
+                    return str(content)
+            except Exception as err:
+                logger.warning(f"👁️ Image check model {model} failed: {err}")
+        return None
+
+    def _image_check_available(self) -> bool:
+        return image_check_enabled() and bool(self.qwen_api_key or self.zai_api_key)
+
+    async def _vision_gate_image(
+        self,
+        url: str,
+        prompt: str,
+        slot_key: str,
+        *,
+        subject: Optional["image_subjects.ImageSubject"],
+        is_food: bool,
+        zai_phase: Optional[Dict] = None,
+        doodle: bool = False,
+    ) -> Optional[str]:
+        """Round 2 (§A2): check a generated image; regenerate once with a
+        stricter prompt on failure; drop it on a second failure. The
+        rejection reason is always logged. Without a vision model the image
+        passes (never blocks generation)."""
+        if not self._image_check_available():
+            return url
+        label = subject.vision_label if subject is not None else "food or drink for a restaurant, café or bakery"
+        verdict = await image_vision_check.check_image(url, label, call_model=self._call_image_check_model)
+        failures = verdict.failures(food_allowed=is_food)
+        if not failures:
+            logger.info(f"👁️ Image check {slot_key}: pass ({'checked' if verdict.checked else 'unchecked'})")
+            return url
+        logger.warning(f"👁️ Image check {slot_key}: REJECTED — {'; '.join(failures)} [{verdict.reason}] — regenerating stricter")
+        self._last_image_rejections.append({"slot": slot_key, "reasons": failures, "reason": verdict.reason, "outcome": "retried"})
+        strict = image_subjects.stricter_prompt(prompt)
+        try:
+            retry = await self._generate_image(strict, food=is_food, zai_phase=zai_phase, doodle=doodle)
+        except Exception as err:
+            logger.warning(f"👁️ Image check {slot_key}: stricter regeneration failed: {err}")
+            retry = None
+        if retry:
+            verdict2 = await image_vision_check.check_image(retry, label, call_model=self._call_image_check_model)
+            failures2 = verdict2.failures(food_allowed=is_food)
+            if not failures2:
+                logger.info(f"👁️ Image check {slot_key}: pass on stricter retry")
+                return retry
+            logger.warning(f"👁️ Image check {slot_key}: REJECTED AGAIN — {'; '.join(failures2)} [{verdict2.reason}] — dropping image, typographic tile instead")
+        else:
+            logger.warning(f"👁️ Image check {slot_key}: no stricter image produced — dropping image, typographic tile instead")
+        self._last_image_rejections.append({"slot": slot_key, "reasons": failures, "reason": verdict.reason, "outcome": "dropped"})
+        return None
 
     async def _autofill_missing_images(
         self,
@@ -8423,10 +8592,18 @@ IMPORTANT RULES:
         # re-derive it from prose that may not mention cake at all.
         if normalize_business_type(getattr(request, "business_type", None)) == "bakery":
             _food_subtype = "bakery"
+        # Round 2 (§A1): the image subject for non-F&B businesses, from the
+        # merchant's own words and the vertical — the clause every prompt
+        # starts with, and the label the vision check verifies against.
+        _vertical = normalize_business_type(getattr(request, "business_type", None)) or detect_business_type(request.description)
+        _subject = None if is_food else image_subjects.subject_for(_vertical, request.business_name, request.description)
+        if _subject is not None:
+            logger.info(f"🖼️ Image subject: {_subject.key} — {_subject.vision_label}")
         hero_prompt = self._autofill_hero_prompt(
             category, _biz_type, _biz_context, food_subtype=_food_subtype,
             merchant_prompt=getattr(request, "hero_image_prompt", None),
             direction_cue=hero_cue,
+            subject=_subject,
         )
 
         # Work list: hero first, then one image per (missing slot, real item
@@ -8441,7 +8618,7 @@ IMPORTANT RULES:
                 (
                     f"gallery{slot_no}",
                     name,
-                    self._autofill_item_prompt(category, name, _biz_type, _biz_context),
+                    self._autofill_item_prompt(category, name, _biz_type, _biz_context, subject=_subject),
                 )
             )
 
@@ -8474,10 +8651,21 @@ IMPORTANT RULES:
         for (slot_key, item_name, _p), result in zip(work, results):
             url = result if (result and not isinstance(result, Exception)) else None
             if url:
-                generated += 1
-            else:
+                # Round 2 (§A2/§A3): every generated image is checked by the
+                # vision model — text, food, a face, or the wrong subject
+                # fails it. One stricter retry, then the slot is dropped so
+                # the section renders a typographic tile instead.
+                url = await self._vision_gate_image(
+                    url, _p, slot_key, subject=_subject, is_food=is_food,
+                    zai_phase=zai_phase, doodle=is_doodle,
+                )
+                if url:
+                    generated += 1
+            elif is_food:
                 # Bug-2 pool fallback so a provider failure (rate limit, 500,
-                # timeout) doesn't leave the slot empty.
+                # timeout) doesn't leave the slot empty. F&B only: a stock
+                # pool photo on a laundry or salon site is exactly the wrong
+                # image the vision check exists to stop.
                 try:
                     url = self.get_matching_image(
                         item_name or _p, business_type=request.description
@@ -8486,6 +8674,8 @@ IMPORTANT RULES:
                 except Exception as fb_err:
                     logger.warning(f"   ⚠️ Auto-fill pool fallback failed for {slot_key}: {fb_err}")
                     url = None
+            else:
+                logger.info(f"   ⬜ Auto-fill {slot_key}: no image (provider failed) — typographic tile")
             if url:
                 image_urls[slot_key] = url
                 if item_name:
@@ -8552,6 +8742,7 @@ IMPORTANT RULES:
         # Check image_choice - skip ALL image generation if "none"
         image_urls = {}
         ai_images_generated = 0  # Track how many AI images were successfully generated
+        self._last_image_rejections = []
         # One Z.ai image phase per build, shared by the auto-fill pass and the
         # food-image post-pass, so their combined Z.ai time is bounded by
         # ZAI_IMAGE_PHASE_BUDGET_SECONDS. No-op when IMAGE_PROVIDER=stability.
@@ -9350,11 +9541,54 @@ IMPORTANT INSTRUCTIONS:
             # converge, so BOTH providers' output is sanitized (the prompt
             # rules exist only on the GLM side).
             html = self._sanitize_sensitive_claims(html, request, image_urls)
+            # Round 2 (§B5/§B6): every RM amount through the one formatter;
+            # a 24-hour business never reads "tutup 23:59" anywhere.
+            html, _n_prices = reformat_prices(html)
+            if _n_prices:
+                logger.info(f"💸 Reformatted {_n_prices} price(s) to RM0.00 form")
+            if bool(getattr(request, "is_24h", False)):
+                html, _n_24 = enforce_24h_copy(html, language)
+                if _n_24:
+                    logger.info(f"🕒 Rewrote {_n_24} hours string(s) to 'Buka 24 jam'")
+            # Round 2 (§B8): no section may state a fact the merchant did not
+            # supply. Invented sections are stripped; essential sections lose
+            # only the element carrying the invented fact.
+            try:
+                from app.services.fact_guard import FactSources, guard_facts
+                _fact_sources = FactSources.from_texts(
+                    [
+                        request.description, request.business_name, getattr(request, "location_address", None),
+                        getattr(request, "opening_hours", None), getattr(request, "whatsapp_number", None),
+                        self._normalize_wa_digits(getattr(request, "whatsapp_number", None)),
+                        getattr(request, "design_brief", None),
+                    ] + [f"{i.get('name', '')} {i.get('price', '')} {i.get('description', '')}" for i in self._normalize_supplied_menu_items(getattr(request, "menu_items", None))],
+                    is_24h=bool(getattr(request, "is_24h", False)),
+                )
+                html, _fact_report = guard_facts(html, _fact_sources)
+                if _fact_report.changed:
+                    logger.warning(f"🧾 Fact guard: stripped sections={_fact_report.stripped_sections} elements={_fact_report.stripped_elements} facts={_fact_report.facts[:8]}")
+                self._last_fact_guard = _fact_report.as_dict()
+            except Exception as _fact_err:
+                logger.warning(f"🧾 Fact guard skipped: {_fact_err}")
+            # Round 2 (§D14): a single-letter logo badge takes the plan's
+            # accent colour and display font, never a default blue square.
+            if plan is not None:
+                try:
+                    from app.services.page_hierarchy import restyle_logo_badge
+                    html, _n_badge = restyle_logo_badge(
+                        html, initial=request.business_name, accent=plan.palette["accent"], display_font=plan.type["display"],
+                    )
+                    if _n_badge:
+                        logger.info(f"🔤 Logo badge restyled to the plan accent ({_n_badge})")
+                except Exception as _badge_err:
+                    logger.warning(f"🔤 Logo badge restyle skipped: {_badge_err}")
             # SEO / social metadata, emitted deterministically from data the
             # pipeline already has. Malaysian SMEs share by pasting the link
             # into WhatsApp; with no OG tags that renders as a bare URL.
             # Runs BEFORE validation so its metadata warnings reflect reality.
-            html = self._inject_seo_metadata(html, request, image_urls)
+            html = self._inject_seo_metadata(
+                html, request, image_urls, operating_hours=self._structured_hours_for(request),
+            )
             # Quality floor (§8): lang, viewport, reduced-motion, visible
             # focus, lazy-loading, image dimensions — deterministic and
             # idempotent, applied to every generated page.
