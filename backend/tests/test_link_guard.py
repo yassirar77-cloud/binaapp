@@ -113,7 +113,8 @@ class TestNoPlaceholderWhatsappButton:
     def test_a_real_number_renders_the_button(self):
         out = self._inject("019-345 6781")
         assert 'id="whatsapp-button"' in out
-        assert f"wa.me/+{REAL}" in out
+        assert f"wa.me/{REAL}" in out
+        assert "wa.me/+" not in out  # the link is digits-only, like every other
 
 
 class TestEmptyFloatingSlots:

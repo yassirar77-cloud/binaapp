@@ -277,7 +277,9 @@ def normalize_hours(structured: Optional[str], story: Optional[str] = None, lang
 #: "RM6", "6.5", "RM 12,50", and a decimal with a unit ("RM18/pax", "12 / kg").
 _PRICE_INPUT_RE = re.compile(r"^\s*(?:rm)?\s*(\d{1,6})(?:[.,](\d{1,2}))?\s*(?:/\s*([a-z]{1,12}))?\s*$", re.IGNORECASE)
 #: A price whose decimal part is not digits: "RM25.oo", "RM6.", "RM12.5x".
-BAD_PRICE_RE = re.compile(r"RM\s?\d+\.(?!\d)[^\s<,;]*")
+#: Same word-boundary guard as _PRICE_IN_TEXT_RE below: the "RM" at the end
+#: of "transfoRM" is not a currency prefix.
+BAD_PRICE_RE = re.compile(r"(?<![A-Za-z0-9])RM\s?\d+\.(?!\d)[^\s<,;]*")
 #: Text that must never be substituted for a missing price.
 PRICE_PLACEHOLDER_RE = re.compile(r"atas permintaan|price on request|hubungi (?:kami )?untuk harga|\bTBA\b", re.IGNORECASE)
 
@@ -326,10 +328,40 @@ def find_bad_prices(html: str) -> List[str]:
     return [m.group(0) for m in BAD_PRICE_RE.finditer(html or "")]
 
 
+#: An RM amount in visible copy. Two guards, both learned the hard way:
+#:
+#: ``(?<![A-Za-z0-9])`` — the match is case-insensitive, so the "rm" at the
+#: end of ``transform`` matched, and ``transition: ... transform 0.2s ease``
+#: was rewritten to ``transfoRM0.20s ease`` in the page's own <style> block.
+#: Twice, on a live site. "RM" is a currency prefix, not a substring.
+#:
+#: ``(?![\d.])`` — don't take half of a longer number.
+_PRICE_IN_TEXT_RE = re.compile(
+    r"(?<![A-Za-z0-9])RM\s?\d{1,6}(?:[.,]\d{1,2})?(?:\s*/\s*[a-z]{1,12})?(?![\d.])",
+    re.IGNORECASE,
+)
+
+#: Elements whose CONTENT is not prose. It sits between tags like any other
+#: text, so a tag-splitting pass walks straight into it — which is how a
+#: currency rule got to reach CSS at all.
+_NON_PROSE_ELEMENTS = ("style", "script", "template", "textarea", "pre", "code", "svg")
+_NON_PROSE_OPEN_RE = re.compile(
+    r"^<\s*(" + "|".join(_NON_PROSE_ELEMENTS) + r")\b", re.IGNORECASE
+)
+_NON_PROSE_CLOSE_RE = re.compile(
+    r"^<\s*/\s*(" + "|".join(_NON_PROSE_ELEMENTS) + r")\b", re.IGNORECASE
+)
+
+
 def reformat_prices(html: str) -> Tuple[str, int]:
     """Rewrite every RM amount in visible text through ``format_price``:
-    ``RM6`` → ``RM6.00``, ``RM12,5`` → ``RM12.50``. Attribute values and
-    URLs are left alone (only text between tags is touched)."""
+    ``RM6`` → ``RM6.00``, ``RM12,5`` → ``RM12.50``.
+
+    Only prose is touched. Attribute values and URLs are left alone (the
+    split keeps whole tags intact), and so is everything inside <style>,
+    <script> and the other non-prose elements below — a currency pass has
+    no business inside a stylesheet.
+    """
     count = 0
 
     def _text(segment: str) -> str:
@@ -343,10 +375,22 @@ def reformat_prices(html: str) -> Tuple[str, int]:
                 return formatted
             return m.group(0)
 
-        return re.sub(r"RM\s?\d{1,6}(?:[.,]\d{1,2})?(?:\s*/\s*[a-z]{1,12})?(?![\d.])", _sub, segment, flags=re.IGNORECASE)
+        return _PRICE_IN_TEXT_RE.sub(_sub, segment)
 
     parts = re.split(r"(<[^>]+>)", html or "")
-    out = [p if p.startswith("<") else _text(p) for p in parts]
+    out = []
+    # Depth rather than a flag: <svg> nests, and a stray close tag must not
+    # hand the rest of the document back to the rewriter.
+    non_prose = 0
+    for part in parts:
+        if part.startswith("<"):
+            if _NON_PROSE_CLOSE_RE.match(part):
+                non_prose = max(0, non_prose - 1)
+            elif _NON_PROSE_OPEN_RE.match(part) and not part.rstrip().endswith("/>"):
+                non_prose += 1
+            out.append(part)
+            continue
+        out.append(part if non_prose else _text(part))
     return "".join(out), count
 
 

@@ -88,6 +88,27 @@ def test_price_lint_and_reformat_on_html():
     assert find_bad_prices(fixed) == []
 
 
+def test_the_currency_pass_stays_out_of_css_and_scripts():
+    """mimk shipped `transition: background-color 0.2s ease, transfoRM0.20s
+    ease` — twice — in its own <style> block. The pass is case-insensitive,
+    so the "rm" ending `transform` read as a currency prefix, and the pass
+    walked into <style> because its content sits between tags like any other
+    text. Both halves are guarded now."""
+    css = (
+        "<style>.btn{transition: background-color 0.2s ease, transform 0.2s ease}"
+        ".card{transform 0.2s}</style>"
+    )
+    assert reformat_prices(css) == (css, 0)
+    script = '<script>var t="transform 0.2s ease"; var p="RM6";</script>'
+    assert reformat_prices(script) == (script, 0)
+    # A word ending in "rm" is never a price, wherever it appears.
+    assert reformat_prices("<p>Kami transform 0.2s</p>") == ("<p>Kami transform 0.2s</p>", 0)
+    assert find_bad_prices("<style>a{transform 0.2s}</style>") == []
+    # …and real prose is still rewritten, in the same document.
+    fixed, n = reformat_prices(css + "<p>Harga RM6</p>")
+    assert n == 1 and "transform 0.2s ease" in fixed and "RM6.00" in fixed
+
+
 def test_address_normalisation_fixes_lot_typo_and_case():
     assert normalize_address(DOBI_ADDRESS) == "L7/1, Jalan 18/2, Seksyen 7, Shah Alam, Selangor"
     assert normalize_address("no 12, jalan ss2/24, ss2, petaling jaya, 47300 selangor") == "No 12, Jalan SS2/24, SS2, Petaling Jaya, 47300 Selangor"

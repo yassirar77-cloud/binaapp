@@ -411,6 +411,19 @@ class TemplateService:
         key = "en" if lang.startswith("en") else "ms"
         return cls.WHATSAPP_DEFAULT_MESSAGE[key]
 
+    @staticmethod
+    def wa_me_number(phone_clean: str) -> str:
+        """The form ``wa.me`` wants: digits only, no ``+``, no separators.
+
+        Every inline CTA on a generated page already uses it; the floating
+        button did not, and shipped ``wa.me/+60176119872`` next to five
+        ``wa.me/60176119872`` links on the same page (mimk). WhatsApp is
+        forgiving about the ``+`` in a browser and is not on every Android
+        in-app webview, which is where a floating button gets tapped most.
+        Display text keeps its ``+``; the LINK never has one.
+        """
+        return re.sub(r"\D", "", str(phone_clean or ""))
+
     def inject_whatsapp_button(
         self,
         html: str,
@@ -456,7 +469,7 @@ class TemplateService:
 
         whatsapp_html = f"""
 <!-- WhatsApp Floating Button -->
-<a href="https://wa.me/{phone_clean}?text={default_message.replace(' ', '%20')}"
+<a href="https://wa.me/{self.wa_me_number(phone_clean)}?text={default_message.replace(' ', '%20')}"
    id="whatsapp-button"
    target="_blank"
    rel="noopener"
@@ -1320,7 +1333,7 @@ function handleContactSubmit(e) {{
       message += `*TOTAL:* RM ${{grandTotal.toFixed(2)}}`;
 
       // Open WhatsApp
-      window.open(`https://wa.me/{phone_clean}?text=${{message}}`, '_blank');
+      window.open(`https://wa.me/{self.wa_me_number(phone_clean)}?text=${{message}}`, '_blank');
     }}
   </script>
 </body>
@@ -1987,7 +2000,7 @@ __BINAAPP_WIDGET_THEME_VARS__
 <script>
 // BinaApp Delivery System - Complete Implementation with Backend Integration
 (function() {{
-    const DELIVERY_WHATSAPP = '{phone_clean}';
+    const DELIVERY_WHATSAPP = '{self.wa_me_number(phone_clean)}';
     const DELIVERY_BUSINESS = '{business_name}';
     const DELIVERY_MINIMUM = {minimum_order};
     const deliveryZonesData = {zones_json};

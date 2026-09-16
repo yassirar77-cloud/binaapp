@@ -43,7 +43,10 @@ def test_whatsapp_button_injected_once_despite_body_in_comment():
     svc = TemplateService()
     out = svc.inject_whatsapp_button(CORRUPT_COMMENT_PAGE, "011-23456789")
     assert out.count('id="whatsapp-button"') == 1
-    assert "wa.me/+601123456789" in out
+    # Digits only — the form every inline CTA on the page already uses, and
+    # the one an in-app webview opens reliably.
+    assert "wa.me/601123456789" in out
+    assert "wa.me/+" not in out
     # Button must land after the comment/scripts, not inside the document body text.
     assert out.index("AOS.init") < out.index('id="whatsapp-button"')
     assert "<!-- ===== BEFORE </body> — AOS + init ===== -->" in out
