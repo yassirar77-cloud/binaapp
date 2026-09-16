@@ -27,6 +27,11 @@ from app.services.ai_email_support import ai_email_support
 
 # Timeout for IMAP operations (seconds)
 IMAP_TIMEOUT = 30
+
+#: Quiet polls between heartbeat lines. At the two-minute poll interval, 30
+#: is roughly hourly: often enough to prove the poller is alive, rare enough
+#: that a real warning is not buried under it.
+QUIET_POLL_HEARTBEAT_EVERY = 30
 # Maximum time for a single poll cycle (seconds)
 POLL_TIMEOUT = 180
 
@@ -61,6 +66,11 @@ class EmailPollingService:
         # Rate limiting
         self._last_email_sent_time: Optional[datetime] = None
         self._min_email_interval_seconds: int = 5  # Minimum 5 seconds between sends
+
+        #: Consecutive polls that found nothing. Drives the hourly heartbeat
+        #: so an idle poller is still visibly alive without narrating it.
+        self._quiet_polls = 0
+        self._last_logged_status: Optional[str] = None
 
         logger.info("=" * 60)
         logger.info("EMAIL POLLING SERVICE INITIALIZATION")
@@ -160,16 +170,16 @@ class EmailPollingService:
         fetched = []
         mailbox = None
         try:
-            logger.info(f"[IMAP] Connecting to {self.imap_server}:{self.imap_port} (timeout={IMAP_TIMEOUT}s)")
+            logger.debug(f"[IMAP] Connecting to {self.imap_server}:{self.imap_port} (timeout={IMAP_TIMEOUT}s)")
             self.imap_connection_status = "connecting"
 
             max_retries = 3
             for attempt in range(max_retries):
                 try:
-                    logger.info(f"[IMAP] Connection attempt {attempt + 1}/{max_retries}")
+                    logger.debug(f"[IMAP] Connection attempt {attempt + 1}/{max_retries}")
                     mailbox = MailBox(self.imap_server, self.imap_port, timeout=IMAP_TIMEOUT)
                     mailbox.login(self.email, self.password)
-                    logger.info("[IMAP] LOGIN SUCCESSFUL!")
+                    logger.debug("[IMAP] login successful")
                     self.imap_connection_status = "connected"
                     break
                 except Exception as conn_error:
@@ -190,9 +200,9 @@ class EmailPollingService:
                         raise conn_error
 
             mailbox.folder.set("INBOX")
-            logger.info("[IMAP] Fetching unread emails (limit: 20)...")
+            logger.debug("[IMAP] Fetching unread emails (limit: 20)...")
             messages = list(mailbox.fetch(AND(seen=False), limit=20, reverse=True))
-            logger.info(f"[IMAP] Found {len(messages)} unread emails")
+            logger.debug(f"[IMAP] Found {len(messages)} unread emails")
 
             for msg in messages:
                 # Extract all data from IMAP message while connection is open
@@ -392,19 +402,16 @@ class EmailPollingService:
         self.last_poll_status = "in_progress"
         self.last_error = None
 
-        logger.info("=" * 60)
-        logger.info("EMAIL POLLING - STARTING INBOX POLL")
-        logger.info("=" * 60)
-        logger.info(f"Poll started at: {self.last_poll_time.isoformat()}")
+        logger.debug("[EMAIL] Poll starting at %s", self.last_poll_time.isoformat())
 
         try:
             # Step 1: Fetch emails via thread pool (non-blocking)
-            logger.info("[POLL] Fetching emails from IMAP (in thread pool)...")
+            logger.debug("[POLL] Fetching emails from IMAP (in thread pool)...")
             fetched_emails = await asyncio.to_thread(self._fetch_unseen_emails_sync)
             poll_result["emails_found"] = len(fetched_emails)
 
             if not fetched_emails:
-                logger.info("[EMAIL] No unread emails to process")
+                logger.debug("[EMAIL] No unread emails to process")
             else:
                 logger.info(f"[EMAIL] Found {len(fetched_emails)} emails, starting processing...")
 
@@ -444,7 +451,7 @@ class EmailPollingService:
 
             poll_result["success"] = True
             self.last_poll_status = "success"
-            logger.info("[EMAIL] Polling completed successfully")
+            logger.debug("[EMAIL] Polling completed successfully")
 
         except Exception as e:
             logger.error("=" * 60)
@@ -464,16 +471,44 @@ class EmailPollingService:
 
         poll_result["completed_at"] = datetime.utcnow().isoformat()
 
-        logger.info("=" * 60)
-        logger.info("EMAIL POLLING - SUMMARY")
-        logger.info("=" * 60)
-        logger.info(f"Status: {self.last_poll_status.upper()}")
-        logger.info(f"Emails Found: {poll_result['emails_found']}")
-        logger.info(f"Emails Processed: {poll_result['emails_processed']}")
-        logger.info(f"Emails Escalated: {poll_result['emails_escalated']}")
-        logger.info(f"Errors: {len(poll_result['errors'])}")
-        logger.info(f"Total Processed Today: {self.emails_processed_today}")
-        logger.info("=" * 60)
+        # A poll that found nothing, every two minutes, was nineteen lines of
+        # banner around the word "0". At that rate the log is 13,000 lines a
+        # day of nothing, and a real warning in the middle of it is invisible
+        # — which is the only reason any of this matters.
+        #
+        # So: a quiet poll says nothing (DEBUG), except once an hour so the
+        # poller can still be seen to be alive, and on the poll where the
+        # state CHANGES — idle to busy, working to failing and back. A poll
+        # that found, processed, escalated or failed anything is always loud.
+        quiet = (
+            poll_result["emails_found"] == 0
+            and not poll_result["errors"]
+            and self.last_poll_status == "success"
+        )
+        changed = self.last_poll_status != self._last_logged_status
+        self._quiet_polls = (self._quiet_polls + 1) if quiet else 0
+        heartbeat = quiet and self._quiet_polls >= QUIET_POLL_HEARTBEAT_EVERY
+
+        if not quiet or changed or heartbeat:
+            summary = (
+                f"[EMAIL] poll {self.last_poll_status}: "
+                f"found={poll_result['emails_found']} "
+                f"processed={poll_result['emails_processed']} "
+                f"escalated={poll_result['emails_escalated']} "
+                f"errors={len(poll_result['errors'])} "
+                f"today={self.emails_processed_today}"
+            )
+            if poll_result["errors"] or self.last_poll_status != "success":
+                logger.warning(summary)
+            else:
+                logger.info(summary + (" (hourly heartbeat)" if heartbeat else ""))
+            if heartbeat:
+                self._quiet_polls = 0
+        else:
+            logger.debug(
+                f"[EMAIL] poll idle (0 unread, {self._quiet_polls} quiet in a row)"
+            )
+        self._last_logged_status = self.last_poll_status
 
         return poll_result
 

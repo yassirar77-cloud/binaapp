@@ -344,15 +344,25 @@ AI_QWEN_CSS_REFINE_TIMEOUT_SECONDS = float(os.getenv("AI_QWEN_CSS_REFINE_TIMEOUT
 
 
 @contextmanager
-def _timed_step(step_name: str, timings: Dict[str, float]):
+def _timed_step(step_name: str, timings: Dict[str, float], outcomes: Optional[Dict[str, str]] = None):
     """
     Measure wall-clock duration of a block and record it on `timings`.
 
     Works around `await` calls because only the enter/exit points read the
     clock — the event loop can suspend inside the block and the measurement
     remains accurate.
+
+    ``outcomes`` is how a step says what it actually DID. A duration on its
+    own cannot: mkl recorded ``qwen_refine: 60.003`` and
+    ``qwen_css_refine: 60.002``, which reads as two steps that ran for a
+    minute and finished. Both had timed out and been discarded. The
+    behaviour is right (a polish pass must never fail a working
+    generation), but the record said "complete" for something that did
+    nothing, and that is how a degraded pipeline stays invisible.
     """
     start = time.time()
+    if outcomes is not None:
+        outcomes.setdefault(step_name, "ran")
     try:
         yield
     finally:
@@ -7770,8 +7780,17 @@ IMPORTANT RULES:
         color_mode = str(getattr(request, "color_mode", "") or "").lower()
         if color_mode in ("light", "dark"):
             try:
-                from app.services.color_mode_guard import enforce_color_mode
+                from app.services.color_mode_guard import detect_color_mode, enforce_color_mode
                 palette = getattr(self, "_last_palette", None)
+                # Logged on EVERY generation, agreement included. Silence used
+                # to mean three different things — the guard agreed, the guard
+                # never ran, or color_mode never arrived — and mkl shipped a
+                # #FFFFFF page after a merchant picked Gelap with no line in
+                # the log to say which of the three had happened.
+                logger.info(
+                    f"🎨 Colour mode requested={color_mode} "
+                    f"page={detect_color_mode(html) or 'unstated'}"
+                )
                 html, report = enforce_color_mode(html, color_mode, palette)
                 if report.repainted:
                     logger.warning(
@@ -7783,6 +7802,14 @@ IMPORTANT RULES:
                     logger.warning(f"🎨 Colour mode mismatch not repaired: {report.notes}")
             except Exception as err:
                 logger.warning(f"⚠️ Colour-mode enforcement failed: {err}")
+        else:
+            # Not a real choice, so nothing below can enforce one. Worth a
+            # line: it is the difference between "the merchant wanted light"
+            # and "the pick never reached generation".
+            logger.info(
+                f"🎨 Colour mode: no explicit pick on this request "
+                f"(color_mode={getattr(request, 'color_mode', None)!r}) — not enforced"
+            )
 
         try:
             from app.services.contrast_guard import enforce_contrast
@@ -8719,6 +8746,10 @@ IMPORTANT RULES:
         # Step-by-step timing breakdown — instrumented to identify the bottleneck
         # behind the 651s generations seen in production (see Bug 3).
         step_timings: Dict[str, float] = {}
+        #: What each measured step actually did ("success", "skipped",
+        #: "fallback (error)"). A duration alone cannot tell a completed
+        #: step from one that timed out and was discarded.
+        step_outcomes: Dict[str, str] = {}
 
         # Helper to safely call progress callback
         async def update_progress(percent: int, message: str):
@@ -9421,7 +9452,7 @@ IMPORTANT INSTRUCTIONS:
         # truncated / materially-shorter result, we ship the un-refined DeepSeek
         # HTML. A polish pass must NEVER fail or delay a working generation.
         if html:
-            with _timed_step("qwen_refine", step_timings):
+            with _timed_step("qwen_refine", step_timings, step_outcomes):
                 original_html = html
                 refine_status = "skipped"
                 try:
@@ -9455,7 +9486,14 @@ IMPORTANT INSTRUCTIONS:
                 except Exception as e:
                     logger.warning(f"✨ Qwen refine raised — keeping DeepSeek HTML ({e})")
                     refine_status = "fallback (error)"
-                logger.info(f"✨ Qwen refine: {refine_status}")
+                step_outcomes["qwen_refine"] = refine_status
+                if refine_status.startswith("fallback"):
+                    logger.warning(
+                        f"✨ Qwen refine did NOT apply: {refine_status} — the page "
+                        "ships un-refined (recorded on the job row, not a completion)"
+                    )
+                else:
+                    logger.info(f"✨ Qwen refine: {refine_status}")
 
         # STEP 3b: Qwen CSS/visual refinement — sibling to the copy-refine above.
         # Runs on the SAME side of the image-binding boundary, so Cloudinary URLs
@@ -9466,7 +9504,7 @@ IMPORTANT INSTRUCTIONS:
         # version and keep the prior HTML — the safety net against the
         # "unstyled section" failure mode. Ships dark (flag default OFF).
         if AI_QWEN_CSS_REFINE_ENABLED and html:
-            with _timed_step("qwen_css_refine", step_timings):
+            with _timed_step("qwen_css_refine", step_timings, step_outcomes):
                 original_html = html
                 css_status = "skipped"
                 try:
@@ -9505,7 +9543,14 @@ IMPORTANT INSTRUCTIONS:
                 except Exception as e:
                     logger.warning(f"🎨 Qwen CSS refine raised — keeping prior HTML ({e})")
                     css_status = "fallback (error)"
-                logger.info(f"🎨 Qwen CSS refine: {css_status}")
+                step_outcomes["qwen_css_refine"] = css_status
+                if css_status.startswith("fallback"):
+                    logger.warning(
+                        f"🎨 Qwen CSS refine did NOT apply: {css_status} — the page "
+                        "ships without it (recorded on the job row, not a completion)"
+                    )
+                else:
+                    logger.info(f"🎨 Qwen CSS refine: {css_status}")
 
         # Fix any remaining issues
         with _timed_step("image_matching", step_timings):
@@ -9659,6 +9704,7 @@ IMPORTANT INSTRUCTIONS:
             validation_ok=validation.ok,
             validation_errors=validation.error_messages(),
             validation_warnings=[str(w) for w in validation.warnings],
+            step_outcomes=step_outcomes,
             was_truncated=truncation_flags.get("was_truncated", False),
             truncation_retries=truncation_flags.get("truncation_retries", 0),
             needs_manual_review=truncation_flags.get("needs_manual_review", False),

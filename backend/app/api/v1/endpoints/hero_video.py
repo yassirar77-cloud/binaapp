@@ -63,7 +63,7 @@ from __future__ import annotations
 import asyncio
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Literal, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -163,6 +163,15 @@ def prepared_adopt_window_seconds() -> float:
     except ValueError:
         return float(PREPARED_ADOPT_WINDOW_SECONDS)
 
+
+#: How long a stored clip may sit at ``ready``, with no site to go to,
+#: before every sweep says so at ERROR. Not a deadline — the claim window
+#: below is the deadline, and it is a day on purpose so a merchant who
+#: publishes tomorrow still gets the clip they paid for. This is the point
+#: at which "waiting" stops being indistinguishable from "stuck": job
+#: 14d4c4f1 held a lease for three and three-quarter hours, renewed on
+#: schedule, with no error, no log line and no counter moving.
+READY_STRANDED_AFTER_SECONDS = 30 * 60
 
 #: How long a stored clip may sit at ``ready`` before the sweep goes looking
 #: for the site it belongs on. Long enough that a publish in progress gets
@@ -1844,6 +1853,20 @@ async def resume_hero_video_jobs() -> int:
     return adopted
 
 
+def _row_age_seconds(row: Dict) -> Optional[float]:
+    """How long ago this job started, from the ledger row alone."""
+    raw = row.get("created_at")
+    if not raw:
+        return None
+    try:
+        began = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if began.tzinfo is None:
+        began = began.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - began).total_seconds()
+
+
 async def _site_for_prepared_clip(row: Dict) -> Optional[str]:
     """The site a stored-but-unclaimed clip belongs on, or None.
 
@@ -1918,12 +1941,53 @@ async def rehome_ready_hero_video_jobs() -> Dict:
     anything is written.
     """
     applied: List[str] = []
+    stranded: List[str] = []
+    expired: List[str] = []
     skipped = 0
     for row in await ledger.load_ready_unapplied(READY_REHOME_GRACE_SECONDS):
         job_id = str(row.get("job_id") or "")
+        age = _row_age_seconds(row)
+        # Past the claim window the clip is not waiting for anything: the
+        # driver that would have ended it is gone, and nothing else was
+        # looking. End it here so "stalled" always terminates, whoever owns
+        # the row and whether or not any process still holds it.
+        if age is not None and age > prepared_claim_window_seconds():
+            if ledger.lease_is_live(row) or not await ledger.claim(job_id, "ready"):
+                continue
+            try:
+                stale_job = ledger.job_from_row(row)
+            except Exception as exc:  # noqa: BLE001
+                logger.error(f"[hero-video] ready sweep: row {job_id} unreadable: {exc!r}")
+                continue
+            zai_video_service.adopt_job(stale_job)
+            await _fail_job(
+                stale_job, "unclaimed",
+                detail=f"stored clip was never published within {int(age)}s "
+                       "(ended by the sweep, not by its driver)",
+            )
+            expired.append(job_id)
+            continue
         website_id = str(row.get("website_id") or "") or await _site_for_prepared_clip(row)
         if not website_id:
             skipped += 1
+            # No site to put it on. That is legitimate for a while — a
+            # merchant who prepares a clip and publishes tomorrow should
+            # still get it — but it must not be SILENT for a day. Job
+            # 14d4c4f1 sat here from 05:06 to the next morning looking, from
+            # the row, exactly like a healthy job: lease renewed minutes
+            # ago, poll_errors 0, no error, nothing in any log. The only
+            # thing that distinguished it was that last_polled_at had not
+            # moved since the provider finished, which is normal for
+            # `ready` and therefore proves nothing.
+            if age is not None and age > READY_STRANDED_AFTER_SECONDS:
+                stranded.append(job_id)
+                logger.error(
+                    f"🚨 HERO_VIDEO_STRANDED job={job_id} user={row.get('user_id')} "
+                    f"waiting={int(age)}s status=ready applied=false "
+                    f"charged={row.get('charged')} video={str(row.get('video_url'))[:60]} "
+                    "— stored clip with no published site to apply it to. It is "
+                    f"released and refunded at {int(prepared_claim_window_seconds())}s."
+                )
             continue
         job = zai_video_service.get_job(job_id)
         if job is None:
@@ -1957,8 +2021,14 @@ async def rehome_ready_hero_video_jobs() -> Dict:
         logger.info(
             f"[hero-video] ready sweep: applied {len(applied)} orphaned clip(s), "
             f"{skipped} with no site to apply to yet"
+            + (f", {len(stranded)} stranded past {READY_STRANDED_AFTER_SECONDS}s" if stranded else "")
         )
-    return {"applied": applied, "no_site": skipped}
+    return {
+        "applied": applied,
+        "no_site": skipped,
+        "stranded": stranded,
+        "expired": expired,
+    }
 
 
 async def sweep_stuck_hero_video_jobs() -> Dict:

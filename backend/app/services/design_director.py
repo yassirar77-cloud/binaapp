@@ -255,11 +255,20 @@ GOOGLE_FONTS: Dict[str, Dict[str, str]] = {
 
 #: Fallback stacks per category — what the browser shows while (or if) the
 #: webfont never arrives.
+#: No family name inside these is quoted, and that is deliberate. The stack
+#: is handed to the model as a string and the model writes it into a
+#: single-quoted JavaScript string in `tailwind.config`; an inner `'Segoe
+#: UI'` closed that string early and the whole config became a SyntaxError
+#: (mkl, 2026-09-16 — `tailwind.config` never applied, so `primary`,
+#: `secondary`, `accent` and `surface` were never registered and the page
+#: only looked right because the model also wrote literal hex classes).
+#: A multi-word family name is legal CSS unquoted, so nothing here needs a
+#: quote and neither quote character can break the file it lands in.
 FONT_FALLBACKS = {
-    "sans": "system-ui, -apple-system, 'Segoe UI', sans-serif",
-    "serif": "Georgia, 'Times New Roman', serif",
-    "display": "Impact, 'Arial Black', sans-serif",
-    "handwriting": "'Comic Sans MS', cursive",
+    "sans": "system-ui, -apple-system, Segoe UI, sans-serif",
+    "serif": "Georgia, Times New Roman, serif",
+    "display": "Impact, Arial Black, sans-serif",
+    "handwriting": "Comic Sans MS, cursive",
 }
 
 #: Lower-cased lookup so "playfair display" / "PLAYFAIR DISPLAY" resolve.

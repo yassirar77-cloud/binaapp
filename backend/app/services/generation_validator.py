@@ -34,7 +34,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 # ---------------------------------------------------------------------------
 # Phone helpers — shared with ai_service so the "what is a fake number"
@@ -346,6 +346,209 @@ def _check_price_integrity(html: str, brief: GenerationBrief) -> List[Validation
             "A supplied price is missing from the page",
             f"{item.get('name', '?')}: {price}",
         ))
+    return issues
+
+
+#: A heading with its position in the document, so a price can be attributed
+#: to the card it sits in.
+_HEADING_POS_RE = re.compile(r"<h[1-6]\b[^>]*>(.*?)</h[1-6]>", re.IGNORECASE | re.DOTALL)
+
+
+def _headings_with_positions(html: str) -> List[Tuple[int, str]]:
+    """``(offset, text)`` for every heading, in document order."""
+    out: List[Tuple[int, str]] = []
+    for match in _HEADING_POS_RE.finditer(_strip_scripts(html)):
+        text = re.sub(r"\s+", " ", _TAG_RE.sub(" ", match.group(1))).strip()
+        if text:
+            out.append((match.start(), text))
+    return out
+
+
+def _price_needles(price: str) -> List[str]:
+    """The forms one supplied price can take on the page: ``RM55.00``,
+    ``RM 55.00``, ``55.00``. Compared against text with tags stripped."""
+    raw = (price or "").strip()
+    if not raw:
+        return []
+    digits = re.sub(r"^\s*rm\s*", "", raw, flags=re.IGNORECASE).strip()
+    return [n for n in {raw.lower(), f"rm{digits}".lower(), digits.lower()} if n]
+
+
+def _check_item_integrity(html: str, brief: GenerationBrief) -> List[ValidationIssue]:
+    """5. The merchant's items survive the pipeline — ERROR.
+
+    Three runs produced three different corruptions of the same input, and
+    none of them were visible to any check here:
+
+      * katering — a supplied item ("Pakej Doa Selamat") simply vanished;
+      * mkl — item 4 ("Udang Bakar (per kg)", RM55) shipped carrying item
+        3's NAME AND DESCRIPTION with its own price, so "Sotong Bakar
+        RM55.00" appeared on the page and in the JSON-LD while udang
+        appeared nowhere. A customer orders sotong; the kitchen grills
+        udang.
+
+    ``_check_price_integrity`` passed both times — every supplied price WAS
+    on the page. ``_check_derived_item_names`` passed too: the name on the
+    card is a name the merchant supplied, just not for that item. The gap is
+    that nothing checked the PAIRING, or that each name appears at all, or
+    that it appears once.
+
+    So: every supplied name is present; no supplied name is used by two
+    different item cards; and a supplied price sits under its own item's
+    name. The name a price is attributed to is the nearest heading above it,
+    which is how every generated menu card is built (prompt-mandated <h3>,
+    price below it).
+    """
+    issues: List[ValidationIssue] = []
+    items = [i for i in (brief.menu_items or []) if (i.get("name") or "").strip()]
+    if not items:
+        return issues
+
+    stripped = _strip_scripts(html)
+    text = _norm(_TAG_RE.sub(" ", stripped))
+    headings = _headings_with_positions(html)
+    supplied_by_name = {_norm(i["name"]): i for i in items}
+
+    # (a) Nothing the merchant listed may go missing.
+    for item in items:
+        if _norm(item["name"]) not in text:
+            issues.append(ValidationIssue(
+                "missing_item_name",
+                "A supplied item is missing from the page",
+                f"{item['name']}" + (f" ({item.get('price')})" if item.get("price") else ""),
+            ))
+
+    # (b) No supplied name may head two different cards. One name, one item:
+    # a repeat means a second item was overwritten with this one.
+    for name, item in supplied_by_name.items():
+        used = [h for _pos, h in headings if _norm(h) == name]
+        if len(used) > 1:
+            issues.append(ValidationIssue(
+                "duplicate_item_name",
+                "One supplied item name heads more than one card",
+                f"{item['name']} x{len(used)}",
+            ))
+
+    # (c) A price must sit under its OWN name. This is the check that
+    # catches a real price wearing another item's name.
+    for item in items:
+        needles = _price_needles(item.get("price") or "")
+        if not needles:
+            continue
+        own = _norm(item["name"])
+        for match in re.finditer(r"RM\s?\d[\d,]*(?:\.\d{1,2})?", stripped, re.IGNORECASE):
+            if not any(_norm(match.group(0)) == n or _norm(match.group(0)).replace(" ", "") == n.replace(" ", "")
+                       for n in needles):
+                continue
+            heading = ""
+            for pos, htext in headings:
+                if pos < match.start():
+                    heading = htext
+                else:
+                    break
+            key = _norm(heading)
+            # Only a heading that is ANOTHER supplied item's name is
+            # evidence of a swap; a section heading ("Menu") means the price
+            # is in a band or a summary, which this check says nothing about.
+            if key and key != own and key in supplied_by_name:
+                issues.append(ValidationIssue(
+                    "item_price_name_mismatch",
+                    "A supplied price is shown under a different item's name",
+                    f"{item['name']} ({item.get('price')}) appears under \"{heading}\"",
+                ))
+                break
+    return issues
+
+
+_INLINE_SCRIPT_RE = re.compile(
+    r"<script\b(?![^>]*\bsrc=)[^>]*>(.*?)</script>", re.IGNORECASE | re.DOTALL
+)
+
+#: What may legally follow a JavaScript string literal. Anything else means
+#: the quote we just treated as the closing one was actually inside the
+#: string — the shape that broke mkl's Tailwind config.
+_AFTER_STRING_CHARS = set(",;:)]}=+&|?.<>!*/%\n\r\t ")
+
+
+def _unbalanced_string_literal(source: str) -> str:
+    """The first string literal in ``source`` that does not end where it
+    claims to, or "" when the quoting is consistent.
+
+    Deliberately not a JavaScript parser: it walks quotes and comments only,
+    which is all that is needed to catch a family name quoted inside a
+    same-quoted string —
+
+        'system-ui, -apple-system, 'Segoe UI', sans-serif'
+
+    — where the literal "closes" immediately before a letter. That is a
+    SyntaxError, and a SyntaxError in an inline script means the whole
+    block never runs: mkl shipped a tailwind.config that was never applied,
+    so every custom colour it declared was silently absent.
+    """
+    i, n = 0, len(source)
+    while i < n:
+        ch = source[i]
+        if ch in "/" and i + 1 < n and source[i + 1] in "/*":
+            if source[i + 1] == "/":
+                i = source.find("\n", i)
+                if i == -1:
+                    return ""
+            else:
+                end = source.find("*/", i + 2)
+                if end == -1:
+                    return ""
+                i = end + 2
+            continue
+        if ch not in "\"'`":
+            i += 1
+            continue
+        quote, start = ch, i
+        i += 1
+        while i < n:
+            if source[i] == "\\":
+                i += 2
+                continue
+            if source[i] == quote:
+                break
+            if quote == "`" and source[i] == "\n":
+                i += 1
+                continue
+            if quote != "`" and source[i] == "\n":
+                # A plain string literal cannot span lines.
+                return source[start:i].strip()[:120]
+            i += 1
+        if i >= n:
+            return source[start:start + 120].strip()
+        i += 1  # past the closing quote
+        if quote != "`":
+            after = source[i:i + 1]
+            if after and after not in _AFTER_STRING_CHARS:
+                return source[start:i].strip()[:120]
+    return ""
+
+
+def _check_inline_script_syntax(html: str, brief: GenerationBrief) -> List[ValidationIssue]:
+    """6. An inline <script> that cannot parse — ERROR.
+
+    A page whose ``tailwind.config`` throws still LOOKS right when the model
+    has also written literal hex classes everywhere, so this never surfaces
+    as "the page is broken" — it surfaces months later as "why does
+    `bg-primary` do nothing". The failure is total (the block does not run
+    at all) and invisible, which is the combination worth blocking on.
+    """
+    issues: List[ValidationIssue] = []
+    for match in _INLINE_SCRIPT_RE.finditer(html or ""):
+        body = match.group(1)
+        if not body.strip():
+            continue
+        bad = _unbalanced_string_literal(body)
+        if bad:
+            label = "tailwind.config" if "tailwind.config" in body else "inline script"
+            issues.append(ValidationIssue(
+                "invalid_inline_script",
+                f"A {label} block has a broken string literal and will not run",
+                bad,
+            ))
     return issues
 
 
@@ -776,6 +979,8 @@ _ERROR_CHECKS = (
     _check_placeholder_contacts,
     _check_derived_item_names,
     _check_price_integrity,
+    _check_item_integrity,
+    _check_inline_script_syntax,
     _check_required_fields,
     _check_sanitizer_trace,
     _check_generic_business_name,

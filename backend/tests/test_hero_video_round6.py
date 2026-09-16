@@ -54,6 +54,22 @@ patches = pytest.importorskip("tests.test_hero_video_api").patches
 USER = "test-user-id-12345"
 
 
+@pytest.fixture
+def loglines():
+    """Capture loguru output as '<LEVEL> <message>' lines."""
+    from loguru import logger
+
+    lines = []
+    sink = logger.add(
+        lambda m: lines.append(f"{m.record['level'].name} {m.record['message']}"),
+        level="DEBUG",
+    )
+    try:
+        yield lines
+    finally:
+        logger.remove(sink)
+
+
 # ---------------------------------------------------------------------------
 # The page, as mimk actually shipped it
 # ---------------------------------------------------------------------------
@@ -359,7 +375,8 @@ class TestTheSweepRehomesAReadyClip:
         patches["ledger_ready_unapplied"].return_value = [_ready_row("orphan-4")]
         with patch.object(ep, "_site_for_prepared_clip", new=AsyncMock(return_value=None)):
             result = await ep.rehome_ready_hero_video_jobs()
-        assert result == {"applied": [], "no_site": 1}
+        assert result["applied"] == [] and result["no_site"] == 1
+        assert result["expired"] == []
         assert svc.zai_video_service.get_job("orphan-4") is None
 
     async def test_a_row_another_process_is_driving_is_not_stolen(self, patches):
@@ -422,3 +439,59 @@ class TestTheLedgerIsNotRewrittenOnEveryPoll:
         await ep._advance_hero_video_job(job, "ws-1", test_user_id)
         assert patches["ledger_save"].await_count == before + 1
         assert job.provider_status == "RUNNING"
+
+
+# ---------------------------------------------------------------------------
+# A ready clip is never silently held (round 7 / job 14d4c4f1)
+# ---------------------------------------------------------------------------
+
+class TestAStrandedClipIsLoudAndBounded:
+    """14d4c4f1 sat at `ready` for 3h43m: lease renewed minutes earlier,
+    poll_errors 0, no error, no log line, nothing to distinguish it from a
+    healthy job. It was not stuck — a prepared clip waits for the publish
+    that will carry it, and that window is a day on purpose — but "waiting"
+    and "dead" looked identical, so nobody could tell which it was."""
+
+    async def test_a_clip_with_no_site_is_reported_at_error(self, patches, loglines):
+        patches["ledger_ready_unapplied"].return_value = [_ready_row("lonely-1", minutes_ago=200)]
+        with patch.object(ep, "_site_for_prepared_clip", new=AsyncMock(return_value=None)):
+            result = await ep.rehome_ready_hero_video_jobs()
+        assert result["stranded"] == ["lonely-1"]
+        assert any("HERO_VIDEO_STRANDED" in line and "lonely-1" in line for line in loglines)
+
+    async def test_a_clip_inside_the_grace_is_not_shouted_about(self, patches, loglines):
+        patches["ledger_ready_unapplied"].return_value = [_ready_row("young-1", minutes_ago=5)]
+        with patch.object(ep, "_site_for_prepared_clip", new=AsyncMock(return_value=None)):
+            result = await ep.rehome_ready_hero_video_jobs()
+        assert result["stranded"] == []
+        assert not any("HERO_VIDEO_STRANDED" in line for line in loglines)
+
+    async def test_past_the_claim_window_the_sweep_ends_it(self, patches, monkeypatch):
+        monkeypatch.setenv("HERO_VIDEO_CLAIM_WINDOW_SECONDS", "3600")
+        patches["ledger_ready_unapplied"].return_value = [_ready_row("old-1", minutes_ago=90)]
+        with patch.object(ep, "_site_for_prepared_clip", new=AsyncMock(return_value=None)):
+            result = await ep.rehome_ready_hero_video_jobs()
+        assert result["expired"] == ["old-1"]
+        # Terminal in the ledger: failed, with the reason, and refunded.
+        saved = [c.args[0] for c in patches["ledger_save"].await_args_list]
+        final = [j for j in saved if j.job_id == "old-1"][-1]
+        assert final.status == svc.JOB_STATUS_FAILED and final.error == "unclaimed"
+        row = ep.ledger.row_from_job(final)
+        assert row["finished_at"] is not None and row["lease_owner"] is None
+        patches["refund_credit"].assert_awaited()
+
+    async def test_a_row_another_process_holds_is_not_ended_here(self, patches, monkeypatch):
+        monkeypatch.setenv("HERO_VIDEO_CLAIM_WINDOW_SECONDS", "3600")
+        row = _ready_row("leased-1", minutes_ago=120)
+        row["lease_owner"] = "another-process"
+        row["lease_until"] = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+        patches["ledger_ready_unapplied"].return_value = [row]
+        result = await ep.rehome_ready_hero_video_jobs()
+        assert result["expired"] == []
+
+    async def test_a_clip_that_can_be_applied_is_applied_not_expired(self, patches, monkeypatch):
+        monkeypatch.setenv("HERO_VIDEO_CLAIM_WINDOW_SECONDS", "36000")
+        patches["ledger_ready_unapplied"].return_value = [_ready_row("home-1", minutes_ago=200)]
+        with patch.object(ep, "_site_for_prepared_clip", new=AsyncMock(return_value="ws-1")):
+            result = await ep.rehome_ready_hero_video_jobs()
+        assert result["applied"] == ["home-1"] and result["expired"] == []

@@ -2125,20 +2125,56 @@ async def run_generation_task(
         # generations (Bug 3 — diagnostic only, optimization comes after).
         if supabase:
             try:
+                # A validation error is the page contradicting the merchant's
+                # own brief — a vanished item, a price under the wrong name,
+                # a theme they did not pick. It was computed on every
+                # generation, logged, and then read by nobody: the docstring
+                # on AIGenerationResponse says callers "MUST fail closed",
+                # and no caller ever looked at validation_ok. So it ships,
+                # and the merchant is the one who finds out.
+                #
+                # It is recorded here and the row is flagged. Not blocked:
+                # a merchant with a wrong item name still has a site, and
+                # refusing to deliver one helps nobody — but it is now
+                # impossible for this to be invisible.
+                _validation_failed = not ai_response.validation_ok
                 diag_update = {
                     "was_truncated": ai_response.was_truncated,
                     "truncation_retries": ai_response.truncation_retries,
-                    "needs_manual_review": ai_response.needs_manual_review,
+                    "needs_manual_review": bool(
+                        ai_response.needs_manual_review or _validation_failed
+                    ),
                     "step_timings": ai_response.step_timings or {},
+                    "validation": {
+                        "ok": ai_response.validation_ok,
+                        "errors": list(ai_response.validation_errors or []),
+                        "warnings": list(ai_response.validation_warnings or []),
+                        # What each measured step actually did. A step that
+                        # timed out and was discarded is not a completion,
+                        # however long it ran.
+                        "steps": dict(ai_response.step_outcomes or {}),
+                    },
                     "updated_at": datetime.now().isoformat(),
                 }
                 supabase.table("generation_jobs").update(diag_update).eq("job_id", job_id).execute()
+                if _validation_failed:
+                    logger.error(
+                        f"🔴 Job {job_id[:8]} DELIVERED WITH VALIDATION ERRORS "
+                        f"({len(ai_response.validation_errors)}): "
+                        + "; ".join(ai_response.validation_errors[:6])
+                    )
                 if ai_response.needs_manual_review:
                     logger.error(
                         f"🔴 Job {job_id[:8]} flagged for manual review (double truncation)"
                     )
             except Exception as diag_err:
                 logger.warning(f"⚠️ Could not persist generation diagnostics: {diag_err}")
+                try:
+                    supabase.table("generation_jobs").update(
+                        {k: v for k, v in diag_update.items() if k != "validation"}
+                    ).eq("job_id", job_id).execute()
+                except Exception as retry_err:
+                    logger.warning(f"⚠️ Diagnostics retry failed too: {retry_err}")
 
         # ==================== SAFETY NET (ENFORCE USER CHOICES) ====================
         # Remove unwanted images (even if AI ignores prompt)
@@ -2575,6 +2611,62 @@ async def start_generation(request: Request):
         logger.error(f"❌ Invalid JSON: {e}")
         return JSONResponse(status_code=400, content={"success": False, "error": "Invalid JSON"})
     return await _start_generation_from_body(body)
+
+
+def _input_payload_for_job(body: dict) -> dict:
+    """The merchant's request, small enough and safe enough to keep forever.
+
+    Every post-generation check measures the output against this; without it
+    a report like "item 4 came back with item 3's name" cannot be settled at
+    all, which is exactly where the last three of them ended up. What it
+    drops: uploaded image blobs and any base64 (a payment QR), which are
+    bulky and say nothing about what the merchant asked for. The IMAGE
+    NAMES and prices stay — that is the item list.
+    """
+    body = body or {}
+
+    def _clean_images(raw):
+        out = []
+        for img in (raw or [])[:40]:
+            if not isinstance(img, dict):
+                continue
+            out.append({
+                k: v for k, v in img.items()
+                if k in ("name", "price", "category", "slot")
+                and isinstance(v, (str, int, float))
+            })
+        return out
+
+    payment = body.get("payment")
+    if isinstance(payment, dict):
+        payment = {k: v for k, v in payment.items() if k != "qr_image"}
+
+    return {
+        "business_name": body.get("business_name"),
+        "business_type": body.get("business_type"),
+        "description": body.get("description") or body.get("business_description"),
+        "language": body.get("language"),
+        # The four fields the last three reports all turned on.
+        "menu_items": [
+            i for i in (body.get("menu_items") or [])[:60] if isinstance(i, dict)
+        ],
+        "color_mode": body.get("color_mode") or body.get("colorMode"),
+        "design_style": body.get("design_style") or body.get("designStyle"),
+        "features": body.get("features"),
+        "gallery_metadata": _clean_images(body.get("gallery_metadata")),
+        "image_choice": body.get("image_choice"),
+        "show_prices": body.get("show_prices"),
+        "hero_video": body.get("hero_video"),
+        "hero_image_prompt": body.get("hero_image_prompt"),
+        "address": body.get("address"),
+        "whatsapp_number": body.get("whatsapp_number"),
+        "opening_hours": body.get("opening_hours"),
+        "multi_style": body.get("multi_style") or body.get("multiStyle"),
+        "template_id": body.get("template_id"),
+        "payment": payment,
+        "delivery": body.get("delivery"),
+        "is_24h": body.get("is_24h"),
+    }
 
 
 def _stash_request_body(body: dict) -> dict:
@@ -3147,16 +3239,41 @@ MANDATORY REQUIREMENTS:
                 "progress": 0,
                 "description": description,
                 "user_id": user_id,
+                # What the merchant actually asked for (migration 057). The
+                # row used to keep the description and nothing else, so an
+                # item list that came back wrong could not be compared with
+                # the one that went in.
+                "input_payload": _input_payload_for_job(body),
                 "created_at": datetime.now().isoformat(),
                 "updated_at": datetime.now().isoformat()
             }).execute()
             logger.info("✅ Job created in database")
         except Exception as db_error:
+            # input_payload arrived with migration 057. A database that has
+            # not had it applied must not stop merchants generating sites,
+            # so the insert is retried without it — loudly, because a run
+            # with no stored input is a run nobody can audit afterwards.
             logger.error(f"❌ Failed to create job: {db_error}")
-            return JSONResponse(status_code=500, content={
-                "success": False,
-                "error": f"Database error: {str(db_error)}"
-            })
+            try:
+                supabase.table("generation_jobs").insert({
+                    "job_id": job_id,
+                    "status": "processing",
+                    "progress": 0,
+                    "description": description,
+                    "user_id": user_id,
+                    "created_at": datetime.now().isoformat(),
+                    "updated_at": datetime.now().isoformat()
+                }).execute()
+                logger.error(
+                    "⚠️ Job created WITHOUT input_payload — migration 057 not "
+                    "applied on this database; this run cannot be audited"
+                )
+            except Exception as retry_error:
+                logger.error(f"❌ Failed to create job (retry): {retry_error}")
+                return JSONResponse(status_code=500, content={
+                    "success": False,
+                    "error": f"Database error: {str(retry_error)}"
+                })
 
     # Run generation with asyncio (NOT BackgroundTasks!)
     asyncio.create_task(run_generation_task(

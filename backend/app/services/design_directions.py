@@ -83,11 +83,20 @@ BODY_FONTS: Dict[str, Dict[str, str]] = {
 ALLOWED_FONTS: Dict[str, Dict[str, str]] = {**DISPLAY_FONTS, **BODY_FONTS}
 
 #: CSS fallback stack per class — what shows while (or if) the webfont never arrives.
+#: No family name inside these is quoted, and that is deliberate. The stack
+#: is handed to the model as a string and the model writes it into a
+#: single-quoted JavaScript string in `tailwind.config`; an inner `'Segoe
+#: UI'` closed that string early and the whole config became a SyntaxError
+#: (mkl, 2026-09-16 — `tailwind.config` never applied, so `primary`,
+#: `secondary`, `accent` and `surface` were never registered and the page
+#: only looked right because the model also wrote literal hex classes).
+#: A multi-word family name is legal CSS unquoted, so nothing here needs a
+#: quote and neither quote character can break the file it lands in.
 FONT_FALLBACKS_FOR: Dict[str, str] = {
-    "serif": "Georgia, 'Times New Roman', serif",
-    "grotesk": "system-ui, -apple-system, 'Segoe UI', sans-serif",
-    "humanist": "system-ui, -apple-system, 'Segoe UI', sans-serif",
-    "rounded": "'Trebuchet MS', system-ui, sans-serif",
+    "serif": "Georgia, Times New Roman, serif",
+    "grotesk": "system-ui, -apple-system, Segoe UI, sans-serif",
+    "humanist": "system-ui, -apple-system, Segoe UI, sans-serif",
+    "rounded": "Trebuchet MS, system-ui, sans-serif",
 }
 _FONT_LOOKUP = {name.lower(): name for name in ALLOWED_FONTS}
 

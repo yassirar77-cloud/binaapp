@@ -392,6 +392,12 @@ class AIGenerationResponse(BaseModel):
     # Step-by-step timing breakdown for the generation pipeline — used to
     # identify bottlenecks in production (see Bug 3 diagnostic instrumentation).
     step_timings: Dict[str, float] = {}
+    # What each step DID, beside how long it took: "success", "skipped",
+    # "fallback (error)". A 60.00s duration on a step with a 60s timeout is
+    # a timeout, and recording only the duration made it read as a
+    # completion (mkl: qwen_refine and qwen_css_refine both timed out and
+    # both looked like finished work).
+    step_outcomes: Dict[str, str] = {}
     # Post-generation validation result (generation_validator). validation_ok
     # False means the output contradicts the merchant's own brief — callers
     # MUST fail closed and surface validation_errors rather than publishing.
