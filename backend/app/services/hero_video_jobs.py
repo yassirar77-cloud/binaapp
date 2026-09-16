@@ -340,6 +340,41 @@ async def claim(job_id: str, status: str) -> bool:
         return False
 
 
+async def load_ready_unapplied(older_than_seconds: float = 0.0) -> List[Dict[str, Any]]:
+    """Every ``ready`` row that has a stored clip and has not been applied.
+
+    A ``ready`` job is a clip that was made before its site existed and is
+    waiting for the publish that will carry it. That publish finds it by job
+    id, in the registry of the process that made it — so a publish that
+    reaches another process, or that lost the id (a reload, a payment
+    redirect), left a finished clip sitting here with ``applied=false`` and
+    the merchant looking at a static hero. These rows are what the sweep
+    re-homes; ``older_than_seconds`` keeps it off a clip a publish is
+    plausibly about to claim.
+    """
+    params = {"status": "eq.ready", "applied": "is.false", "video_url": "not.is.null"}
+    if older_than_seconds > 0:
+        cutoff = _utcnow() - timedelta(seconds=older_than_seconds)
+        params["updated_at"] = f"lt.{cutoff.isoformat()}"
+    return await _select(params)
+
+
+async def load_ready_for_user(user_id: str, within_seconds: float) -> List[Dict[str, Any]]:
+    """This user's unapplied ``ready`` clips, newest first, no older than
+    ``within_seconds``. What a publish with no usable job id may claim."""
+    if not user_id:
+        return []
+    cutoff = _utcnow() - timedelta(seconds=max(0.0, within_seconds))
+    rows = await _select({
+        "status": "eq.ready",
+        "applied": "is.false",
+        "video_url": "not.is.null",
+        "user_id": f"eq.{user_id}",
+        "created_at": f"gte.{cutoff.isoformat()}",
+    })
+    return list(reversed(rows))  # _select orders created_at.asc
+
+
 async def load_stale(older_than_seconds: float) -> List[Dict[str, Any]]:
     """Rows still processing/storing that started more than
     ``older_than_seconds`` ago — the sweep's definition of stuck."""

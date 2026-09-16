@@ -33,6 +33,7 @@ from app.services import hero_video_patcher as hp
 IMG = "https://res.cloudinary.com/dx/image/upload/v1789228300/binaapp/butik.jpg"
 HOST_TAG = f' {HERO_MEDIA_ATTR}="host"'
 REPLACED_TAG = f' {HERO_MEDIA_ATTR}="replaced"'
+HOSTED_TAG = f' {HERO_MEDIA_ATTR}="replaced-hosted"'
 
 # maka's hero as generated: light page, split hero, photo in a 50% column.
 MAKA = (
@@ -82,7 +83,10 @@ class TestHostedInTheMediaColumn:
 
     def test_column_and_photo_are_both_stamped(self):
         html = apply_hero_video(MAKA, _settings()).html
-        assert html.count(HOST_TAG) == 1 and html.count(REPLACED_TAG) == 1
+        # A hosted photo is stamped `replaced-hosted`: it gives up its
+        # pixels but keeps its box, which is what gives the column height.
+        assert html.count(HOST_TAG) == 1 and html.count(HOSTED_TAG) == 1
+        assert REPLACED_TAG not in html
         assert HOST_TAG in html[html.index('class="hero-image-container'):html.index(BLOCK_START)]
 
     def test_the_text_column_is_untouched(self):

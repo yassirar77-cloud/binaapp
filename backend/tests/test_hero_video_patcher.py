@@ -23,7 +23,7 @@ from app.services.hero_video_patcher import (
     remove_hero_video,
 )
 
-VIDEO = "https://res.cloudinary.com/demo/video/upload/q_auto:eco,w_1280,c_limit,ac_none/v1/binaapp/hero-videos/ws-1-abc.mp4"
+VIDEO = "https://res.cloudinary.com/demo/video/upload/q_auto:good,w_1920,c_limit,ac_none/v1/binaapp/hero-videos/ws-1-abc.mp4"
 POSTER = "https://res.cloudinary.com/demo/video/upload/v1/binaapp/hero-videos/ws-1-abc.jpg"
 
 TEMPLATE_PAGE = (
@@ -388,12 +388,21 @@ SLIM = f"https://res.cloudinary.com/demo/video/upload/{HERO_VIDEO_DELIVERY_TRANS
 class TestDeliveryUrl:
     def test_inserts_the_transform_after_video_upload(self):
         assert hero_video_delivery_url(RAW) == SLIM
-        assert HERO_VIDEO_DELIVERY_TRANSFORM == "q_auto:eco,w_1280,c_limit,ac_none"
+        assert HERO_VIDEO_DELIVERY_TRANSFORM == "q_auto:good,w_1920,c_limit,ac_none"
 
     def test_idempotent(self):
         assert hero_video_delivery_url(SLIM) == SLIM
         already = "https://res.cloudinary.com/demo/video/upload/w_640,q_auto/v1/a/b.mp4"
         assert hero_video_delivery_url(already) == already
+
+    def test_a_url_cut_by_an_earlier_release_is_re_cut(self):
+        # Ours, from the eco/1280 release: re-cut, not left alone, so a page
+        # already carrying a clip picks up the better delivery on re-apply.
+        legacy = (
+            "https://res.cloudinary.com/demo/video/upload/"
+            "q_auto:eco,w_1280,c_limit,ac_none/v1789037467/binaapp/hero-videos/ws-1-af.mp4"
+        )
+        assert hero_video_delivery_url(legacy) == SLIM
 
     def test_versionless_folder_first_url_is_still_transformed(self):
         url = "https://res.cloudinary.com/demo/video/upload/binaapp/hero-videos/x.mp4"
@@ -440,7 +449,13 @@ class TestOneHeroVisual:
 
     def test_the_heros_copy_of_the_poster_photo_is_hidden(self):
         html = apply_hero_video(self.PAGE, _settings(poster_url=self.PHOTO)).html
-        assert f'[{HERO_MARKER_ATTR}] img[src="{self.PHOTO}"]{{display:none !important;}}' in html
+        # Scoped to media the structural pass did NOT claim: a hosted clip
+        # needs the box its own <img> occupies (see round 6 / mimk).
+        assert (
+            f'[{HERO_MARKER_ATTR}] img[src="{self.PHOTO}"]'
+            '[m]{display:none !important;}'.replace(
+                "[m]", ':not([data-binaapp-hero-media])')
+        ) in html
         assert (
             f'[{HERO_MARKER_ATTR}] [style*="{self.PHOTO}"]:not(.binaapp-hero-video-layer)'
             "{background-image:none !important;}"

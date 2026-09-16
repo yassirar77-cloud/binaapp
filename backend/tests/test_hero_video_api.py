@@ -48,7 +48,7 @@ NO_HERO_HTML = "<!DOCTYPE html><html><head></head><body><p>hi</p></body></html>"
 # Truncated mid-tag: no </body>, no </html>. The mimba failure shape.
 TRUNCATED_HTML = '<!DOCTYPE html><html><head></head><body><img src="https://x'
 
-CLOUD_VIDEO = "https://res.cloudinary.com/demo/video/upload/q_auto:eco,w_1280,c_limit,ac_none/v1/binaapp/hero-videos/ws-1-ab.mp4"
+CLOUD_VIDEO = "https://res.cloudinary.com/demo/video/upload/q_auto:good,w_1920,c_limit,ac_none/v1/binaapp/hero-videos/ws-1-ab.mp4"
 CLOUD_POSTER = "https://res.cloudinary.com/demo/video/upload/v1/binaapp/hero-videos/ws-1-ab.jpg"
 
 # Built with an EXPLICIT overlay: the patcher's default is now "auto"
@@ -131,6 +131,13 @@ def patches():
         patch.object(ep.ledger, "load", new=AsyncMock(return_value=None)) as ledger_load,
         patch.object(ep.ledger, "load_claimable", new=AsyncMock(return_value=[])) as ledger_claimable,
         patch.object(ep.ledger, "load_stale", new=AsyncMock(return_value=[])) as ledger_stale,
+        # One context manager for the two "ready row" lookups: CPython caps a
+        # `with` at 20 blocks and this fixture is at the limit.
+        patch.multiple(
+            ep.ledger,
+            load_ready_unapplied=AsyncMock(return_value=[]),
+            load_ready_for_user=AsyncMock(return_value=[]),
+        ),
         patch.object(ep.ledger, "claim", new=AsyncMock(return_value=True)) as ledger_claim,
         patch(
             "app.services.email_service.email_service.send_admin_notification",
@@ -145,6 +152,10 @@ def patches():
             "ledger_load": ledger_load,
             "ledger_claimable": ledger_claimable,
             "ledger_stale": ledger_stale,
+            # patch.multiple with explicit `new` objects yields nothing, so
+            # these come off the patched module.
+            "ledger_ready_unapplied": ep.ledger.load_ready_unapplied,
+            "ledger_ready_for_user": ep.ledger.load_ready_for_user,
             "ledger_claim": ledger_claim,
             "admin_email": admin_email,
             "get_website": get_website,

@@ -337,7 +337,40 @@ export default function CreatePage() {
   const heroVideoWebsiteId = useRef<string | null>(null)
   // The clip prepared the moment generation started (no site yet). Sent
   // with /api/publish as hero_video_job_id so the page goes live WITH it.
+  //
+  // MIRRORED IN localStorage. A ref does not survive what merchants
+  // actually do between preparing a clip and publishing: mimk prepared one
+  // at 05:06, went through the Starter payment redirect, came back and
+  // published at 05:47 with an empty ref. The publish carried no id, the
+  // site went live static, and a second clip was generated against it while
+  // the first sat finished and unclaimed. (The server can now also find an
+  // unclaimed clip by owner — see resolve_prepared_hero_video — but an
+  // exact id is better than a good guess.)
   const preparedHeroVideoJobId = useRef<string | null>(null)
+  // The same id, read back from a PREVIOUS page load. Kept apart from the
+  // ref above on purpose: it is offered to the publish, and never allowed
+  // to stand in for a clip this session prepared — a stale id must not stop
+  // a new generation from starting its own.
+  const restoredHeroVideoJobId = useRef<string | null>(null)
+  const HERO_VIDEO_PREPARED_KEY = 'binaapp:hero-video:prepared-job'
+  //: Older than this and the clip is either applied, refunded, or for a
+  //: project the merchant has moved on from. Matches the server's own
+  //: adoption window (HERO_VIDEO_ADOPT_WINDOW_SECONDS).
+  const HERO_VIDEO_PREPARED_TTL_MS = 3 * 60 * 60 * 1000
+  const rememberPreparedHeroVideoJob = (jobId: string | null) => {
+    preparedHeroVideoJobId.current = jobId
+    if (jobId) restoredHeroVideoJobId.current = null
+    try {
+      if (jobId) {
+        window.localStorage.setItem(
+          HERO_VIDEO_PREPARED_KEY, JSON.stringify({ id: jobId, at: Date.now() })
+        )
+      } else {
+        restoredHeroVideoJobId.current = null
+        window.localStorage.removeItem(HERO_VIDEO_PREPARED_KEY)
+      }
+    } catch { /* storage unavailable — the ref alone still works in-session */ }
+  }
   const heroVideoStopped = useRef(false)
 
   useEffect(() => {
@@ -349,6 +382,19 @@ export default function CreatePage() {
       if (window.localStorage.getItem(HERO_VIDEO_WANTED_KEY) === '1') setHeroVideoWanted(true)
       const savedStyle = window.localStorage.getItem(HERO_VIDEO_STYLE_KEY)
       if (savedStyle) setHeroVideoStyle(savedStyle)
+      // A clip prepared before this page reloaded (or before the payment
+      // redirect) is still waiting on the server. Pick the id back up so the
+      // publish can claim it BY NAME rather than leaving the server to find
+      // it by owner — or the merchant to pay for a second one.
+      const savedJob = window.localStorage.getItem(HERO_VIDEO_PREPARED_KEY)
+      if (savedJob) {
+        const parsed = JSON.parse(savedJob)
+        if (parsed?.id && Date.now() - (parsed.at || 0) < HERO_VIDEO_PREPARED_TTL_MS) {
+          restoredHeroVideoJobId.current = String(parsed.id)
+        } else {
+          window.localStorage.removeItem(HERO_VIDEO_PREPARED_KEY)
+        }
+      }
     } catch { /* storage unavailable — defaults stand */ }
     fetchHeroVideoOptions()
       .then(async (opts) => {
@@ -1573,7 +1619,8 @@ export default function CreatePage() {
           hero_image_prompt: heroImagePrompt.trim() || undefined,
           // The clip prepared while the page generated: publish puts it on
           // the page it uploads, so the site is live with its video.
-          hero_video_job_id: preparedHeroVideoJobId.current || undefined,
+          hero_video_job_id:
+            preparedHeroVideoJobId.current || restoredHeroVideoJobId.current || undefined,
           // Geocoded at publish so the map shows a pin, not a region.
           address: fullAddress || null,
           features: selectedFeatures,
@@ -1682,7 +1729,7 @@ export default function CreatePage() {
       const heroVideoOutcome = (data.hero_video || null) as PublishHeroVideoOutcome | null
       if (heroVideoOutcome?.status === 'applied') {
         // The prepared clip went live IN this publish. Nothing to wait for.
-        preparedHeroVideoJobId.current = null
+        rememberPreparedHeroVideoJob(null)
         if (heroVideoOutcome.html_content) setGeneratedHtml(heroVideoOutcome.html_content)
         setHeroVideoJob({
           job_id: heroVideoOutcome.job_id || heroVideoJob?.job_id || '',
@@ -1710,7 +1757,7 @@ export default function CreatePage() {
         // forgot it): make one against the published site, as before. The
         // server drives the job to completion itself, so this is true even
         // if the merchant leaves this page.
-        preparedHeroVideoJobId.current = null
+        rememberPreparedHeroVideoJob(null)
         toast('🎬 Video latar hero sedang dijana (1–3 minit) — akan dipasang secara automatik, anda boleh teruskan.')
         void launchHeroVideo(publishedWebsiteId, accessToken)
       }
@@ -1797,7 +1844,7 @@ export default function CreatePage() {
         token,
         {
           onUpdate: (job) => {
-            preparedHeroVideoJobId.current = job.job_id
+            rememberPreparedHeroVideoJob(job.job_id)
             setHeroVideoJob(job)
           },
           shouldStop: () => heroVideoStopped.current,
@@ -1806,12 +1853,12 @@ export default function CreatePage() {
       )
       if (done && done.status === 'failed') {
         console.warn('🎬 prepared hero video failed; publish will start a fresh one', done.error)
-        preparedHeroVideoJobId.current = null
+        rememberPreparedHeroVideoJob(null)
         setHeroVideoJob(null)
       }
     } catch (err) {
       console.warn('🎬 prepared hero video not started; publish will start a fresh one', err)
-      preparedHeroVideoJobId.current = null
+      rememberPreparedHeroVideoJob(null)
       setHeroVideoJob(null)
     }
   }
@@ -1826,7 +1873,7 @@ export default function CreatePage() {
         shouldStop: () => heroVideoStopped.current,
         getToken: async () => (await getApiAuthToken()) || token,
       })
-      preparedHeroVideoJobId.current = null
+      rememberPreparedHeroVideoJob(null)
       if (done) reportHeroVideoOutcome(done)
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Penjanaan video gagal. Sila cuba lagi.'
@@ -3225,7 +3272,7 @@ export default function CreatePage() {
             </div>
 
             <button
-              onClick={() => { setStyleVariations([]); setGeneratedHtml(''); setError(''); setPublishedUrl(''); preparedHeroVideoJobId.current = null; setHeroVideoJob(null); }}
+              onClick={() => { setStyleVariations([]); setGeneratedHtml(''); setError(''); setPublishedUrl(''); rememberPreparedHeroVideoJob(null); setHeroVideoJob(null); }}
               className="cr-btn cr-btn-ghost"
               style={{ marginBottom: 24 }}
             >
@@ -3409,7 +3456,7 @@ export default function CreatePage() {
                 </div>
               </div>
 
-              <button onClick={() => { setGeneratedHtml(''); setStyleVariations([]); setSelectedStyle(null); setError(''); setPublishedUrl(''); setHeroVideoJob(null); setHeroVideoError(null); preparedHeroVideoJobId.current = null; resetMerchantInputs() }} className="cr-btn cr-btn-ghost">Create Another</button>
+              <button onClick={() => { setGeneratedHtml(''); setStyleVariations([]); setSelectedStyle(null); setError(''); setPublishedUrl(''); setHeroVideoJob(null); setHeroVideoError(null); rememberPreparedHeroVideoJob(null); resetMerchantInputs() }} className="cr-btn cr-btn-ghost">Create Another</button>
             </div>
 
             {previewMode === 'single' ? (

@@ -104,7 +104,7 @@ describe('/create makes the hero video WITH the page, not after publish', () => 
     // Only when the merchant asked for one and may have one.
     expect(fn).toMatch(/if \(!heroVideoWanted \|\| !heroVideoOptions \|\| !heroVideoAccess\?\.allowed\) return/)
     // A prepare failure never becomes a page error: publish falls back.
-    expect(fn).toMatch(/preparedHeroVideoJobId\.current = null/)
+    expect(fn).toMatch(/rememberPreparedHeroVideoJob\(null\)/)
     expect(fn).not.toMatch(/toast\.error/)
   })
 
@@ -113,7 +113,25 @@ describe('/create makes the hero video WITH the page, not after publish', () => 
     const end = createSource.indexOf('if (!response.ok)', start)
     expect(start).toBeGreaterThan(-1)
     const request = createSource.slice(start, end)
-    expect(request).toMatch(/hero_video_job_id:\s*preparedHeroVideoJobId\.current\s*\|\|\s*undefined/)
+    // The id this session prepared, or the one a previous load left in
+    // localStorage — a reload or a payment redirect must not lose the clip.
+    expect(request).toMatch(
+      /hero_video_job_id:\s*preparedHeroVideoJobId\.current\s*\|\|\s*restoredHeroVideoJobId\.current\s*\|\|\s*undefined/
+    )
+  })
+
+  it('remembers the prepared job id across a reload without blocking a new one', () => {
+    // mimk: prepared at 05:06, paid, came back and published at 05:47 with
+    // an empty ref — the clip was never claimed and a second one was made.
+    expect(createSource).toMatch(/HERO_VIDEO_PREPARED_KEY\s*=\s*'binaapp:hero-video:prepared-job'/)
+    expect(createSource).toMatch(/window\.localStorage\.setItem\(\s*HERO_VIDEO_PREPARED_KEY/)
+    expect(createSource).toMatch(/window\.localStorage\.removeItem\(HERO_VIDEO_PREPARED_KEY\)/)
+    // A restored id is offered to the publish, never treated as "this
+    // session already prepared one" — that would stop the next generation
+    // from starting its own clip.
+    expect(createSource).toMatch(/restoredHeroVideoJobId\.current = String\(parsed\.id\)/)
+    const guard = createSource.indexOf('if (preparedHeroVideoJobId.current) return')
+    expect(guard).toBeGreaterThan(-1)
   })
 
   it('acts on what the publish did with it, and only starts a fresh job when there was nothing to claim', () => {
@@ -142,9 +160,11 @@ describe('/create makes the hero video WITH the page, not after publish', () => 
   })
 
   it('forgets the prepared job when the merchant starts over', () => {
-    const resets = createSource.match(/preparedHeroVideoJobId\.current = null/g) || []
+    // Every reset goes through the helper, so the remembered id is dropped
+    // from localStorage too and cannot be offered to a later publish.
+    const resets = createSource.match(/rememberPreparedHeroVideoJob\(null\)/g) || []
     // prepare-failure ×2, publish applied, publish fallback, follow done, two start-over buttons
     expect(resets.length).toBeGreaterThanOrEqual(6)
-    expect(createSource).toMatch(/setPublishedUrl\(''\); preparedHeroVideoJobId\.current = null; setHeroVideoJob\(null\); \}\}/)
+    expect(createSource).toMatch(/setPublishedUrl\(''\); rememberPreparedHeroVideoJob\(null\); setHeroVideoJob\(null\); \}\}/)
   })
 })

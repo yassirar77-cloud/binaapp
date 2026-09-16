@@ -259,7 +259,7 @@ class TestStore:
         # The page gets the slim delivery URL; the poster is derived from the
         # RAW asset (a video transform in an image path would be wrong).
         assert stored["video_url"] == (
-            "https://res.cloudinary.com/demo/video/upload/q_auto:eco,w_1280,c_limit,ac_none/v1/binaapp/hero-videos/ws-1-ab.mp4"
+            "https://res.cloudinary.com/demo/video/upload/q_auto:good,w_1920,c_limit,ac_none/v1/binaapp/hero-videos/ws-1-ab.mp4"
         )
         assert stored["poster_url"] == "https://res.cloudinary.com/demo/video/upload/v1/binaapp/hero-videos/ws-1-ab.jpg"
         # And the derived asset is requested once now, so the first visitor
@@ -288,7 +288,7 @@ class TestStore:
         with patch.object(httpx, "AsyncClient", _Client), \
              patch.object(svc.cloudinary.uploader, "upload", upload):
             stored = await ZaiVideoService().store("https://cdn/v.mp4", website_id="ws-1")
-        assert stored["video_url"].endswith("ws-1-ab.mp4") and "q_auto:eco" in stored["video_url"]
+        assert stored["video_url"].endswith("ws-1-ab.mp4") and "q_auto:good" in stored["video_url"]
         assert len(calls["get"]) == 2 and calls["get"][1] == stored["video_url"]
 
     def test_poster_url_derivation(self):
@@ -389,9 +389,14 @@ class TestProviderSwitch:
 
     def test_resolution_is_validated(self, monkeypatch):
         monkeypatch.setenv("DASHSCOPE_VIDEO_RESOLUTION", "4k")
-        assert dashscope_video_resolution() == "720P"
+        assert dashscope_video_resolution() == "1080P"
         monkeypatch.setenv("DASHSCOPE_VIDEO_RESOLUTION", "480p")
         assert dashscope_video_resolution() == "480P"
+
+    def test_the_default_asks_for_the_pixels(self, monkeypatch):
+        # No delivery setting makes a 720p master sharp on a retina hero.
+        monkeypatch.delenv("DASHSCOPE_VIDEO_RESOLUTION", raising=False)
+        assert dashscope_video_resolution() == "1080P"
 
 
 class TestDashScopeSubmit:
@@ -410,7 +415,7 @@ class TestDashScopeSubmit:
         assert body["model"] == "happyhorse-1.1-t2v"
         assert body["input"] == {"prompt": "A slow pan across a bright salon"}
         assert body["parameters"] == {
-            "resolution": "720P", "ratio": "16:9", "duration": 5, "watermark": False,
+            "resolution": "1080P", "ratio": "16:9", "duration": 5, "watermark": False,
         }
         assert "with_audio" not in body and "size" not in body
 
@@ -425,7 +430,7 @@ class TestDashScopeSubmit:
         body = calls["post"][0]["json"]
         assert body["model"] == "wan3.0-video"
         assert body["parameters"] == {
-            "resolution": "720P", "ratio": "adaptive", "duration": 5, "audio": False,
+            "resolution": "1080P", "ratio": "adaptive", "duration": 5, "audio": False,
         }
 
     async def test_qwen_key_is_accepted_as_fallback(self, dashscope_env, monkeypatch):
@@ -486,7 +491,7 @@ class TestDashScopeSubmit:
         body = calls["post"][0]["json"]
         assert body["input"] == {"prompt": "p"}
         assert body["parameters"] == {
-            "resolution": "720P", "ratio": "16:9", "duration": 5, "watermark": False,
+            "resolution": "1080P", "ratio": "16:9", "duration": 5, "watermark": False,
         }
 
     async def test_no_key_raises_before_any_call(self, dashscope_env, monkeypatch):

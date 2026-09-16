@@ -64,7 +64,7 @@ import asyncio
 import os
 import time
 from datetime import datetime
-from typing import Dict, Literal, Optional, Tuple
+from typing import Dict, List, Literal, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from loguru import logger
@@ -140,6 +140,35 @@ def prepared_claim_window_seconds() -> float:
     except ValueError:
         return float(PREPARED_CLAIM_WINDOW_SECONDS)
 
+
+#: How long after a clip is stored a publish may still claim it by looking
+#: for the merchant's newest ``ready`` row rather than by job id.
+#:
+#: The job id lives in a React ref on the create page and in the process
+#: registry of whichever instance made the clip. Neither survives what
+#: merchants actually do between the two: mimk prepared a clip at 05:06,
+#: paid, came back 41 minutes later and published at 05:47 with no id in the
+#: request. The publish found nothing, the page went live static, the create
+#: page started a SECOND clip against the new site, and the first one sat at
+#: ``ready`` until it was refunded a day later. A clip this merchant paid for
+#: and is publishing a site for belongs on that site.
+PREPARED_ADOPT_WINDOW_SECONDS = 3 * 60 * 60
+
+
+def prepared_adopt_window_seconds() -> float:
+    """HERO_VIDEO_ADOPT_WINDOW_SECONDS overrides it. 0 turns id-less
+    adoption off entirely (a publish then only ever claims by job id)."""
+    try:
+        return float(os.getenv("HERO_VIDEO_ADOPT_WINDOW_SECONDS", str(PREPARED_ADOPT_WINDOW_SECONDS)))
+    except ValueError:
+        return float(PREPARED_ADOPT_WINDOW_SECONDS)
+
+
+#: How long a stored clip may sit at ``ready`` before the sweep goes looking
+#: for the site it belongs on. Long enough that a publish in progress gets
+#: there first (the sweep runs every 5 minutes), short enough that a
+#: merchant refreshing their new site sees the video within one coffee.
+READY_REHOME_GRACE_SECONDS = 600
 
 #: How long a job may sit in 'storing' (download + Cloudinary + apply)
 #: before the sweep treats it as hung. Aged from entering 'storing', so a
@@ -1377,6 +1406,88 @@ async def _finalize_hero_video_job(job, website: Optional[dict], user_id: str, p
 # Publish-time claim of a prepared clip (called from /api/publish)
 # ---------------------------------------------------------------------------
 
+async def _adopt_ledger_row(row: Dict, why: str) -> Optional[str]:
+    """Claim a ledger row and put it back in this process's registry.
+
+    Returns the job id when this process now owns it. The row's own lease
+    decides: ``claim`` only succeeds while it is null or lapsed, so a job
+    another instance is actively driving is never stolen.
+    """
+    job_id = str(row.get("job_id") or "")
+    if not job_id:
+        return None
+    live = zai_video_service.get_job(job_id)
+    if live is not None:
+        return job_id
+    if ledger.lease_is_live(row):
+        logger.info(f"[hero-video] {why}: job {job_id} is leased elsewhere — leaving it there")
+        return None
+    if not await ledger.claim(job_id, str(row.get("status") or "ready")):
+        logger.info(f"[hero-video] {why}: job {job_id} claimed by another process first")
+        return None
+    adopted = _adopt_row(row)
+    if adopted:
+        logger.warning(f"[hero-video] {why}: adopted job {adopted} from the ledger")
+    return adopted
+
+
+async def resolve_prepared_hero_video(job_id: Optional[str], user_id: str) -> Optional[str]:
+    """The job id the publish should stage, looked up beyond this process.
+
+    ``stage_prepared_hero_video`` and ``settle_prepared_hero_video`` read the
+    in-memory registry, which only ever holds jobs THIS instance created and
+    only since its last restart. Everything else about a prepared clip is
+    durable — the ledger row, the Cloudinary asset — so when the registry
+    comes up empty the row is claimed and rebuilt here instead of the clip
+    being abandoned.
+
+    Two ways in:
+
+    * a job id that names a row this user owns and that is not finished;
+    * no usable job id at all → this user's newest unapplied ``ready`` clip
+      inside the adoption window. A create page that reloaded, or came back
+      from a payment redirect, loses the id it was holding; the clip is
+      still theirs and this publish is still the site it was made for.
+
+    Returns the job id to use (possibly the one passed in), or None.
+    """
+    if job_id:
+        job = zai_video_service.get_job(job_id)
+        if job is not None and job.user_id == user_id:
+            return job_id
+        row = await ledger.load(job_id)
+        if row and str(row.get("user_id") or "") == user_id:
+            if str(row.get("status") or "") in ledger.UNFINISHED_STATUSES:
+                adopted = await _adopt_ledger_row(row, f"publish claim of {job_id}")
+                if adopted:
+                    return adopted
+                return None
+            logger.info(
+                f"[hero-video] publish named job {job_id}, which is "
+                f"{row.get('status')} (error={row.get('error')}) — nothing to claim"
+            )
+            return None
+        logger.warning(
+            f"[hero-video] publish named job {job_id}, which is not in this process "
+            "and has no row for this user — looking for a prepared clip instead"
+        )
+
+    window = prepared_adopt_window_seconds()
+    if window <= 0:
+        return None
+    for row in await ledger.load_ready_for_user(user_id, window):
+        if str(row.get("website_id") or ""):
+            continue  # already attached to a site; not this publish's to take
+        adopted = await _adopt_ledger_row(row, "publish with no usable job id")
+        if adopted:
+            logger.warning(
+                f"[hero-video] publish claimed prepared clip {adopted} by owner+age "
+                f"(no job id in the request; clip stored {row.get('updated_at')})"
+            )
+            return adopted
+    return None
+
+
 def stage_prepared_hero_video(job_id: Optional[str], user_id: str, html: str) -> Tuple[str, Dict]:
     """Patch a ``ready`` clip into the page that is ABOUT to be published.
 
@@ -1708,6 +1819,123 @@ async def resume_hero_video_jobs() -> int:
     return adopted
 
 
+async def _site_for_prepared_clip(row: Dict) -> Optional[str]:
+    """The site a stored-but-unclaimed clip belongs on, or None.
+
+    A prepared clip is made BEFORE its site row exists, so the site that
+    followed it is the candidate: same owner, published, created after the
+    clip was started and inside the adoption window, and carrying no hero
+    video of its own. Newest first. When nothing matches, nothing is
+    applied — the claim window still ends the job and refunds it.
+    """
+    user_id = str(row.get("user_id") or "")
+    started = row.get("created_at")
+    if not user_id or not started:
+        return None
+    window = prepared_adopt_window_seconds()
+    if window <= 0:
+        return None
+    try:
+        began = datetime.fromisoformat(str(started).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    url = f"{supabase_service.url}/rest/v1/websites"
+    params = {
+        "select": "id,created_at",
+        "user_id": f"eq.{user_id}",
+        "status": "eq.published",
+        "hero_video_url": "is.null",
+        "created_at": f"gte.{began.isoformat()}",
+        "order": "created_at.desc",
+        "limit": "1",
+    }
+    try:
+        async with supabase_service._client() as client:
+            resp = await client.get(url, headers=supabase_service.headers, params=params)
+        if resp.status_code != 200:
+            logger.error(
+                f"[hero-video] site lookup for prepared clip {row.get('job_id')} failed: "
+                f"HTTP {resp.status_code} {resp.text[:200]}"
+            )
+            return None
+        rows = resp.json() or []
+    except Exception as exc:  # noqa: BLE001 — a lookup failure must not take the sweep down
+        logger.error(f"[hero-video] site lookup for prepared clip {row.get('job_id')} raised: {exc!r}")
+        return None
+    if not rows:
+        return None
+    site = rows[0]
+    try:
+        made = datetime.fromisoformat(str(site.get("created_at")).replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+    if (made - began).total_seconds() > window:
+        # Published long after this clip was prepared: a different project.
+        return None
+    return str(site.get("id") or "") or None
+
+
+async def rehome_ready_hero_video_jobs() -> Dict:
+    """Apply every stored clip that reached ``ready`` and was never claimed.
+
+    ``ready`` means the provider finished, Cloudinary holds the clip and the
+    poster, and the job is waiting for a publish to carry it. Until now the
+    ONLY thing that could move it on was that publish, holding the right job
+    id, on the instance that made it — so a lost id or a restart left a
+    finished, paid-for clip sitting at ``applied=false`` while the merchant
+    looked at a static hero and the editor quietly made a second one.
+
+    This is the backstop the publish path no longer needs but should always
+    have had: whoever made the job, whatever the publish did, a ready clip
+    with both URLs is applied to the site it belongs on, once, with
+    ``finished_at`` set. Idempotent by construction — the site is only a
+    candidate while it carries no hero video, and the row is claimed before
+    anything is written.
+    """
+    applied: List[str] = []
+    skipped = 0
+    for row in await ledger.load_ready_unapplied(READY_REHOME_GRACE_SECONDS):
+        job_id = str(row.get("job_id") or "")
+        website_id = str(row.get("website_id") or "") or await _site_for_prepared_clip(row)
+        if not website_id:
+            skipped += 1
+            continue
+        job = zai_video_service.get_job(job_id)
+        if job is None:
+            if not await _adopt_ledger_row(row, "ready sweep"):
+                continue
+            job = zai_video_service.get_job(job_id)
+        if job is None or job.status != JOB_STATUS_READY:
+            continue
+        async with job.lock:
+            if job.status != JOB_STATUS_READY:
+                continue
+            job.website_id = website_id
+            # 'storing' is what the apply path guards on (_still_storing), and
+            # it takes this job out of its driver's claim-window wait.
+            job.status = JOB_STATUS_STORING
+            job.storing_since = time.monotonic()
+            await _ledger_save(job)
+        try:
+            website = await _load_owned_website_retrying(website_id, job.user_id)
+        except HTTPException as exc:
+            await _fail_job(job, "website_unavailable", detail=str(exc.detail))
+            continue
+        logger.warning(
+            f"[hero-video] ready clip {job_id} was never claimed by a publish — "
+            f"applying it to {website_id} now (stored {row.get('updated_at')})"
+        )
+        await _apply_stored_clip_task(job, website, job.user_id)
+        if job.applied:
+            applied.append(job_id)
+    if applied or skipped:
+        logger.info(
+            f"[hero-video] ready sweep: applied {len(applied)} orphaned clip(s), "
+            f"{skipped} with no site to apply to yet"
+        )
+    return {"applied": applied, "no_site": skipped}
+
+
 async def sweep_stuck_hero_video_jobs() -> Dict:
     """Fail every job that outlived the hard timeout, whether or not a
     driver exists for it and whatever the website's own status is, and
@@ -1779,5 +2007,15 @@ async def sweep_stuck_hero_video_jobs() -> Dict:
         await _alert_timeout(job)
 
     adopted = await adopt_unowned_jobs()
+    # Fourth pass: a clip that is FINISHED and simply never reached a page.
+    # Nothing above would ever touch it — it is not stale, not unowned and
+    # not over any timeout — and that is exactly how it stayed invisible.
+    rehomed = await rehome_ready_hero_video_jobs()
 
-    return {"checked_rows": checked, "count": len(failed_ids), "ids": failed_ids, "adopted": adopted}
+    return {
+        "checked_rows": checked,
+        "count": len(failed_ids),
+        "ids": failed_ids,
+        "adopted": adopted,
+        "rehomed": rehomed["applied"],
+    }

@@ -66,7 +66,16 @@ import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
-from app.services.color_tone import alpha_over, css_variables, text_tone, tint
+from app.services.color_tone import (
+    alpha_over,
+    css_variables,
+    inherited_text_tone,
+    rule_text_tone,
+    rule_tint,
+    stylesheet_rules,
+    text_tone,
+    tint,
+)
 from app.utils.html_scan import (
     direct_children,
     element_end,
@@ -90,6 +99,13 @@ BLOCK_END = "<!--/binaapp:hero-video-->"
 #: it while the video layer is present. Stripped again by remove().
 HERO_MEDIA_ATTR = "data-binaapp-hero-media"
 HERO_MEDIA_REPLACED = "replaced"
+#: The same thing inside a HOST. A hosted clip is positioned against the
+#: frame the photo sat in, so hiding that photo with ``display:none``
+#: collapsed the frame to nothing and the clip had no box to fill (mimk:
+#: `div.hero-photo-anim > img.aspect-[16/9]`, the only thing giving the
+#: column its height). Hosted media keeps its box and gives up only its
+#: pixels.
+HERO_MEDIA_REPLACED_HOSTED = "replaced-hosted"
 #: The wrapper the video is hosted IN when the hero's photo occupies a
 #: distinct region rather than the whole section — a split hero's media
 #: column, a framed card. The clip replaces the photo in place and the
@@ -127,6 +143,15 @@ DEFAULT_TEXT_MODE = "auto"
 #: map to a light scrim. Endpoints are (luminance, opacity).
 DARK_SCRIM_MAP = ((0.20, 0.35), (0.75, 0.70))
 LIGHT_SCRIM_MAP = ((0.20, 0.50), (0.75, 0.25))
+
+#: A first frame at or below this luminance is a DARK clip: a white scrim
+#: over it produces the flat grey smear mimk shipped (poster_luminance
+#: 0.264 under a 0.47→0.62 white veil), not a video. At or above
+#: LIGHT_CLIP_MIN it is a bright clip. Between the two the clip states no
+#: opinion. Same thresholds colour_tone sorts colours by, so a frame and a
+#: hex cannot disagree about the same brightness.
+DARK_CLIP_MAX_LUMINANCE = 0.35
+LIGHT_CLIP_MIN_LUMINANCE = 0.60
 
 
 def opacity_for(overlay: str, luminance: Optional[float]) -> float:
@@ -215,14 +240,59 @@ class HeroVideoSettings:
             tone = detect_hero_tone(page_html) if page_html else ""
         except Exception:  # pragma: no cover - a guard must never take the patch down
             tone = ""
-        if tone in ("dark", "light"):
-            return tone
+        choice = tone if tone in ("dark", "light") else ""
+        if not choice:
+            try:
+                from app.services.color_mode_guard import detect_color_mode
+                mode = detect_color_mode(page_html) if page_html else ""
+            except Exception:  # pragma: no cover - a guard must never take the patch down
+                mode = ""
+            choice = mode if mode in ("dark", "light") else ""
+        if not choice:
+            # Neither the hero nor the page states a colour. The CLIP does:
+            # a dark first frame under a white veil is the flat grey smear
+            # mimk shipped. The scrim follows the footage rather than a
+            # blanket default. It is consulted only here, below both page
+            # signals: a dark clip on a genuinely light page still needs the
+            # light scrim, because that is what keeps dark copy readable.
+            choice = self.clip_tone()
+        return self._sanity_checked(choice or "dark", page_html)
+
+    def clip_tone(self) -> str:
+        """What the CLIP ITSELF is: "dark", "light" or "" (unmeasured or
+        mid-tone). Measured from the first frame when the clip was stored."""
+        if self.poster_luminance is None:
+            return ""
+        if self.poster_luminance <= DARK_CLIP_MAX_LUMINANCE:
+            return "dark"
+        if self.poster_luminance >= LIGHT_CLIP_MIN_LUMINANCE:
+            return "light"
+        return ""
+
+    def _sanity_checked(self, overlay: str, page_html: str) -> str:
+        """Refuse a scrim the same colour as the copy that sits on it.
+
+        A white veil under near-white copy, or a black one under near-black
+        copy, is not a weaker version of the right answer — it is the copy
+        made unreadable. It means the signals disagreed (the hero was read
+        from its background while its text says the opposite), and no scrim
+        at all is better than one that hides the words. The clip's own
+        luminance decides nothing here; only the contradiction does.
+        """
+        if overlay not in ("dark", "light") or not page_html:
+            return overlay
         try:
-            from app.services.color_mode_guard import detect_color_mode
-            mode = detect_color_mode(page_html) if page_html else ""
+            copy = hero_copy_tone(page_html)
         except Exception:  # pragma: no cover - a guard must never take the patch down
-            mode = ""
-        return "light" if mode == "light" else "dark"
+            return overlay
+        if copy and copy == overlay:
+            logger.warning(
+                "[hero-video] auto scrim resolved to %s over %s hero copy — "
+                "self-contradictory, using no scrim instead",
+                overlay, copy,
+            )
+            return "none"
+        return overlay
 
     def resolved_opacity(self, page_html: str = "") -> float:
         """The scrim strength to paint: explicit, else from luminance for
@@ -305,10 +375,37 @@ def is_safe_media_url(url: Optional[str]) -> bool:
 #: is their own photo, saw "no video". The same asset through this transform
 #: is ~620 KB, at a quality nobody can tell apart behind a text scrim.
 #:
-#:   q_auto:eco     perceptual quality tuned for size
-#:   w_1280,c_limit cap width at the hero's display size, never upscale
+#:   q_auto:good    perceptual quality, the tier that keeps gradients clean
+#:   w_1920,c_limit cap width at a retina hero, never upscale
 #:   ac_none        drop any audio track (the clip plays muted regardless)
-HERO_VIDEO_DELIVERY_TRANSFORM = "q_auto:eco,w_1280,c_limit,ac_none"
+#:
+#: This was ``q_auto:eco,w_1280`` and that was too far. eco is Cloudinary's
+#: most aggressive tier, and a dark interior full of smooth gradients — a
+#: barbershop at night, mimk — came back banded and mushy, then got stretched
+#: across a full-bleed hero on a retina phone. good at 1920 is the same clip
+#: at roughly 1.5–2× the bytes, still a fraction of the 12.9 MB source, and
+#: c_limit means a 720p master is served at 720p rather than upscaled.
+#: HERO_VIDEO_DELIVERY_TRANSFORM (env) overrides the whole string.
+DEFAULT_HERO_VIDEO_DELIVERY_TRANSFORM = "q_auto:good,w_1920,c_limit,ac_none"
+
+#: Transforms BinaApp itself wrote into stored URLs in earlier releases. A
+#: URL carrying one is ours to re-cut: without this an eco/1280 page would
+#: keep serving eco/1280 forever, because the URL already has a
+#: transformation segment and the normaliser leaves those alone.
+LEGACY_HERO_VIDEO_DELIVERY_TRANSFORMS = ("q_auto:eco,w_1280,c_limit,ac_none",)
+
+
+def hero_video_delivery_transform() -> str:
+    """The Cloudinary transformation every hero clip is delivered through.
+    Read per call so the env var takes effect without a redeploy."""
+    import os
+
+    value = (os.getenv("HERO_VIDEO_DELIVERY_TRANSFORM") or "").strip()
+    return value or DEFAULT_HERO_VIDEO_DELIVERY_TRANSFORM
+
+
+#: Back-compat name for callers (and tests) that read the constant.
+HERO_VIDEO_DELIVERY_TRANSFORM = DEFAULT_HERO_VIDEO_DELIVERY_TRANSFORM
 
 _CLOUDINARY_VIDEO_UPLOAD_RE = re.compile(
     r"^(https://res\.cloudinary\.com/[^/]+/video/upload/)(.+)$"
@@ -333,10 +430,16 @@ def hero_video_delivery_url(url: Optional[str]) -> Optional[str]:
     if not match:
         return url
     head, rest = match.groups()
+    transform = hero_video_delivery_transform()
     first = rest.split("/", 1)[0]
+    if first == transform:
+        return url
+    if first in LEGACY_HERO_VIDEO_DELIVERY_TRANSFORMS:
+        # Ours, from an earlier release: re-cut it at the current quality.
+        return f"{head}{transform}/{rest.split('/', 1)[1]}"
     if "," in first or _CLOUDINARY_TRANSFORM_SEGMENT_RE.match(first):
         return url
-    return f"{head}{HERO_VIDEO_DELIVERY_TRANSFORM}/{rest}"
+    return f"{head}{transform}/{rest}"
 
 
 def _clamp_unit(value: Optional[float]) -> Optional[float]:
@@ -671,13 +774,39 @@ def _is_plain_media_wrapper(html: str, start: int, end: int) -> bool:
     return True
 
 
+#: How deep below the hero the media walk goes. Two levels was the shape the
+#: first split heroes had (hero > column > img). mimk's is five deep —
+#: `section > div.max-w-7xl > div.grid > div.order-1 > div.hero-photo-anim >
+#: img` — and at two levels the walk found NO media at all: the clip went
+#: full-bleed behind the copy, the merchant's own photo was hidden by the
+#: poster rules, and the media column was left holding two badges.
+MAX_MEDIA_DEPTH = 6
+
+
+def _media_host(
+    html: str, chain: List[Tuple[int, int]]
+) -> Optional[Tuple[int, int]]:
+    """The wrapper the clip should be hosted in, given the ancestor chain
+    from the hero's direct child down to the media's own parent.
+
+    The INNERMOST qualifying wrapper wins: it is the frame the design drew
+    around the picture (``rounded-2xl overflow-hidden shadow-2xl``), so the
+    clip inherits the corners, the shadow and the aspect box instead of
+    covering a whole column that happens to contain it.
+    """
+    for start, end in reversed(chain):
+        if _is_plain_media_wrapper(html, start, end):
+            return (start, end)
+    return None
+
+
 def find_hero_media(html: str, hero_start: int) -> List[Tuple[int, int, Optional[Tuple[int, int]]]]:
     """``(start, end, host)`` for every background-media element in the hero.
 
-    Looks at the hero's direct children and one level below them. ``host``
-    is the direct child the media sits inside when that child is a plain
-    media wrapper occupying its own region (a split hero's image column) —
-    the video is then hosted in it instead of behind the whole section.
+    Walks the hero's subtree to MAX_MEDIA_DEPTH. ``host`` is the innermost
+    wrapper around that media which is a plain media wrapper occupying its
+    own region (a split hero's image column, a framed photo card) — the
+    video is then hosted in it instead of behind the whole section.
     ``None`` for full-cover media, whose wrapper is hidden with it.
     """
     hero_end = element_end(html, hero_start)
@@ -690,18 +819,21 @@ def find_hero_media(html: str, hero_start: int) -> List[Tuple[int, int, Optional
         return []
 
     found: List[Tuple[int, int, Optional[Tuple[int, int]]]] = []
-    for start, end in direct_children(html, tag_close, inner_end):
-        if _is_background_media(html, start, end):
-            found.append((start, end, None))
-            continue
-        child_close = open_tag_end(html, start)
-        child_inner_end = html.rfind("</", 0, end)
-        if child_close == -1 or child_inner_end <= child_close:
-            continue
-        host = (start, end) if _is_plain_media_wrapper(html, start, end) else None
-        for g_start, g_end in direct_children(html, child_close, child_inner_end):
-            if _is_background_media(html, g_start, g_end):
-                found.append((g_start, g_end, host))
+
+    def walk(scan_start: int, scan_end: int, chain: List[Tuple[int, int]]) -> None:
+        if len(chain) > MAX_MEDIA_DEPTH:
+            return
+        for start, end in direct_children(html, scan_start, scan_end):
+            if _is_background_media(html, start, end):
+                found.append((start, end, _media_host(html, chain)))
+                continue
+            child_close = open_tag_end(html, start)
+            child_inner_end = html.rfind("</", 0, end)
+            if child_close == -1 or child_inner_end <= child_close:
+                continue
+            walk(child_close, child_inner_end, chain + [(start, end)])
+
+    walk(tag_close, inner_end, [])
     return found
 
 
@@ -830,6 +962,43 @@ def hero_own_veil(page_html: str) -> Optional[Tuple[str, float]]:
     return best
 
 
+def hero_copy_tone(page_html: str, *, inherited: bool = True) -> str:
+    """The tone of the HERO'S OWN COPY: "light" for a near-white headline,
+    "dark" for near-black, "" when the markup states nothing.
+
+    Read in the order the colour actually cascades: an inline style, then a
+    colour utility, then the rule the document's own stylesheet writes for
+    that element, and finally — when ``inherited`` — what ``body`` gives it.
+    The headline is trusted first; copy inside a box that paints its own
+    surface never speaks for the hero.
+    """
+    span = _hero_span(page_html)
+    if span is None:
+        return ""
+    start, tag_close, inner_end = span
+    open_tag = page_html[start:tag_close]
+    variables = css_variables(page_html)
+    rules = stylesheet_rules(page_html)
+
+    copy = list(_iter_hero_copy(page_html, tag_close, inner_end, variables))
+    for headlines_only in (True, False):
+        for name, tag in copy:
+            if headlines_only and name != "h1":
+                continue
+            tone = text_tone(
+                tag_classes(tag), read_attr(tag, "style") or "", variables
+            ) or rule_text_tone(tag, rules, variables)
+            if tone:
+                return tone
+
+    tone = text_tone(
+        tag_classes(open_tag), read_attr(open_tag, "style") or "", variables
+    ) or rule_text_tone(open_tag, rules, variables)
+    if tone:
+        return tone
+    return inherited_text_tone(rules, variables) if inherited else ""
+
+
 def detect_hero_tone(page_html: str) -> str:
     """Is the HERO painted dark or light? ``""`` when it says nothing.
 
@@ -838,11 +1007,12 @@ def detect_hero_tone(page_html: str) -> str:
     black gradient) and reading the page theme there produced a white veil
     under a black one, with the white copy forced to navy.
 
-    Colours are read through the document's own custom properties: this
-    generator writes `style="color: var(--text-color)"` over
-    `style="background-color: var(--bg-color)"`, and without resolving those
-    every test below returns "no opinion" on a hero that could not be more
-    explicit about what it is (Run 1 site B).
+    Colours are read through the document's own custom properties AND its own
+    style rules. This generator writes `style="color: var(--text-color)"` on
+    some pages and `h1 { color: var(--text-color) }` in a `<style>` block on
+    others; reading only inline styles and class names made the second kind
+    look silent, and mimk — `--bg-color:#141518` with `--text-color:#F5F3EE`
+    — got a white scrim over a dark clip and near-white copy on top of it.
 
     Order of trust:
 
@@ -850,36 +1020,33 @@ def detect_hero_tone(page_html: str) -> str:
     2. its other copy, ignoring anything inside a box with its own surface;
     3. a text colour set on the hero element itself;
     4. a full-cover veil the hero paints (black gradient -> dark);
-    5. the hero's own flat background, when it is opaque enough to be one.
+    5. the hero's own flat background, when it is opaque enough to be one;
+    6. what the hero's copy INHERITS from the document (``body``/``:root``).
     """
-    span = _hero_span(page_html)
-    if span is None:
+    if _hero_span(page_html) is None:
         return ""
-    start, tag_close, inner_end = span
-    open_tag = page_html[start:tag_close]
-    variables = css_variables(page_html)
-
-    copy = list(_iter_hero_copy(page_html, tag_close, inner_end, variables))
-    for headlines_only in (True, False):
-        for name, tag in copy:
-            if headlines_only and name != "h1":
-                continue
-            tone = text_tone(tag_classes(tag), read_attr(tag, "style") or "", variables)
-            if tone:
-                # Light copy is written for a dark backdrop, and vice versa.
-                return "dark" if tone == "light" else "light"
-
-    tone = text_tone(tag_classes(open_tag), read_attr(open_tag, "style") or "", variables)
+    tone = hero_copy_tone(page_html, inherited=False)
     if tone:
+        # Light copy is written for a dark backdrop, and vice versa.
         return "dark" if tone == "light" else "light"
 
     veil = hero_own_veil(page_html)
     if veil:
         return veil[0]
 
+    start, tag_close, _inner_end = _hero_span(page_html)
+    open_tag = page_html[start:tag_close]
+    variables = css_variables(page_html)
+    rules = stylesheet_rules(page_html)
     tone, alpha = tint(tag_classes(open_tag), read_attr(open_tag, "style") or "", variables)
     if tone and alpha >= OPAQUE_SURFACE_ALPHA:
         return tone
+    tone = rule_tint(open_tag, rules, variables)
+    if tone:
+        return tone
+    tone = inherited_text_tone(rules, variables)
+    if tone:
+        return "dark" if tone == "light" else "light"
     return ""
 
 
@@ -903,7 +1070,10 @@ def _tag_hero_media(html: str, hero_start: int) -> Tuple[str, int, Optional[int]
     # One host or none: two separate media columns is not a shape the
     # layer can occupy, so fall back to the full-bleed layer and hide both.
     host = next(iter(hosts)) if len(hosts) == 1 else None
-    stamps = [(s, HERO_MEDIA_REPLACED) for s, _e, _h in targets]
+    stamps = [
+        (s, HERO_MEDIA_REPLACED_HOSTED if host and h == host else HERO_MEDIA_REPLACED)
+        for s, _e, h in targets
+    ]
     if host:
         stamps.append((host[0], HERO_MEDIA_HOST))
     out = html
@@ -1204,6 +1374,14 @@ def _build_style(
         f'{hero} [{HERO_MEDIA_ATTR}="{HERO_MEDIA_REPLACED}"]'
         "{display:none !important;}"
     )
+    # A HOSTED clip fills the box its photo occupied, so that box has to
+    # survive: the frame around a hero photo is usually sized BY the photo
+    # (`aspect-[16/9]`, `h-full`), and removing it from the flow left the
+    # host at zero height with an absolutely-positioned clip inside it.
+    rules.append(
+        f'{hero} [{HERO_MEDIA_ATTR}="{HERO_MEDIA_REPLACED_HOSTED}"]'
+        "{visibility:hidden !important;}"
+    )
 
     if settings.poster_url:
         # Second net, for the shape the structural pass does not claim: a
@@ -1215,7 +1393,15 @@ def _build_style(
         # clip-frame poster never appears in merchant markup, so for
         # text-to-video these match nothing — harmless.
         photo = _css_string(settings.poster_url)
-        rules.append(f'{hero} img[src="{photo}"]{{display:none !important;}}')
+        # `:not([data-binaapp-hero-media])` keeps this net off the media the
+        # structural pass already claimed. It matters when the merchant
+        # uploaded the hero photo: the clip was animated FROM it, so it is
+        # also the poster, and a blanket display:none on that URL hid the
+        # very <img> whose box a hosted clip needs (mimk).
+        unstamped = f":not([{HERO_MEDIA_ATTR}])"
+        rules.append(
+            f'{hero} img[src="{photo}"]{unstamped}{{display:none !important;}}'
+        )
         rules.append(
             f'{hero} [style*="{photo}"]:not(.binaapp-hero-video-layer)'
             "{background-image:none !important;}"
@@ -1223,7 +1409,9 @@ def _build_style(
         public_id = cloudinary_public_id(settings.poster_url)
         if public_id:
             pid = _css_string(public_id)
-            rules.append(f'{hero} img[src*="{pid}"]{{display:none !important;}}')
+            rules.append(
+                f'{hero} img[src*="{pid}"]{unstamped}{{display:none !important;}}'
+            )
             rules.append(
                 f'{hero} [style*="{pid}"]:not(.binaapp-hero-video-layer)'
                 "{background-image:none !important;}"

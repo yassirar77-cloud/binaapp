@@ -219,10 +219,17 @@ DASHSCOPE_RATIOS = ("16:9", "9:16", "1:1", "4:3", "3:4", "adaptive")
 
 
 def dashscope_video_resolution() -> str:
-    """480P / 720P / 1080P. 720P by default — the hero is wide and 1080P
-    costs more per second and doubles what every visitor downloads."""
-    value = os.getenv("DASHSCOPE_VIDEO_RESOLUTION", "720P").strip().upper()
-    return value if value in DASHSCOPE_RESOLUTIONS else "720P"
+    """480P / 720P / 1080P. 1080P by default.
+
+    This was 720P, on the reasoning that a hero clip sits behind a scrim and
+    1080P doubles what every visitor downloads. The second half of that is
+    handled at delivery now (``c_limit`` caps the width and never upscales,
+    and q_auto picks the bitrate), and the first half was simply wrong for a
+    full-bleed hero on a retina phone: no delivery setting makes a 720p
+    master sharp. Ask for the pixels once, at generation; spend them or not
+    at delivery. DASHSCOPE_VIDEO_RESOLUTION=720P puts it back."""
+    value = os.getenv("DASHSCOPE_VIDEO_RESOLUTION", "1080P").strip().upper()
+    return value if value in DASHSCOPE_RESOLUTIONS else "1080P"
 
 
 def dashscope_video_ratio() -> str:
@@ -363,50 +370,76 @@ _DOWNLOAD_USER_AGENT = (
 # Prompt building
 # ---------------------------------------------------------------------------
 
-#: Ambience presets the dashboard offers. Each is a short, loop-friendly
-#: scene description; the merchant's business is prepended by the builder.
+#: Ambience presets the dashboard offers. Each is split in two, and the split
+#: is the point: ``tone`` is palette, light and atmosphere; ``motion`` is what
+#: MOVES and how fast.
+#:
+#: A merchant typed "Kerusi barber berpusing sangat perlahan" — a chair
+#: turning very slowly — picked Bertenaga, and the prompt that reached the
+#: model ended "...dynamic but smooth camera motion, ... upbeat energy." Two
+#: contradictory motion instructions in one prompt, and the clip followed
+#: neither: the chair did not turn at all. The merchant's own words are the
+#: motion; the mood they picked is how it should LOOK, not how fast it moves.
+#: So the mood contributes ``motion`` only when the merchant supplied none.
 VIDEO_STYLE_PRESETS: Dict[str, Dict[str, str]] = {
     "cinematic": {
         "label_ms": "Sinematik",
         "label_en": "Cinematic",
-        "scene": (
-            "slow cinematic camera drift, warm golden-hour light, shallow depth "
-            "of field, soft bokeh, gentle continuous motion"
+        "tone": (
+            "warm golden-hour light, shallow depth of field, soft bokeh, "
+            "cinematic colour grade"
         ),
+        "motion": "slow cinematic camera drift, gentle continuous motion",
     },
     "ambient": {
         "label_ms": "Tenang",
         "label_en": "Ambient",
-        "scene": (
-            "calm ambient atmosphere, soft diffused daylight, very slow push-in, "
-            "subtle steam and light movement, serene mood"
+        "tone": (
+            "calm ambient atmosphere, soft diffused daylight, muted natural "
+            "palette, serene mood"
         ),
+        "motion": "very slow push-in, subtle steam and light movement",
     },
     "energetic": {
         "label_ms": "Bertenaga",
         "label_en": "Energetic",
-        "scene": (
-            "vibrant lively scene, dynamic but smooth camera motion, rich "
-            "saturated colours, upbeat energy"
+        "tone": (
+            "vibrant lively scene, rich saturated colours, bright punchy "
+            "lighting"
         ),
+        "motion": "dynamic but smooth camera motion, upbeat energy",
     },
     "elegant": {
         "label_ms": "Elegan",
         "label_en": "Elegant",
-        "scene": (
+        "tone": (
             "luxurious minimal composition, dark moody lighting with soft "
-            "highlights, slow elegant camera glide, premium feel"
+            "highlights, premium feel"
         ),
+        "motion": "slow elegant camera glide",
     },
     "nature": {
         "label_ms": "Alam semula jadi",
         "label_en": "Nature",
-        "scene": (
-            "lush natural setting, gentle breeze moving leaves, soft sunlight "
-            "through foliage, tranquil slow motion"
+        "tone": (
+            "lush natural setting, soft sunlight through foliage, tranquil "
+            "green palette"
         ),
+        "motion": "gentle breeze moving leaves, slow natural movement",
     },
 }
+
+
+def preset_scene(preset: Dict[str, str], *, with_motion: bool = True) -> str:
+    """The preset's contribution to a prompt: its look, plus its motion only
+    when the merchant did not describe motion themselves."""
+    tone = preset.get("tone", "")
+    motion = preset.get("motion", "")
+    if with_motion and motion:
+        return f"{tone}, {motion}" if tone else motion
+    return tone
+
+
 DEFAULT_VIDEO_STYLE = "cinematic"
 
 #: Rules appended to every prompt. Text and logos render as gibberish in
@@ -465,18 +498,27 @@ def build_hero_video_prompt(
     own field — what MOVES — and is appended as the motion. With no hero
     prompt, a custom prompt is the whole scene (previous behaviour); with
     neither, the business description and the style preset become the scene.
+
+    THE MERCHANT OWNS THE MOTION. Whenever ``custom_prompt`` is present it
+    describes what moves, so the style preset contributes its LOOK only — no
+    motion adjectives, at any speed. "Kerusi barber berpusing sangat
+    perlahan" plus Bertenaga's "dynamic ... upbeat energy" is one prompt
+    giving the model two speeds, and what came back moved at neither.
     """
     preset = VIDEO_STYLE_PRESETS.get(style) or VIDEO_STYLE_PRESETS[DEFAULT_VIDEO_STYLE]
 
     custom = _squash(custom_prompt)
     hero_scene = _squash(hero_image_prompt)
+    # The merchant described the motion → the preset keeps its tone and drops
+    # its motion words, so the two cannot contradict each other.
+    ambience = preset_scene(preset, with_motion=not custom)
     if hero_scene:
         scene = hero_scene
-        motion = custom or preset["scene"]
+        motion = f"{_terminate(custom)} {ambience}" if custom else ambience
         scene = f"{_terminate(scene)} {motion}"
         logger.info(
             f"🎬 Video scene seeded from the merchant's hero image prompt "
-            f"({'merchant motion' if custom else 'preset ' + style})"
+            f"({'merchant motion + preset tone' if custom else 'preset ' + style})"
         )
     elif custom:
         # The merchant's own words lead the prompt, then the ambience they
@@ -485,8 +527,10 @@ def build_hero_video_prompt(
         # the preset never reached the model — the style buttons were dead
         # controls for anyone who also wrote a prompt. Custom text stays first
         # so it remains the dominant subject.
-        scene = f"{_terminate(custom)} {preset['scene']}"
-        logger.info(f"🎬 Video scene from the merchant's prompt + preset {style}")
+        scene = f"{_terminate(custom)} {ambience}"
+        logger.info(
+            f"🎬 Video scene from the merchant's prompt + preset {style} (tone only)"
+        )
     else:
         subject_bits = []
         kind = _squash(business_type).replace("_", " ")
@@ -501,7 +545,7 @@ def build_hero_video_prompt(
         scene = f"Atmospheric scene for {subject}"
         if desc:
             scene += f": {desc}"
-        scene += f". {preset['scene']}."
+        scene += f". {ambience}."
 
     # -2 not -1: one char for the space before the suffix, one for the full
     # stop _terminate may add after truncation. Without the extra char a
@@ -754,8 +798,10 @@ class ZaiVideoService:
             payload["image_url"] = image_url
 
         logger.info(
-            f"🎬 Z.ai video submit ({payload['model']}, {payload['size']}, "
-            f"{payload['duration']}s): {prompt[:80]}..."
+            f"🎬 ZAI VIDEO REQUEST model={payload['model']} size={payload['size']} "
+            f"duration={payload['duration']}s fps={payload['fps']} "
+            f"quality={payload['quality']} image={image_url or '-'} "
+            f"prompt={payload['prompt']!r}"
         )
         try:
             async with httpx.AsyncClient(timeout=zai_video_timeout_seconds()) as client:
@@ -954,11 +1000,17 @@ class ZaiVideoService:
             parameters["watermark"] = dashscope_video_watermark()
 
         payload: Dict = {"model": model, "input": input_block, "parameters": parameters}
+        # Everything that decides what comes back, in one greppable line, and
+        # the prompt IN FULL — exactly as the provider receives it, after any
+        # truncation. "Why is the clip like that?" was a database query
+        # before this; now it is one log line per submit.
         logger.info(
-            f"🎬 DashScope video submit ({payload['model']}, "
-            f"{'image-to-video' if image_url else 'text-to-video'}, "
-            f"{payload['parameters']['resolution']} {payload['parameters']['ratio']}, "
-            f"{payload['parameters']['duration']}s): {prompt[:80]}..."
+            f"🎬 DASHSCOPE VIDEO REQUEST model={payload['model']} "
+            f"mode={'image-to-video' if image_url else 'text-to-video'} "
+            f"resolution={parameters['resolution']} ratio={parameters['ratio']} "
+            f"duration={parameters['duration']}s audio={parameters.get('audio')} "
+            f"watermark={parameters.get('watermark', False)} "
+            f"image={image_url or '-'} prompt={input_block['prompt']!r}"
         )
         try:
             async with httpx.AsyncClient(timeout=zai_video_timeout_seconds()) as client:

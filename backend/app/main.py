@@ -4002,9 +4002,25 @@ async def publish_website(
         # here: the job is only confirmed once the upload below succeeds.
         hero_video_job_id = body.get("hero_video_job_id") or None
         hero_video_staged = {"status": "none"}
-        if hero_video_job_id:
-            try:
-                from app.api.v1.endpoints.hero_video import stage_prepared_hero_video
+        try:
+            from app.api.v1.endpoints.hero_video import (
+                resolve_prepared_hero_video,
+                stage_prepared_hero_video,
+            )
+            from app.services.zai_video_service import hero_video_enabled
+
+            # The id the browser sent is a hint, not the record. It lives in a
+            # React ref and in one instance's memory, and a reload or a
+            # payment redirect between "prepare" and "publish" loses it — so
+            # the ledger is asked too, by id and, failing that, by owner: a
+            # stored clip this merchant paid for belongs on the site they are
+            # publishing now, not refunded a day later while the page goes
+            # live static and the editor makes a second one.
+            if hero_video_enabled():
+                hero_video_job_id = await resolve_prepared_hero_video(
+                    str(hero_video_job_id) if hero_video_job_id else None, user_id
+                )
+            if hero_video_job_id:
                 html_content, hero_video_staged = stage_prepared_hero_video(
                     str(hero_video_job_id), user_id, html_content
                 )
@@ -4012,8 +4028,8 @@ async def publish_website(
                     f"🎬 [PUBLISH] prepared hero video {hero_video_job_id}: "
                     f"{hero_video_staged.get('status')}"
                 )
-            except Exception as _hv_err:
-                logger.warning(f"🎬 [PUBLISH] prepared hero video skipped: {_hv_err}")
+        except Exception as _hv_err:
+            logger.warning(f"🎬 [PUBLISH] prepared hero video skipped: {_hv_err}")
 
         # ── Metadata that only the publish step can know ──────────────
         # The page was generated with subdomain="preview", so it still says

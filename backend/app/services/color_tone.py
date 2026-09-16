@@ -132,6 +132,163 @@ _INLINE_BG_RE = re.compile(
 )
 
 
+# ---------------------------------------------------------------------------
+# The document's own stylesheet
+# ---------------------------------------------------------------------------
+
+#: One ``selector { declarations }`` rule. Nested at-rules need no special
+#: case: ``[^{}]`` cannot cross a brace, so ``@media (…){:root{…}}`` matches
+#: the INNER rule and the wrapper is skipped.
+_CSS_RULE_RE = re.compile(r"([^{}]+)\{([^{}]*)\}")
+_CSS_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
+#: The only selectors we are willing to match an element against: one bare
+#: tag, one class, one id, or ``:root``. A descendant selector (``.card p``)
+#: is deliberately ignored — matching it would need the ancestor chain, and
+#: guessing costs more than the "no opinion" it saves.
+_SIMPLE_SELECTOR_RE = re.compile(r"^(?::root|[a-zA-Z][\w-]*|\.[-\w]+|#[-\w]+)$")
+
+_ID_ATTR_RE = re.compile(r"""\bid\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))""", re.IGNORECASE)
+_TAG_NAME_RE = re.compile(r"<([a-zA-Z][\w-]*)")
+
+
+class StyleRules:
+    """What the document's ``<style>`` blocks paint, by simple selector.
+
+    A generated page sets its hero colours in a stylesheet, not on the
+    element: ``h1 { color: var(--text-color) }`` over ``body { color:
+    var(--text-color) }``. An ``<h1>`` with neither a colour class nor an
+    inline style is not silent — it is near-white — and reading only classes
+    and inline styles made the most explicit hero on the page look like it
+    stated nothing (mimk, 2026-09-16: a dark page with near-white copy got a
+    white scrim over a dark clip).
+
+    First declaration wins, the same rule ``css_variables`` follows and for
+    the same reason: the base block is written before any
+    ``prefers-color-scheme`` override, and the override describes a mode the
+    visitor may not be in.
+    """
+
+    __slots__ = ("color", "background")
+
+    def __init__(self, color: Dict[str, str], background: Dict[str, str]) -> None:
+        self.color = color
+        self.background = background
+
+    def __bool__(self) -> bool:
+        return bool(self.color or self.background)
+
+
+#: A document with no <style> block at all.
+EMPTY_RULES = StyleRules({}, {})
+
+
+def stylesheet_rules(html: str) -> StyleRules:
+    """Read every ``color`` / ``background`` declaration the document writes
+    under a selector simple enough to match an element against."""
+    color: Dict[str, str] = {}
+    background: Dict[str, str] = {}
+    for block in _STYLE_BLOCK_RE.findall(html or ""):
+        for selectors, declarations in _CSS_RULE_RE.findall(_CSS_COMMENT_RE.sub("", block)):
+            keys = []
+            for selector in selectors.split(","):
+                key = selector.strip()
+                if _SIMPLE_SELECTOR_RE.match(key):
+                    keys.append(key.lower() if not key.startswith("#") else key)
+            if not keys:
+                continue
+            found_color = _INLINE_COLOR_RE.search(";" + declarations)
+            found_bg = _INLINE_BG_RE.search(";" + declarations)
+            for key in keys:
+                if found_color and key not in color:
+                    color[key] = found_color.group(1).strip()
+                if found_bg and key not in background:
+                    background[key] = found_bg.group(1).strip()
+    return StyleRules(color, background)
+
+
+_CLASS_ATTR_RE = re.compile(
+    r"""\bclass\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))""", re.IGNORECASE
+)
+
+
+def _class_attr_value(open_tag: str) -> str:
+    match = _CLASS_ATTR_RE.search(open_tag or "")
+    if not match:
+        return ""
+    return (match.group(1) or match.group(2) or match.group(3) or "").strip()
+
+
+def selector_keys(open_tag: str) -> list:
+    """The stylesheet keys that could paint this element, most specific
+    first: its id, then each of its classes, then its tag name."""
+    keys: list = []
+    id_match = _ID_ATTR_RE.search(open_tag or "")
+    if id_match:
+        value = (id_match.group(1) or id_match.group(2) or id_match.group(3) or "").strip()
+        if value:
+            keys.append(f"#{value}")
+    for cls in _class_attr_value(open_tag).split():
+        # A Tailwind utility is never declared as a class rule in the page's
+        # own stylesheet, but a hand-written one (.hero-title) is.
+        keys.append(f".{cls.lower()}")
+    name_match = _TAG_NAME_RE.match((open_tag or "").strip())
+    if name_match:
+        keys.append(name_match.group(1).lower())
+    return keys
+
+
+def rule_text_tone(
+    open_tag: str,
+    rules: Optional[StyleRules],
+    variables: Optional[Dict[str, str]] = None,
+) -> str:
+    """The tone of the text colour the DOCUMENT'S STYLESHEET gives this
+    element, or "". Nothing is inherited here — see ``inherited_text_tone``
+    for the ``body`` fallback."""
+    if not rules:
+        return ""
+    for key in selector_keys(open_tag):
+        value = rules.color.get(key)
+        if value:
+            tone = tone_of_color(value, variables)
+            if tone:
+                return tone
+    return ""
+
+
+def rule_tint(
+    open_tag: str,
+    rules: Optional[StyleRules],
+    variables: Optional[Dict[str, str]] = None,
+) -> str:
+    """The tone of the background the stylesheet gives this element, or ""."""
+    if not rules:
+        return ""
+    for key in selector_keys(open_tag):
+        value = rules.background.get(key)
+        if value:
+            tone = tone_of_color(value, variables)
+            if tone:
+                return tone
+    return ""
+
+
+def inherited_text_tone(
+    rules: Optional[StyleRules], variables: Optional[Dict[str, str]] = None
+) -> str:
+    """The colour the page's copy inherits when nothing nearer sets one:
+    ``body``, then ``html``, then ``:root``."""
+    if not rules:
+        return ""
+    for key in ("body", "html", ":root"):
+        value = rules.color.get(key)
+        if value:
+            tone = tone_of_color(value, variables)
+            if tone:
+                return tone
+    return ""
+
+
 def _alpha(raw: Optional[str]) -> float:
     """A Tailwind ``/NN`` suffix as a 0..1 alpha. Absent -> fully opaque."""
     if raw is None:

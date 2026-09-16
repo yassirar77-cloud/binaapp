@@ -28,7 +28,7 @@ from app.services.hero_video_patcher import (
     remove_hero_video,
 )
 
-VIDEO = "https://res.cloudinary.com/dx/video/upload/q_auto:eco,w_1280,c_limit,ac_none/v1789223622/binaapp/hero-videos/f628155182d64764bbe8715153cd4d31-7684234a.mp4"
+VIDEO = "https://res.cloudinary.com/dx/video/upload/q_auto:good,w_1920,c_limit,ac_none/v1789223622/binaapp/hero-videos/f628155182d64764bbe8715153cd4d31-7684234a.mp4"
 POSTER = "https://res.cloudinary.com/dx/video/upload/f_auto,q_auto,c_limit,w_1920/v1789223622/binaapp/hero-videos/f628155182d64764bbe8715153cd4d31-7684234a.jpg"
 HERO_IMG = "https://res.cloudinary.com/dx/image/upload/f_auto,q_auto,c_limit,w_1920/v1789223430/binaapp/oooz0uilzwo8xkchc478.jpg"
 
@@ -243,7 +243,10 @@ class TestPosterUrlNet:
     def test_a_substring_rule_is_emitted_for_a_cloudinary_poster(self):
         style = _style(apply_hero_video(SOON, _settings()).html)
         pid = cloudinary_public_id(POSTER)
-        assert f'img[src*="{pid}"]{{display:none !important;}}' in style
+        assert (
+            f'img[src*="{pid}"]:not([data-binaapp-hero-media])'
+            "{display:none !important;}"
+        ) in style
 
 
 class TestHeroId:
