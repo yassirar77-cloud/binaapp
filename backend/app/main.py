@@ -2392,6 +2392,10 @@ async def run_generation_task(
                 # Language-aware default resolved in inject_whatsapp_button.
                 "whatsapp_message": None,
                 "business_name": actual_business_name,
+                # Every injected widget that writes copy needs this. It was
+                # missing, so the booking form and the WhatsApp prefill both
+                # fell back to their defaults instead of following the page.
+                "language": language,
                 "business_type": business_type,  # For dynamic categories
                 "description": description,  # For business type detection
                 "menu_items": menu_items,
@@ -2430,6 +2434,57 @@ async def run_generation_task(
             logger.info("✅ Injected integrations into generated HTML")
         except Exception as inject_err:
             logger.warning(f"⚠️ Integration injection skipped due to error: {inject_err}")
+
+        # THE FEATURE CONTRACT. Everything the merchant switched on has to
+        # render something, and this is the first point where that can be
+        # true: most of these are injected above rather than written by the
+        # model, so the main validator (which runs inside generate_website)
+        # necessarily sees a page without them.
+        #
+        # Borang Tempahan shipped a page with no form, no inputs and no
+        # slot; QR payment shipped with no checkout. Neither left a trace
+        # anywhere — not in the page, not in a log, not on the row — so the
+        # merchant found out. Whatever the cause in a given run, that part
+        # is now impossible.
+        try:
+            from app.services.generation_validator import check_feature_markup
+
+            _enabled = {
+                "contact_form": bool(selected_features.get("contactForm")),
+                "whatsapp": bool(whatsapp_enabled and phone_number),
+                "maps": bool(selected_features.get("googleMap") and address),
+                "social": bool(selected_features.get("socialMedia") and social_media),
+                "delivery_system": bool(selected_features.get("deliverySystem")),
+                "qr_payment": bool((payment or {}).get("qr")),
+            }
+            _feature_issues = check_feature_markup(html, _enabled)
+            logger.info(
+                "🧾 Feature contract: "
+                + ", ".join(f"{k}={'on' if v else 'off'}" for k, v in _enabled.items())
+                + f" — {len(_feature_issues)} unmet"
+            )
+            if _feature_issues:
+                for _issue in _feature_issues:
+                    logger.error(f"🔴 FEATURE_RENDERED_NOTHING {_issue}")
+                if supabase:
+                    try:
+                        _row = supabase.table("generation_jobs").select(
+                            "validation"
+                        ).eq("job_id", job_id).execute()
+                        _existing = (_row.data or [{}])[0].get("validation") or {}
+                        _existing["ok"] = False
+                        _existing["errors"] = list(_existing.get("errors") or []) + [
+                            str(i) for i in _feature_issues
+                        ]
+                        supabase.table("generation_jobs").update({
+                            "validation": _existing,
+                            "needs_manual_review": True,
+                            "updated_at": datetime.now().isoformat(),
+                        }).eq("job_id", job_id).execute()
+                    except Exception as _fc_db_err:
+                        logger.warning(f"⚠️ Could not record feature contract: {_fc_db_err}")
+        except Exception as _fc_err:
+            logger.warning(f"⚠️ Feature contract check skipped: {_fc_err}")
 
         # Step 4: Update progress to 95% - delivery system injected
         logger.info("📊 Updating progress to 95% - delivery system processed")

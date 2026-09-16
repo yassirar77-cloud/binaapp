@@ -997,6 +997,81 @@ _WARNING_CHECKS = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Feature contract — checked AFTER widget injection, not with the rest
+# ---------------------------------------------------------------------------
+
+#: What each merchant-facing toggle must put on the page, and how to see it.
+#: The test is deliberately structural and forgiving about HOW a feature is
+#: rendered: the contract is "the merchant switched this on, so something
+#: that does this job exists", not "it looks the way we expect".
+FEATURE_MARKERS: Dict[str, Tuple[str, Tuple[str, ...]]] = {
+    "contact_form": (
+        "Borang Tempahan",
+        ("<form", "<input", "binaapp-contact-slot"),
+    ),
+    "whatsapp": (
+        "WhatsApp",
+        ("wa.me/", "api.whatsapp.com"),
+    ),
+    "maps": (
+        "Google Map",
+        ("google.com/maps", "maps.google", "<iframe"),
+    ),
+    "social": (
+        "Social Media",
+        ("instagram.com", "facebook.com", "tiktok.com", "twitter.com", "x.com/"),
+    ),
+    "delivery_system": (
+        "Sistem Penghantaran",
+        ("binaapp-order", "delivery-system", "DELIVERY_WHATSAPP", "binaapp-cart"),
+    ),
+    "qr_payment": (
+        "QR payment",
+        # The ordering system's own markers, not "an image exists": a page
+        # with any picture on it would satisfy that and the check would
+        # pass forever without ever seeing a checkout.
+        ("PAYMENT_QR_URL", "qr-payment-display", "selectPaymentMethod"),
+    ),
+}
+
+
+def check_feature_markup(html: str, enabled: Dict[str, bool]) -> List[ValidationIssue]:
+    """Every feature the merchant switched on has to RENDER something.
+
+    Run after widget injection — most of these features are not written by
+    the model at all, they are injected afterwards, so running this with the
+    rest of the validator would fail on a page that is about to be correct.
+
+    Borang Tempahan shipped a page with no form, no inputs and no slot, and
+    QR payment shipped with no checkout. Both were toggles the merchant
+    turned on and neither left a trace anywhere — not in the page, not in a
+    log, not on the job row. Whatever the cause in any one run (a flag that
+    did not arrive, an injector that skipped, a model that ignored its
+    slot), the merchant should never be the first to notice.
+
+    Only features that are ON are checked: a feature that is off and absent
+    is the correct outcome, and this says nothing about it.
+    """
+    issues: List[ValidationIssue] = []
+    lowered = (html or "").lower()
+    for key, on in (enabled or {}).items():
+        if not on:
+            continue
+        marker = FEATURE_MARKERS.get(key)
+        if not marker:
+            continue
+        label, needles = marker
+        if any(n.lower() in lowered for n in needles):
+            continue
+        issues.append(ValidationIssue(
+            "feature_rendered_nothing",
+            f"{label} is switched on but nothing on the page provides it",
+            f"{key}: looked for {', '.join(needles)}",
+        ))
+    return issues
+
+
 def validate_generated_site(html: str, brief: GenerationBrief) -> ValidationResult:
     """Validate generated HTML against the merchant's own brief.
 

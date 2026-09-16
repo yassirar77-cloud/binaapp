@@ -725,6 +725,7 @@ updateCartUI();
         theme_tokens: Optional[Dict[str, str]] = None,
         website_id: Optional[str] = None,
         generation_count: Optional[int] = None,
+        language: Optional[str] = None,
     ) -> str:
         """
         Inject contact form into HTML.
@@ -741,6 +742,10 @@ updateCartUI();
         primary = tokens.get("primary", "#3b82f6")
         accent = tokens.get("accent", primary)
 
+        # WhatsApp is injected before this one, so the page already tells
+        # us whether the booking has somewhere to go.
+        has_whatsapp = "wa.me/" in html or "api.whatsapp.com" in html
+
         widget = WIDGETS.get("contact")
         slot_id = _find_widget_slot(html, widget) if widget else None
         _log_slot_lookup(
@@ -750,83 +755,27 @@ updateCartUI();
             generation_count=generation_count,
         )
         if slot_id:
-            slot_form_inner = self._build_contact_form_inner(email, primary, accent, container=False)
+            slot_form_inner = self._build_contact_form_inner(
+                email, primary, accent, container=False, language=language,
+                has_whatsapp=has_whatsapp,
+            )
             new_html = _inject_into_slot(html, slot_id, slot_form_inner)
             if new_html != html:
                 logger.info(f"✅ Contact form injected into AI-emitted slot '{slot_id}'")
                 return new_html
 
-        form_html = f"""
-<!-- Contact Form Section -->
-<section id="contact" style="padding:60px 20px;background:#ffffff;">
-  <div style="max-width:600px;margin:0 auto;">
-    <h2 style="text-align:center;font-size:2.5rem;margin-bottom:1rem;color:#1f2937;">📬 Contact Us</h2>
-    <p style="text-align:center;color:#6b7280;margin-bottom:2rem;">Get in touch with us for inquiries</p>
-
-    <form id="contact-form" onsubmit="return handleContactSubmit(event)"
-          style="background:#f9fafb;padding:30px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.05);">
-      <div style="margin-bottom:20px;">
-        <label style="display:block;margin-bottom:8px;font-weight:600;color:#374151;">Name</label>
-        <input type="text" name="name" required
-               style="width:100%;padding:12px;border:2px solid #e5e7eb;border-radius:8px;font-size:1rem;">
-      </div>
-
-      <div style="margin-bottom:20px;">
-        <label style="display:block;margin-bottom:8px;font-weight:600;color:#374151;">Email</label>
-        <input type="email" name="email" required
-               style="width:100%;padding:12px;border:2px solid #e5e7eb;border-radius:8px;font-size:1rem;">
-      </div>
-
-      <div style="margin-bottom:20px;">
-        <label style="display:block;margin-bottom:8px;font-weight:600;color:#374151;">Phone</label>
-        <input type="tel" name="phone"
-               style="width:100%;padding:12px;border:2px solid #e5e7eb;border-radius:8px;font-size:1rem;">
-      </div>
-
-      <div style="margin-bottom:20px;">
-        <label style="display:block;margin-bottom:8px;font-weight:600;color:#374151;">Message</label>
-        <textarea name="message" rows="5" required
-                  style="width:100%;padding:12px;border:2px solid #e5e7eb;border-radius:8px;font-size:1rem;resize:vertical;"></textarea>
-      </div>
-
-      <button type="submit"
-              style="width:100%;padding:15px;background:linear-gradient(135deg,#3b82f6,#2563eb);
-              color:white;border:none;border-radius:8px;font-size:1.1rem;font-weight:bold;cursor:pointer;">
-        Send Message
-      </button>
-    </form>
-  </div>
-</section>
-
-<script>
-function handleContactSubmit(e) {{
-  e.preventDefault();
-  const form = e.target;
-  const formData = new FormData(form);
-
-  const name = formData.get('name');
-  const email = formData.get('email');
-  const phone = formData.get('phone');
-  const message = formData.get('message');
-
-  // Send via WhatsApp if available
-  const waButton = document.querySelector('a[href*="wa.me"]');
-  if (waButton) {{
-    const phoneNumber = waButton.href.match(/wa.me\/([^?]+)/)[1];
-    const text = `Contact Form Submission:%0A%0AName: ${{name}}%0AEmail: ${{email}}%0APhone: ${{phone}}%0A%0AMessage:%0A${{message}}`;
-    window.open(`https://wa.me/${{phoneNumber}}?text=${{text}}`, '_blank');
-  }} else {{
-    // Fallback to mailto
-    const mailto = `mailto:{email}?subject=Contact from ${{name}}&body=${{message}}%0A%0AFrom: ${{name}}%0AEmail: ${{email}}%0APhone: ${{phone}}`;
-    window.location.href = mailto;
-  }}
-
-  form.reset();
-  alert('Thank you! We will get back to you soon.');
-  return false;
-}}
-</script>
-"""
+        # The fallback path (no slot in the page) renders the SAME form as
+        # the slot path rather than a second, divergent copy. The two had
+        # drifted: this one had a phone field and the slot one did not, and
+        # only this one carried the submit handler's full message body.
+        form_html = (
+            "\n<!-- Contact Form Section -->\n"
+            + self._build_contact_form_inner(
+                email, primary, accent, container=True, language=language,
+                has_whatsapp=has_whatsapp,
+            )
+            + "\n"
+        )
 
         # Inject before closing body tag
         if "</body>" in html:
@@ -836,69 +785,140 @@ function handleContactSubmit(e) {{
 
         return html
 
+    #: The booking form's own copy, per page language. Every other injected
+    #: widget is language-aware; this one was not, so a Malay page carrying
+    #: a Malay WhatsApp button also carried "Name / Email / Message / Send
+    #: Message" and an English alert — the exact split the floating button
+    #: was fixed for.
+    CONTACT_FORM_STRINGS = {
+        "ms": {
+            "heading": "Hubungi & Tempahan",
+            "name": "Nama",
+            "phone": "Nombor telefon",
+            "email": "E-mel",
+            "message": "Mesej / butiran tempahan",
+            "submit": "Hantar tempahan",
+            "sent": "Terima kasih! Kami akan hubungi anda tidak lama lagi.",
+            "wa_label": "Tempahan",
+        },
+        "en": {
+            "heading": "Contact & Booking",
+            "name": "Name",
+            "phone": "Phone number",
+            "email": "Email",
+            "message": "Message / booking details",
+            "submit": "Send booking",
+            "sent": "Thank you! We will get back to you shortly.",
+            "wa_label": "Booking",
+        },
+    }
+
+    @classmethod
+    def contact_form_strings(cls, language: Optional[str] = None) -> Dict[str, str]:
+        lang = str(language or "ms").lower()
+        return cls.CONTACT_FORM_STRINGS["en" if lang.startswith("en") else "ms"]
+
     def _build_contact_form_inner(
         self,
         email: str,
         primary: str,
         accent: str,
         container: bool = True,
+        language: Optional[str] = None,
+        has_whatsapp: bool = True,
     ) -> str:
-        """Render the contact form HTML used by both the slot and the
-        legacy fallback path. When `container=False`, the outer <section>
-        is omitted so the caller (slot injection) can sit it inside its
-        own <div>.
+        """Render the booking form used by both the slot and the legacy
+        fallback path. When `container=False`, the outer <section> is
+        omitted so the caller (slot injection) can sit it inside its own
+        <div>.
+
+        Three things this form got wrong for as long as it has existed:
+
+        * it spoke English on a Malay page;
+        * the slot version had no PHONE field, on a feature whose label is
+          "Borang Tempahan" — a booking with no number to call back is not
+          a booking, and the merchant cannot answer it;
+        * it painted itself #f9fafb with #374151 labels, so on a dark site
+          it was a white sticker pasted over the design (the same defect
+          the QR block was fixed for).
+
+        Colours here are neutral and relative — `currentColor` borders over
+        a faint grey wash — so the form reads on a cream page and on a
+        near-black one without knowing which it is on.
         """
+        t = self.contact_form_strings(language)
+        field = (
+            "width:100%;padding:12px;border:1px solid rgba(127,127,127,0.4);"
+            "border-radius:8px;font-size:1rem;background:rgba(127,127,127,0.08);"
+            "color:inherit;font-family:inherit;"
+        )
+        label = "display:block;margin-bottom:8px;font-weight:600;color:inherit;opacity:0.85;"
+        # Ask for the channel the merchant can actually reply on. With a
+        # WhatsApp number on the page the booking goes to WhatsApp and the
+        # phone number is the reply address; without one it falls back to
+        # mailto, and then an email nobody collected is a booking nobody can
+        # answer. Every extra field costs completions, so it is one or the
+        # other, never both.
+        email_field = "" if has_whatsapp else f"""
+      <div style="margin-bottom:20px;">
+        <label style="{label}">{t['email']}</label>
+        <input type="email" name="email" required autocomplete="email" style="{field}">
+      </div>"""
         form = f"""
     <form id="contact-form" onsubmit="return handleContactSubmit(event)"
-          style="background:#f9fafb;padding:30px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.05);max-width:600px;margin:0 auto;">
+          style="background:transparent;color:inherit;padding:0;max-width:600px;margin:0 auto;">
       <div style="margin-bottom:20px;">
-        <label style="display:block;margin-bottom:8px;font-weight:600;color:#374151;">Name</label>
-        <input type="text" name="name" required
-               style="width:100%;padding:12px;border:2px solid #e5e7eb;border-radius:8px;font-size:1rem;">
+        <label style="{label}">{t['name']}</label>
+        <input type="text" name="name" required autocomplete="name" style="{field}">
       </div>
       <div style="margin-bottom:20px;">
-        <label style="display:block;margin-bottom:8px;font-weight:600;color:#374151;">Email</label>
-        <input type="email" name="email" required
-               style="width:100%;padding:12px;border:2px solid #e5e7eb;border-radius:8px;font-size:1rem;">
+        <label style="{label}">{t['phone']}</label>
+        <input type="tel" name="phone" required autocomplete="tel"
+               inputmode="tel" style="{field}">
       </div>
+      {email_field}
       <div style="margin-bottom:20px;">
-        <label style="display:block;margin-bottom:8px;font-weight:600;color:#374151;">Message</label>
+        <label style="{label}">{t['message']}</label>
         <textarea name="message" rows="5" required
-                  style="width:100%;padding:12px;border:2px solid #e5e7eb;border-radius:8px;font-size:1rem;resize:vertical;"></textarea>
+                  style="{field}resize:vertical;"></textarea>
       </div>
       <button type="submit"
               style="width:100%;padding:15px;background:linear-gradient(135deg,{primary},{accent});
               color:white;border:none;border-radius:8px;font-size:1.1rem;font-weight:bold;cursor:pointer;">
-        Send Message
+        {t['submit']}
       </button>
     </form>
 <script>
 function handleContactSubmit(e) {{
   e.preventDefault();
-  const form = e.target;
-  const formData = new FormData(form);
-  const name = formData.get('name');
-  const message = formData.get('message');
-  const waButton = document.querySelector('a[href*="wa.me"]');
-  if (waButton) {{
-    const phoneMatch = waButton.href.match(/wa.me\\/([^?]+)/);
-    if (phoneMatch) {{
-      const text = `Contact: ${{name}}%0A%0A${{message}}`;
-      window.open(`https://wa.me/${{phoneMatch[1]}}?text=${{text}}`, '_blank');
-    }}
+  var form = e.target;
+  var data = new FormData(form);
+  var name = data.get('name') || '';
+  var message = data.get('message') || '';
+  // The merchant reads this on their phone: who, which number to call
+  // back, and what they asked for — in that order.
+  var reply = (data.get('phone') || data.get('email') || '');
+  var body = '{t["wa_label"]}%0A%0A'
+    + encodeURIComponent(name) + '%0A'
+    + encodeURIComponent(reply) + '%0A%0A'
+    + encodeURIComponent(message);
+  var waButton = document.querySelector('a[href*="wa.me"]');
+  var phoneMatch = waButton && waButton.href.match(/wa\.me\/([^?]+)/);
+  if (phoneMatch) {{
+    window.open('https://wa.me/' + phoneMatch[1] + '?text=' + body, '_blank');
   }} else if ("{email}") {{
-    window.location.href = `mailto:{email}?subject=Contact from ${{name}}&body=${{message}}`;
+    window.location.href = 'mailto:{email}?subject={t["wa_label"]}&body=' + body;
   }}
   form.reset();
-  alert('Thank you! We will get back to you soon.');
+  alert({t['sent']!r});
   return false;
 }}
 </script>
 """
         if container:
             return (
-                f'<section id="contact" style="padding:60px 20px;background:#ffffff;">'
-                f'<h2 style="text-align:center;font-size:2.5rem;margin-bottom:1rem;color:{primary};">📬 Contact Us</h2>'
+                f'<section id="contact" style="padding:60px 20px;background:inherit;color:inherit;">'
+                f'<h2 style="text-align:center;font-size:2rem;margin-bottom:1.5rem;color:inherit;">{t["heading"]}</h2>'
                 f'{form}'
                 f'</section>'
             )
@@ -3731,6 +3751,7 @@ __BINAAPP_WIDGET_THEME_VARS__
                 theme_tokens=theme_tokens,
                 website_id=website_id_for_log,
                 generation_count=generation_count_for_log,
+                language=user_data.get("language"),
             )
 
         # QR Code - Inject BEFORE delivery system so it ends up inside page-home div
