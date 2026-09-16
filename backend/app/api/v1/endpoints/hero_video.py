@@ -463,7 +463,27 @@ async def _ledger_save(job) -> bool:
     result = await ledger.save(job)
     if result == ledger.SAVE_LOST:
         job.ownership_lost = True
-    return result == ledger.SAVE_OK
+    ok = result == ledger.SAVE_OK
+    if ok:
+        job.last_ledger_save = time.monotonic()
+    return ok
+
+
+#: How much of the lease may elapse before a poll that changed NOTHING
+#: writes anyway. At 0.5 a processing job (60 s lease) renews every 30 s
+#: instead of on every 8 s poll: two renewals per lease period, so a single
+#: failed write still cannot cost this process the row, and roughly three
+#: quarters of the PATCHes disappear. A poll that changes the job's state
+#: always writes, whatever this says.
+LEASE_RENEW_FRACTION = 0.5
+
+
+def _lease_due(job) -> bool:
+    """True when the job's lease needs renewing (or has never been written)."""
+    if job.last_ledger_save is None:
+        return True
+    elapsed = time.monotonic() - job.last_ledger_save
+    return elapsed >= ledger.lease_seconds_for(job.status) * LEASE_RENEW_FRACTION
 
 
 async def _job_is_ours_to_end(job) -> bool:
@@ -1104,9 +1124,14 @@ async def _advance_locked(
                     f"[hero-video] job {job.job_id} still processing "
                     f"(provider_status={raw}, age={int(job.age_seconds())}s)"
                 )
-            # Every poll renews the lease and stamps last_polled_at, so a
-            # process that dies mid-render is visible as a lapsed lease.
-            await _ledger_save(job)
+            # A poll that changed nothing has nothing to mirror — but the
+            # lease still has to be renewed, or another process adopts a job
+            # this one is actively driving. So: write on every change, and
+            # otherwise only when the lease is halfway gone. The row lags
+            # last_polled_at by up to 30 s; the alternative was a PATCH every
+            # 8 seconds per in-flight job to restate the same PENDING.
+            if state_changed or _lease_due(job):
+                await _ledger_save(job)
             return False, False
 
         # A job prepared ahead of publish has no site yet (job.website_id

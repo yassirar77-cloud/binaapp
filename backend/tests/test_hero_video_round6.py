@@ -235,6 +235,22 @@ class TestTheClipLandsInTheMediaColumn:
         assert 'img[src="' in style
         assert f'img[src="https://res.cloudinary.com/d/image/upload/v1/binaapp/user_uploads/a2bc44d4.jpg"]:not([{HERO_MEDIA_ATTR}])' in style
 
+    def test_a_deep_picture_with_no_media_wrapper_is_left_alone(self):
+        # A collage inside the layout is content, not the hero's backdrop.
+        # Claiming it would hide it and paint a full-bleed clip in its place.
+        collage = MIMK.replace(
+            '<div class="hero-photo-anim relative rounded-2xl overflow-hidden shadow-2xl">',
+            '<div class="grid grid-cols-2 gap-2"><p>Galeri</p>',
+        )
+        match, _how = find_hero_open_tag(collage)
+        assert find_hero_media(collage, match.start()) == []
+        result = apply_hero_video(collage, _settings())
+        assert "layer_hosted_in_media_column" not in result.notes
+        # Nothing in the body is stamped (the CSS always declares the rules).
+        body = result.html[result.html.index("<body"):]
+        assert HERO_MEDIA_ATTR not in body
+        assert "Galeri" in body and "a2bc44d4.jpg" in body
+
     def test_the_badges_over_the_photo_are_untouched(self):
         html = apply_hero_video(MIMK, _settings()).html
         assert "Walk-in Welcome" in html and "Buka 11 pagi" in html
@@ -360,3 +376,49 @@ class TestTheSweepRehomesAReadyClip:
         with patch.object(ep, "_site_for_prepared_clip", new=AsyncMock(return_value="ws-1")):
             result = await ep.sweep_stuck_hero_video_jobs()
         assert result["rehomed"] == ["orphan-6"]
+
+
+# ---------------------------------------------------------------------------
+# Polling cost: a poll that changes nothing does not rewrite the row
+# ---------------------------------------------------------------------------
+
+class TestTheLedgerIsNotRewrittenOnEveryPoll:
+    async def test_an_unchanged_poll_only_renews_the_lease_when_it_is_due(self, patches, test_user_id):
+        patches["fetch_result"].return_value = {
+            "status": "processing", "video_url": None, "cover_image_url": None,
+            "raw_status": "PENDING",
+        }
+        job = svc.zai_video_service.register_job(
+            task_id="task-1", website_id="ws-1", user_id=test_user_id, prompt="p",
+            settings=ep.HeroVideoLook().model_dump(), provider="dashscope",
+        )
+        # First poll: PENDING is new, and the lease has never been written.
+        await ep._advance_hero_video_job(job, "ws-1", test_user_id)
+        assert patches["ledger_save"].await_count == 1
+        # Next polls say the same thing inside the renewal window.
+        for _ in range(5):
+            await ep._advance_hero_video_job(job, "ws-1", test_user_id)
+        assert patches["ledger_save"].await_count == 1
+        # Once half the lease has gone, the row is written to keep it.
+        job.last_ledger_save -= ep.ledger.lease_seconds_for(job.status)
+        await ep._advance_hero_video_job(job, "ws-1", test_user_id)
+        assert patches["ledger_save"].await_count == 2
+
+    async def test_a_state_change_always_writes(self, patches, test_user_id):
+        patches["fetch_result"].return_value = {
+            "status": "processing", "video_url": None, "cover_image_url": None,
+            "raw_status": "PENDING",
+        }
+        job = svc.zai_video_service.register_job(
+            task_id="task-1", website_id="ws-1", user_id=test_user_id, prompt="p",
+            settings=ep.HeroVideoLook().model_dump(), provider="dashscope",
+        )
+        await ep._advance_hero_video_job(job, "ws-1", test_user_id)
+        before = patches["ledger_save"].await_count
+        patches["fetch_result"].return_value = {
+            "status": "processing", "video_url": None, "cover_image_url": None,
+            "raw_status": "RUNNING",
+        }
+        await ep._advance_hero_video_job(job, "ws-1", test_user_id)
+        assert patches["ledger_save"].await_count == before + 1
+        assert job.provider_status == "RUNNING"

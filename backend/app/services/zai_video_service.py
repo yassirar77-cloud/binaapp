@@ -633,6 +633,10 @@ class HeroVideoJob:
     storing_since: Optional[float] = None
     #: Set when a ledger save reports another process now owns the row.
     ownership_lost: bool = False
+    #: Monotonic time of the last SUCCESSFUL ledger write. A poll that
+    #: changes nothing does not need to write — only to keep the lease
+    #: alive — so this is what the driver throttles against.
+    last_ledger_save: Optional[float] = None
     #: Filled by the background finaliser once the clip is on the page:
     #: settings / base_source / html_content / message / warning. The poll
     #: merges it into the completed response so the dashboard gets the

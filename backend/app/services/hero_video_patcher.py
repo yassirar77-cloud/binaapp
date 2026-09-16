@@ -825,7 +825,15 @@ def find_hero_media(html: str, hero_start: int) -> List[Tuple[int, int, Optional
             return
         for start, end in direct_children(html, scan_start, scan_end):
             if _is_background_media(html, start, end):
-                found.append((start, end, _media_host(html, chain)))
+                host = _media_host(html, chain)
+                # Deep media that belongs to NO media wrapper is not the
+                # hero's background — it is a picture inside the layout (a
+                # collage, a card, a logo lockup). Hiding it and painting a
+                # full-bleed clip behind it would take content off the page,
+                # so the walk only claims it within the old two-level reach.
+                if host is None and len(chain) > 1:
+                    continue
+                found.append((start, end, host))
                 continue
             child_close = open_tag_end(html, start)
             child_inner_end = html.rfind("</", 0, end)
