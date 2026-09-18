@@ -228,6 +228,9 @@ class TestDetect:
             "poster_luminance": None,
             "text_mode": "keep",
             "show_on_mobile": False,
+            # Not written when they are the clip's own: read back as such.
+            "speed": 1.0,
+            "effect": "none",
         }
 
     def test_clean_page_has_no_video(self):

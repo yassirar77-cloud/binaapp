@@ -296,6 +296,21 @@ ALLOWED_VIDEO_SIZES = (
 )
 ALLOWED_DURATIONS = (5, 10)
 
+#: The shapes a clip can be asked in. A hero is wide; a clip for a WhatsApp
+#: status, a Reel or a TikTok is tall. The aspect decides the DashScope
+#: ``ratio``, the Z.ai ``size`` and which prompt suffix is used.
+ASPECT_HERO = "16:9"
+ASPECT_SOCIAL = "9:16"
+ALLOWED_ASPECTS = (ASPECT_HERO, ASPECT_SOCIAL)
+#: Z.ai has no ratio parameter, only pixel sizes: the portrait twin of
+#: every landscape size it offers.
+_ZAI_PORTRAIT_SIZES = {"1280x720": "720x1280", "1920x1080": "1080x1920"}
+
+
+def clean_aspect(value: Optional[str]) -> str:
+    aspect = (value or "").strip()
+    return aspect if aspect in ALLOWED_ASPECTS else ASPECT_HERO
+
 
 def zai_video_size() -> str:
     size = os.getenv("ZAI_VIDEO_SIZE", DEFAULT_VIDEO_SIZE).strip()
@@ -450,6 +465,21 @@ _PROMPT_SUFFIX = (
     "smooth motion, high quality, 16:9."
 )
 
+#: The same rules for a tall clip meant to be POSTED, not put behind a
+#: headline: the merchant's caption goes on top in the app they post it
+#: from, so the frame stays clean, and the model is told the shape.
+_SOCIAL_PROMPT_SUFFIX = (
+    "Short vertical social media clip for a small business: no text, no "
+    "letters, no logos, no watermarks, no captions, no people looking at "
+    "camera, seamless loop, smooth motion, high quality, vertical 9:16 "
+    "portrait framing."
+)
+
+
+def prompt_suffix_for(aspect: str) -> str:
+    return _SOCIAL_PROMPT_SUFFIX if clean_aspect(aspect) == ASPECT_SOCIAL else _PROMPT_SUFFIX
+
+
 _WHITESPACE_RE = re.compile(r"\s+")
 
 
@@ -487,8 +517,12 @@ def build_hero_video_prompt(
     style: str = DEFAULT_VIDEO_STYLE,
     custom_prompt: str = "",
     hero_image_prompt: str = "",
+    aspect: str = ASPECT_HERO,
 ) -> str:
     """Compose the video prompt. Always ≤ 512 characters.
+
+    ``aspect`` picks the boilerplate: the hero suffix (a background for a
+    website, 16:9) or the social one (a clip to post, vertical 9:16).
 
     ONE hero visual, two renderings. ``hero_image_prompt`` is the merchant's
     description of the hero picture (persisted on the website row and used
@@ -551,12 +585,13 @@ def build_hero_video_prompt(
     # stop _terminate may add after truncation. Without the extra char a
     # max-length scene would push the finished prompt one over the provider
     # limit and get clipped mid-word by the API.
-    suffix_room = ZAI_PROMPT_MAX_CHARS - len(_PROMPT_SUFFIX) - 2
+    suffix = prompt_suffix_for(aspect)
+    suffix_room = ZAI_PROMPT_MAX_CHARS - len(suffix) - 2
     if len(scene) > suffix_room:
         scene = scene[: suffix_room - 3].rstrip() + "..."
     # Close the scene before the boilerplate so the suffix reads as its own
     # instruction rather than as the tail of the merchant's sentence.
-    prompt = f"{_terminate(scene)} {_PROMPT_SUFFIX}"
+    prompt = f"{_terminate(scene)} {suffix}"
     # Full, untruncated — same rule as the image prompt log.
     logger.info(f"🎬 VIDEO PROMPT [style={style}]: {prompt}")
     return prompt
@@ -610,6 +645,12 @@ class HeroVideoJob:
     #: Which API holds this task — polling must go back to the same one even
     #: if HERO_VIDEO_PROVIDER changes or the job came from the fallback.
     provider: str = ""
+    #: What the clip is FOR. "hero" (the default) is applied to a page;
+    #: "social" is a tall clip the merchant downloads and posts — stored,
+    #: never applied, never re-homed onto a site. Persisted inside the
+    #: ledger row's ``settings`` JSON (see ``purpose_of``) so the table
+    #: needs no new column.
+    purpose: str = "hero"
     #: One hero_video add-on credit was consumed for this job (paid users).
     #: A job that then fails to deliver gives it back exactly once.
     charged: bool = False
@@ -670,7 +711,18 @@ class HeroVideoJob:
             "provider_status": self.provider_status,
             "charged": self.charged,
             "refunded": self.refunded,
+            "purpose": self.purpose,
         }
+
+
+PURPOSE_HERO = "hero"
+PURPOSE_SOCIAL = "social"
+
+
+def purpose_of(settings: Optional[Dict]) -> str:
+    """The purpose recorded in a job's settings dict (ledger rows included)."""
+    value = str((settings or {}).get("purpose") or PURPOSE_HERO).lower()
+    return value if value in (PURPOSE_HERO, PURPOSE_SOCIAL) else PURPOSE_HERO
 
 
 class ZaiVideoError(Exception):
@@ -743,7 +795,11 @@ class ZaiVideoService:
         provider: Optional[str] = None,
         charged: bool = False,
         image_url: Optional[str] = None,
+        purpose: str = PURPOSE_HERO,
     ) -> HeroVideoJob:
+        settings = dict(settings or {})
+        if purpose != PURPOSE_HERO:
+            settings["purpose"] = purpose
         job = HeroVideoJob(
             job_id=uuid.uuid4().hex,
             task_id=task_id,
@@ -754,6 +810,7 @@ class ZaiVideoService:
             provider=provider or hero_video_provider(),
             charged=charged,
             image_url=image_url,
+            purpose=purpose,
         )
         self._jobs[job.job_id] = job
         return job
@@ -777,23 +834,33 @@ class ZaiVideoService:
         size: Optional[str] = None,
         image_url: Optional[str] = None,
         provider: Optional[str] = None,
+        aspect: Optional[str] = None,
     ) -> str:
         """Start a generation. Returns the provider's task id.
 
         ``with_audio`` is always false: the clip plays muted behind the hero,
         and audio would only make the file heavier.
+
+        ``aspect`` "9:16" asks for a portrait clip (a social post); the
+        default is the landscape hero shape.
         """
+        aspect = clean_aspect(aspect)
         if (provider or hero_video_provider()) == PROVIDER_DASHSCOPE:
-            return await self._submit_dashscope(prompt, duration=duration, image_url=image_url)
+            return await self._submit_dashscope(
+                prompt, duration=duration, image_url=image_url, aspect=aspect
+            )
         if not _zai_api_key():
             raise ZaiVideoError("ZAI_API_KEY is not configured")
 
+        chosen_size = size if size in ALLOWED_VIDEO_SIZES else zai_video_size()
+        if aspect == ASPECT_SOCIAL:
+            chosen_size = _ZAI_PORTRAIT_SIZES.get(chosen_size, "720x1280")
         payload: Dict = {
             "model": zai_video_model(),
             "prompt": prompt[:ZAI_PROMPT_MAX_CHARS],
             "quality": zai_video_quality(),
             "with_audio": False,
-            "size": size if size in ALLOWED_VIDEO_SIZES else zai_video_size(),
+            "size": chosen_size,
             "duration": duration if duration in ALLOWED_DURATIONS else zai_video_duration(),
             "fps": zai_video_fps(),
         }
@@ -900,6 +967,7 @@ class ZaiVideoService:
         *,
         duration: Optional[int] = None,
         image_url: Optional[str] = None,
+        aspect: Optional[str] = None,
     ) -> Tuple[str, str]:
         """Submit to the primary provider; if it cannot accept the job, try
         the fallback. Returns ``(task_id, provider)`` so the job remembers
@@ -929,7 +997,9 @@ class ZaiVideoService:
             )
             primary, fallback = PROVIDER_ZAI, primary
         try:
-            return await self.submit(prompt, duration=duration, image_url=image_url, provider=primary), primary
+            return await self.submit(
+                prompt, duration=duration, image_url=image_url, provider=primary, aspect=aspect
+            ), primary
         except ZaiVideoError as primary_exc:
             if not fallback or not _provider_configured(fallback):
                 raise
@@ -938,7 +1008,9 @@ class ZaiVideoService:
                 f"falling back to {fallback}"
             )
             try:
-                task_id = await self.submit(prompt, duration=duration, image_url=image_url, provider=fallback)
+                task_id = await self.submit(
+                    prompt, duration=duration, image_url=image_url, provider=fallback, aspect=aspect
+                )
             except ZaiVideoError as fallback_exc:
                 logger.error(f"🎬 fallback {fallback} failed too: {fallback_exc}")
                 raise primary_exc from fallback_exc
@@ -961,9 +1033,11 @@ class ZaiVideoService:
         *,
         duration: Optional[int] = None,
         image_url: Optional[str] = None,
+        aspect: Optional[str] = None,
     ) -> str:
         if not _dashscope_api_key():
             raise ZaiVideoError("DASHSCOPE_API_KEY is not configured")
+        aspect = clean_aspect(aspect)
         # A prompt-only job runs on the text-to-video model, a job that
         # carries the merchant's photo on the unified one that can animate it.
         model = dashscope_model_for(image_url)
@@ -981,7 +1055,8 @@ class ZaiVideoService:
         input_block: Dict = {"prompt": prompt[:ZAI_PROMPT_MAX_CHARS]}
         parameters: Dict = {
             "resolution": dashscope_video_resolution(),
-            "ratio": dashscope_video_ratio(),
+            # A social clip is tall whatever the operator's default ratio is.
+            "ratio": ASPECT_SOCIAL if aspect == ASPECT_SOCIAL else dashscope_video_ratio(),
             "duration": duration if duration in ALLOWED_DURATIONS else zai_video_duration(),
         }
         if unified:
@@ -990,7 +1065,10 @@ class ZaiVideoService:
                 # frame, and "adaptive" makes the clip follow the photo's own
                 # aspect — the pairing the wan3.0 reference documents.
                 input_block["media"] = [{"type": "first_frame", "url": image_url}]
-                parameters["ratio"] = "adaptive"
+                # A tall clip from a photo keeps the tall ratio: the model
+                # reframes the photo into it. A hero clip follows the photo.
+                if aspect != ASPECT_SOCIAL:
+                    parameters["ratio"] = "adaptive"
             # wan3.x generates a soundtrack by default. The clip plays muted
             # behind the hero, so audio only makes every visitor's download
             # heavier (same call the Z.ai path makes with with_audio=False).

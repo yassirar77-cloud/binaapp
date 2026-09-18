@@ -7,8 +7,13 @@ to apply and remove.
     GET    /api/v1/websites/{id}/hero-video               what the page has now
     POST   /api/v1/websites/{id}/hero-video/generate      start a video job for a site
     GET    /api/v1/websites/{id}/hero-video/jobs/{job_id} read its state (never polls the provider)
-    PATCH  /api/v1/websites/{id}/hero-video               change overlay / text / mobile
+    PATCH  /api/v1/websites/{id}/hero-video               change overlay / text / mobile / speed / effect
     DELETE /api/v1/websites/{id}/hero-video               remove it
+
+    GET    /api/v1/websites/hero-video/ideas              prompt ideas for a business type
+    POST   /api/v1/websites/hero-video/social             a vertical 9:16 clip to download and post
+    GET    /api/v1/websites/{id}/hero-video/library       every clip this account has stored
+    POST   /api/v1/websites/{id}/hero-video/apply         put a library clip on the hero, credit-free
 
 WITH THE PAGE, NOT AFTER IT
 ---------------------------
@@ -71,15 +76,23 @@ from loguru import logger
 from pydantic import BaseModel, Field
 
 from app.core.security import get_current_user
+from app.services.hero_video_ideas import ideas_for
 from app.services.hero_video_patcher import (
     DEFAULT_OVERLAY,
     DEFAULT_TEXT_MODE,
     HeroVideoSettings,
+    MAX_SPEED,
+    MIN_SPEED,
     OVERLAY_MODES,
+    SPEED_CHOICES,
+    VIDEO_EFFECTS,
     apply_hero_video,
     build_settings,
     detect_hero_video,
     find_hero_open_tag,
+    hero_video_delivery_url,
+    hero_video_download_url,
+    is_safe_media_url,
     needs_style_upgrade,
     remove_hero_video,
 )
@@ -94,16 +107,21 @@ from app.services.hero_luminance import poster_luminance
 from app.services import hero_video_jobs as ledger
 from app.services.supabase_client import supabase_service
 from app.services.zai_video_service import (
+    ALLOWED_ASPECTS,
     ALLOWED_DURATIONS,
+    ASPECT_HERO,
+    ASPECT_SOCIAL,
     DEFAULT_VIDEO_STYLE,
     JOB_STATUS_COMPLETED,
     JOB_STATUS_FAILED,
     JOB_STATUS_PROCESSING,
     JOB_STATUS_READY,
     JOB_STATUS_STORING,
+    PURPOSE_SOCIAL,
     VIDEO_STYLE_PRESETS,
     ZaiVideoError,
     build_hero_video_prompt,
+    purpose_of,
     hero_video_enabled,
     zai_video_duration,
     zai_video_max_wait_seconds,
@@ -248,6 +266,10 @@ class HeroVideoLook(BaseModel):
     #: Mean first-frame luminance (0..1), measured when the clip is stored.
     #: Never sent by a client; kept here so job.settings round-trips it.
     poster_luminance: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    #: Playback rate (1.0 = as generated) and a VIDEO_EFFECTS colour look.
+    #: Both credit-free: the bootstrap and the stylesheet carry them.
+    speed: Optional[float] = Field(default=None, ge=MIN_SPEED, le=MAX_SPEED)
+    effect: Optional[str] = Field(default=None, max_length=24)
 
 
 class GenerateHeroVideoRequest(HeroVideoLook):
@@ -277,6 +299,23 @@ class PatchHeroVideoRequest(BaseModel):
     overlay_opacity: Optional[float] = Field(default=None, ge=0.0, le=0.9)
     text_mode: Optional[Literal["auto", "light", "dark", "keep"]] = None
     show_on_mobile: Optional[bool] = None
+    speed: Optional[float] = Field(default=None, ge=MIN_SPEED, le=MAX_SPEED)
+    effect: Optional[str] = Field(default=None, max_length=24)
+
+
+class SocialClipRequest(PrepareHeroVideoRequest):
+    """A tall clip to POST, not to put behind a headline: WhatsApp status,
+    Instagram Reel, TikTok. Same prompt inputs as a prepared clip; the
+    business context can come from the form or from a site the account
+    owns (``website_id``)."""
+
+    website_id: Optional[str] = Field(default=None, max_length=64)
+
+
+class ApplyLibraryClipRequest(HeroVideoLook):
+    """Put a clip this account already stored back on a hero."""
+
+    job_id: str = Field(min_length=8, max_length=64)
 
 
 # ---------------------------------------------------------------------------
@@ -622,12 +661,19 @@ async def _record_video_on_row(website_id: str, settings: Optional[HeroVideoSett
     return ok
 
 
-async def _submit_or_502(prompt: str, *, duration: Optional[int], image_url: Optional[str], label: str) -> Tuple[str, str]:
+async def _submit_or_502(
+    prompt: str,
+    *,
+    duration: Optional[int],
+    image_url: Optional[str],
+    label: str,
+    aspect: str = ASPECT_HERO,
+) -> Tuple[str, str]:
     """Hand the prompt to the provider; a refusal becomes a 502 that says
     whether it is the merchant's to retry or a server-side key problem."""
     try:
         return await zai_video_service.submit_with_fallback(
-            prompt, duration=duration, image_url=image_url
+            prompt, duration=duration, image_url=image_url, aspect=aspect
         )
     except ZaiVideoError as exc:
         logger.error(f"[hero-video] submit failed for {label}: {exc}")
@@ -722,7 +768,49 @@ def _settings_from_look(look: HeroVideoLook, video_url: str, poster_url: Optiona
         text_mode=look.text_mode,
         show_on_mobile=look.show_on_mobile,
         poster_luminance=look.poster_luminance,
+        speed=look.speed,
+        effect=look.effect,
     )
+
+
+def _library_entry(row: Dict, current_video_url: Optional[str]) -> Optional[Dict]:
+    """One clip-library card from a ledger row, or None when the row has
+    nothing a page could embed."""
+    video_url = hero_video_delivery_url((row.get("video_url") or "").strip())
+    if not video_url or not is_safe_media_url(video_url):
+        return None
+    settings = row.get("settings") or {}
+    purpose = purpose_of(settings)
+    poster = (row.get("poster_url") or "").strip() or None
+    return {
+        "job_id": str(row.get("job_id") or ""),
+        "video_url": video_url,
+        "poster_url": poster if is_safe_media_url(poster) else None,
+        "download_url": hero_video_download_url(video_url),
+        "prompt": (row.get("prompt") or "")[:200],
+        "created_at": row.get("created_at"),
+        "website_id": row.get("website_id") or "",
+        "status": row.get("status"),
+        "purpose": purpose,
+        "aspect": ASPECT_SOCIAL if purpose == PURPOSE_SOCIAL else ASPECT_HERO,
+        "poster_luminance": settings.get("poster_luminance"),
+        # A social clip is tall: it can be downloaded, not put behind a hero.
+        "can_apply": purpose != PURPOSE_SOCIAL,
+        "is_current": bool(current_video_url) and video_url == hero_video_delivery_url(current_video_url),
+    }
+
+
+def _complete_social_clip(job) -> None:
+    """A social clip is done the moment it is stored: nothing to apply, no
+    publish to wait for, no site to re-home it onto. Caller holds the lock."""
+    job.applied = False
+    job.result_payload = {
+        "message": "Klip sosial anda sedia. Muat turun dan kongsi.",
+        "aspect": ASPECT_SOCIAL,
+        "download_url": hero_video_download_url(job.video_url),
+    }
+    job.status = JOB_STATUS_COMPLETED
+    logger.info(f"🎬 Social clip {job.job_id} stored for user {job.user_id}: {job.video_url}")
 
 
 # ---------------------------------------------------------------------------
@@ -757,6 +845,26 @@ async def get_hero_video_options():
         ],
         "overlays": list(OVERLAY_MODES),
         "text_modes": ["auto", "light", "dark", "keep"],
+        # Credit-free playback controls (see hero_video_patcher).
+        "speeds": list(SPEED_CHOICES),
+        "effects": [
+            {"key": key, "label_ms": spec["label_ms"], "label_en": spec["label_en"]}
+            for key, spec in VIDEO_EFFECTS.items()
+        ],
+        # 16:9 goes behind the hero; 9:16 is a clip to download and post.
+        "aspects": list(ALLOWED_ASPECTS),
+    }
+
+
+@router.get("/hero-video/ideas")
+async def get_hero_video_ideas(business_type: str = "", limit: int = 6):
+    """Curated prompt ideas for a kind of business — static, no AI, no
+    merchant data, so public like the options."""
+    _feature_gate()
+    return {
+        "success": True,
+        "business_type": business_type,
+        "ideas": ideas_for(business_type, limit=max(1, min(limit, 12))),
     }
 
 
@@ -851,6 +959,96 @@ async def prepare_hero_video(
     }
 
 
+@router.post("/hero-video/social", status_code=status.HTTP_202_ACCEPTED)
+async def generate_social_clip(
+    body: SocialClipRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Make a VERTICAL clip to post — WhatsApp status, Reel, TikTok — from
+    the same photo, style and description the hero clip uses.
+
+    Same price and the same caps as a hero clip. The job is polled with
+    ``/hero-video/jobs/{job_id}``; ``completed`` carries ``download_url``.
+    It is never applied to a page and never re-homed onto one: it is a
+    file for the merchant to take away.
+    """
+    _feature_gate()
+    user_id = current_user.get("sub")
+
+    access = await hero_video_access(user_id)
+    if not access["allowed"]:
+        raise _payment_required(access)
+    if zai_video_service.active_jobs_for_user(user_id) >= MAX_ACTIVE_JOBS_PER_USER:
+        raise _too_many_jobs()
+    daily_key = f"user:{user_id}"
+    if _count_recent_submits(daily_key) >= _max_per_site_per_day():
+        raise _daily_limit_reached()
+
+    from app.services.business_types import normalize_business_type
+
+    # Business context: the site named in the body, else the form fields.
+    business_name = body.business_name
+    business_type = body.business_type
+    description = body.description
+    hero_image_prompt = body.hero_image_prompt
+    if body.website_id:
+        website = await _load_owned_website(body.website_id, user_id)
+        business_name = business_name or website.get("business_name") or website.get("name") or ""
+        business_type = business_type or website.get("business_type") or ""
+        description = description or website.get("description") or ""
+        hero_image_prompt = hero_image_prompt or website.get("hero_image_prompt") or ""
+
+    style = body.style if body.style in VIDEO_STYLE_PRESETS else DEFAULT_VIDEO_STYLE
+    prompt = build_hero_video_prompt(
+        business_name=business_name,
+        business_type=normalize_business_type(business_type) or "",
+        description=description,
+        style=style,
+        custom_prompt=body.prompt or "",
+        hero_image_prompt=hero_image_prompt,
+        aspect=ASPECT_SOCIAL,
+    )
+
+    image_url = (body.image_url or "").strip() or None
+    if image_url and not image_url.startswith("https://"):
+        image_url = None
+
+    task_id, provider = await _submit_or_502(
+        prompt, duration=body.duration, image_url=image_url,
+        label=f"social/{user_id}", aspect=ASPECT_SOCIAL,
+    )
+    _record_submit(daily_key)
+    charged = await _charge_if_paid(access, user_id, task_id, "social clip")
+
+    job = zai_video_service.register_job(
+        task_id=task_id,
+        website_id="",
+        user_id=user_id,
+        prompt=prompt,
+        settings=HeroVideoLook(**body.model_dump(include=set(HeroVideoLook.model_fields))).model_dump(),
+        charged=charged,
+        provider=provider,
+        image_url=image_url,
+        purpose=PURPOSE_SOCIAL,
+    )
+    logger.info(
+        f"🎬 Social clip job {job.job_id} started for user {user_id} "
+        f"(style={style}, provider={provider}, task={task_id})"
+    )
+    await ledger.create(job)
+    job.driver_task = asyncio.create_task(_drive_hero_video_job(job, "", user_id))
+    return {
+        "success": True,
+        "job_id": job.job_id,
+        "status": job.status,
+        "purpose": PURPOSE_SOCIAL,
+        "aspect": ASPECT_SOCIAL,
+        "poll_interval_seconds": POLL_INTERVAL_SECONDS,
+        "prompt": prompt,
+        "message": "Klip sosial menegak sedang dijana (1–3 minit). Anda boleh muat turun apabila siap.",
+    }
+
+
 @router.get("/hero-video/jobs/{job_id}")
 async def poll_prepared_hero_video_job(
     job_id: str,
@@ -904,6 +1102,8 @@ async def get_hero_video(
         html, upgraded = await _upgrade_legacy_css(website, user_id, html)
 
     job = zai_video_service.active_job_for_website(website_id)
+    state = _current_state(html)
+    current = state.get("settings") or {}
     return {
         "success": True,
         "website_id": website_id,
@@ -912,8 +1112,133 @@ async def get_hero_video(
         "job": job.to_dict() if job else None,
         "poll_interval_seconds": POLL_INTERVAL_SECONDS,
         "upgraded_css": upgraded,
-        **_current_state(html),
+        # For the ideas chips and the social clip form.
+        "business_type": website.get("business_type") or "",
+        # A link that saves the clip on the page, for posting elsewhere.
+        "download_url": hero_video_download_url(current.get("video_url")) if current else None,
+        **state,
     }
+
+
+@router.get("/{website_id}/hero-video/library")
+async def get_hero_video_library(
+    website_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Every clip this account has stored — on this site, on another, parked
+    for a publish, or made to post — newest first. Any 16:9 clip can go
+    back on this hero credit-free (``/apply``); every clip can be
+    downloaded."""
+    _feature_gate()
+    user_id = current_user.get("sub")
+    website = await _load_owned_website(website_id, user_id)
+
+    current_url = None
+    try:
+        base_html, _ = await _load_base_html(website)
+        current = detect_hero_video(base_html)
+        current_url = current["video_url"] if current else None
+    except HTTPException:
+        pass  # No usable page yet: the library still lists the clips.
+
+    rows = await ledger.load_stored_for_user(user_id)
+    clips = [entry for entry in (_library_entry(row, current_url) for row in rows) if entry]
+    return {"success": True, "website_id": website_id, "clips": clips, "count": len(clips)}
+
+
+@router.post("/{website_id}/hero-video/apply")
+async def apply_library_clip(
+    website_id: str,
+    body: ApplyLibraryClipRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Put a clip from the library on this hero. Credit-FREE: the clip is
+    already on Cloudinary; this is the same deterministic patch a finished
+    job runs, with the look already on the page (or the one in the body)."""
+    _feature_gate()
+    user_id = current_user.get("sub")
+    website = await _load_owned_website(website_id, user_id)
+
+    row = await ledger.load(body.job_id)
+    if not row or str(row.get("user_id") or "") != str(user_id) or not row.get("video_url"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "clip_not_found",
+                "message": "Klip tidak dijumpai dalam pustaka video anda.",
+            },
+        )
+    entry = _library_entry(row, None)
+    if not entry:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"error": "clip_unusable", "message": "Klip ini tidak boleh dipasang."},
+        )
+    if not entry["can_apply"]:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "error": "clip_not_for_hero",
+                "message": "Klip sosial menegak (9:16) untuk dimuat turun, bukan untuk latar hero.",
+            },
+        )
+
+    base_html, base_source = await _load_base_html(website)
+    current = detect_hero_video(base_html) or {}
+    # The look already on the page wins over defaults; a field the client
+    # actually SENT wins over both (exclude_unset: HeroVideoLook's own
+    # defaults would otherwise reset a dark scrim to auto on every swap).
+    merged = {**current, **body.model_dump(exclude_unset=True, exclude_none=True, exclude={"job_id"})}
+    settings = build_settings(
+        video_url=entry["video_url"],
+        poster_url=entry["poster_url"],
+        overlay=merged.get("overlay"),
+        overlay_opacity=merged.get("overlay_opacity"),
+        text_mode=merged.get("text_mode"),
+        show_on_mobile=merged.get("show_on_mobile"),
+        poster_luminance=entry.get("poster_luminance"),
+        speed=merged.get("speed"),
+        effect=merged.get("effect"),
+    )
+    patched = apply_hero_video(base_html, settings)
+    if not patched.changed:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "error": "hero_not_found",
+                "message": "Bahagian hero tidak dijumpai pada laman web ini.",
+            },
+        )
+    if patched.html == base_html:
+        return {
+            "success": True,
+            "changed": False,
+            "message": "Klip ini sudah dipasang.",
+            "website_id": website_id,
+            "settings": settings.as_dict(),
+            "base_source": base_source,
+            "live_site_updated": False,
+        }
+
+    await _record_video_on_row(website_id, settings)
+    live, warning = await _persist(website, user_id, patched.html)
+    logger.info(
+        f"🎬 Library clip {body.job_id} applied to {website_id} "
+        f"(base={base_source}, live={live}, {patched.summary()})"
+    )
+    response = {
+        "success": True,
+        "changed": True,
+        "message": "Klip dari pustaka telah dipasang pada hero.",
+        "website_id": website_id,
+        "settings": patched.settings,
+        "base_source": base_source,
+        "live_site_updated": live,
+        "html_content": patched.html,
+    }
+    if warning:
+        response["warning"] = warning
+    return response
 
 
 @router.post("/{website_id}/hero-video/generate", status_code=status.HTTP_202_ACCEPTED)
@@ -1292,6 +1617,9 @@ async def _store_clip(job, provider_video_url: str, *, website_id: str) -> bool:
     job.poster_url = job.image_url or stored["poster_url"]
 
     look = HeroVideoLook(**job.settings)
+    if job.purpose == PURPOSE_SOCIAL:
+        # Nothing sits on a social clip: no scrim, so no luminance to measure.
+        return True
     if look.overlay_opacity is None and look.overlay != "none":
         # Bug 5: a fixed 0.45 was fine over dark footage and unreadable
         # over bright footage. Measure the first frame — the clip's own
@@ -1301,7 +1629,11 @@ async def _store_clip(job, provider_video_url: str, *, website_id: str) -> bool:
         # mapping (bright clip → less white), so the patcher derives the
         # number from the luminance for whichever scrim the page gets.
         look.poster_luminance = await poster_luminance(stored["poster_url"])
-        job.settings = look.model_dump()
+        # HeroVideoLook ignores keys it does not know, so a plain
+        # model_dump() here would silently drop ``purpose`` from the
+        # settings the ledger row carries — and a restart would resume a
+        # social clip as a hero one. Keep whatever the look does not own.
+        job.settings = {**job.settings, **look.model_dump()}
     return True
 
 
@@ -1412,6 +1744,14 @@ async def _finalize_hero_video_job(job, website: Optional[dict], user_id: str, p
         ):
             return
         if not _still_storing(job, "parking or applying the stored clip"):
+            return
+
+        if job.purpose == PURPOSE_SOCIAL:
+            async with job.lock:
+                if not _still_storing(job, "completing the social clip"):
+                    return
+                _complete_social_clip(job)
+            await _ledger_save(job)
             return
 
         if website is None:
@@ -1639,8 +1979,9 @@ async def update_hero_video_look(
     body: PatchHeroVideoRequest,
     current_user: dict = Depends(get_current_user),
 ):
-    """Change the scrim, text treatment or mobile behaviour of the video
-    already on the page. Credit-FREE: no AI call, the clip is reused."""
+    """Change the scrim, text treatment, mobile behaviour, playback speed
+    or colour effect of the video already on the page. Credit-FREE: no AI
+    call, the clip is reused."""
     _feature_gate()
     user_id = current_user.get("sub")
     website = await _load_owned_website(website_id, user_id)
@@ -1668,6 +2009,8 @@ async def update_hero_video_look(
         text_mode=merged.get("text_mode"),
         show_on_mobile=merged.get("show_on_mobile"),
         poster_luminance=merged.get("poster_luminance"),
+        speed=merged.get("speed"),
+        effect=merged.get("effect"),
     )
     patched = apply_hero_video(base_html, settings)
     if not patched.changed or patched.html == base_html:
@@ -1767,7 +2110,11 @@ def _adopt_row(row: Dict) -> Optional[str]:
         return None
     job = zai_video_service.adopt_job(job)
     if job.status == JOB_STATUS_STORING and job.video_url:
-        if job.website_id:
+        if job.purpose == PURPOSE_SOCIAL:
+            # Stored; only the "done" write was lost. Nothing to apply.
+            _complete_social_clip(job)
+            job.finalize_task = asyncio.create_task(_ledger_save(job))
+        elif job.website_id:
             # The clip is stored; only the apply was lost.
             job.finalize_task = asyncio.create_task(_resume_apply(job))
         else:
