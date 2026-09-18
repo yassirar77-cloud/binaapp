@@ -29,6 +29,16 @@ export interface HeroVideoStyle {
   label_en: string;
 }
 
+/** A credit-free colour look painted over the clip with a CSS filter. */
+export interface HeroVideoEffect {
+  key: string;
+  label_ms: string;
+  label_en: string;
+}
+
+/** 16:9 goes behind the hero; 9:16 is a clip to download and post. */
+export type HeroVideoAspect = '16:9' | '9:16';
+
 export interface HeroVideoOptions {
   /** The model behind a prompt-only clip (text-to-video). */
   model: string;
@@ -41,6 +51,11 @@ export interface HeroVideoOptions {
   styles: HeroVideoStyle[];
   overlays: HeroVideoOverlay[];
   text_modes: HeroVideoTextMode[];
+  /** Playback speeds the panel offers (× the clip's own rate). */
+  speeds?: number[];
+  /** Colour effects the panel offers. */
+  effects?: HeroVideoEffect[];
+  aspects?: HeroVideoAspect[];
   /** RM per clip for accounts without free access. */
   price_rm?: number;
   /** addon_purchases.addon_type to buy one clip credit. */
@@ -65,6 +80,10 @@ export interface HeroVideoSettings {
   overlay_opacity: number;
   text_mode: HeroVideoTextMode;
   show_on_mobile: boolean;
+  /** Playback rate, 1 = as generated. Absent on pages patched before it existed. */
+  speed?: number;
+  /** A VIDEO_EFFECTS key; 'none' is the clip as generated. */
+  effect?: string;
 }
 
 export type HeroVideoJobStatus =
@@ -94,6 +113,11 @@ export interface HeroVideoJob {
   settings?: HeroVideoSettings;
   message?: string;
   warning?: string;
+  /** 'hero' (applied to a page) or 'social' (a tall clip to download). */
+  purpose?: 'hero' | 'social';
+  aspect?: HeroVideoAspect;
+  /** Present once a social clip is stored: a link that saves the file. */
+  download_url?: string;
 }
 
 export interface HeroVideoState {
@@ -110,6 +134,10 @@ export interface HeroVideoState {
   job: HeroVideoJob | null;
   poll_interval_seconds: number;
   source: string;
+  /** The site's business type, for the prompt ideas. */
+  business_type?: string;
+  /** A link that saves the clip on the page, for posting elsewhere. */
+  download_url?: string | null;
 }
 
 export interface HeroVideoLook {
@@ -117,6 +145,38 @@ export interface HeroVideoLook {
   overlay_opacity?: number;
   text_mode?: HeroVideoTextMode;
   show_on_mobile?: boolean;
+  speed?: number;
+  effect?: string;
+}
+
+/** A curated prompt idea for the merchant's kind of business. */
+export interface HeroVideoIdea {
+  key: string;
+  ms: string;
+  en: string;
+}
+
+/** One stored clip in the account's library. */
+export interface HeroVideoLibraryClip {
+  job_id: string;
+  video_url: string;
+  poster_url: string | null;
+  download_url: string;
+  prompt: string;
+  created_at: string | null;
+  website_id: string;
+  status: string;
+  purpose: 'hero' | 'social';
+  aspect: HeroVideoAspect;
+  /** False for a vertical social clip: download only. */
+  can_apply: boolean;
+  /** True when this is the clip on the page right now. */
+  is_current: boolean;
+}
+
+/** A vertical clip to post: same inputs as a prepared clip, plus a site to borrow context from. */
+export interface SocialClipRequest extends PrepareHeroVideoRequest {
+  website_id?: string;
 }
 
 export interface StartHeroVideoRequest extends HeroVideoLook {
@@ -400,7 +460,56 @@ export async function pollHeroVideoJob(
   return parseOrThrow<HeroVideoJob>(resp);
 }
 
-/** Adjust the scrim / text / mobile behaviour. Credit-free. */
+/** Prompt ideas for a kind of business. Public and static. */
+export async function fetchHeroVideoIdeas(businessType: string): Promise<HeroVideoIdea[]> {
+  const params = new URLSearchParams({ business_type: businessType || '' });
+  const resp = await fetch(`${API_BASE}/api/v1/websites/hero-video/ideas?${params}`);
+  if (!resp.ok) return [];
+  const data = await resp.json().catch(() => ({}));
+  return Array.isArray(data?.ideas) ? (data.ideas as HeroVideoIdea[]) : [];
+}
+
+/** Every clip the account has stored, newest first. */
+export async function fetchHeroVideoLibrary(
+  websiteId: string,
+  token: string | null
+): Promise<HeroVideoLibraryClip[]> {
+  const resp = await authedFetch(`/api/v1/websites/${websiteId}/hero-video/library`, token);
+  const data = await parseOrThrow<{ clips?: HeroVideoLibraryClip[] }>(resp);
+  return data.clips || [];
+}
+
+/** Put a library clip on this hero. Credit-free. */
+export async function applyHeroVideoFromLibrary(
+  websiteId: string,
+  jobId: string,
+  look: HeroVideoLook,
+  token: string | null
+): Promise<HeroVideoPatchResult> {
+  const resp = await authedFetch(`/api/v1/websites/${websiteId}/hero-video/apply`, token, {
+    method: 'POST',
+    body: JSON.stringify({ job_id: jobId, ...look }),
+  });
+  return parseOrThrow<HeroVideoPatchResult>(resp);
+}
+
+/**
+ * Start a vertical 9:16 clip to download and post (WhatsApp status, Reel,
+ * TikTok). Poll it with `pollPreparedHeroVideoJob`; `completed` carries
+ * `download_url`. Never applied to a page.
+ */
+export async function startSocialClip(
+  body: SocialClipRequest,
+  token: string | null
+): Promise<StartedHeroVideoJob> {
+  const resp = await authedFetch('/api/v1/websites/hero-video/social', token, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+  return parseOrThrow(resp);
+}
+
+/** Adjust the scrim / text / mobile behaviour / speed / effect. Credit-free. */
 export async function updateHeroVideoLook(
   websiteId: string,
   body: HeroVideoLook,

@@ -138,8 +138,48 @@ All under `/api/v1/websites`, owner-only except `options`:
 | GET | `/{id}/hero-video` | Current settings, `hero_found`, `allowed`, in-flight `job` |
 | POST | `/{id}/hero-video/generate` | Start a job → `202 {job_id}` |
 | GET | `/{id}/hero-video/jobs/{job_id}` | Read the job's state (never polls the provider) |
-| PATCH | `/{id}/hero-video` | Change overlay / opacity / text_mode / show_on_mobile (reuses the clip) |
+| PATCH | `/{id}/hero-video` | Change overlay / opacity / text_mode / show_on_mobile / `speed` / `effect` (reuses the clip) |
 | DELETE | `/{id}/hero-video` | Remove; page returns to its pre-video bytes |
+| GET | `/hero-video/ideas?business_type=` | Curated prompt ideas for a kind of business (public, static) |
+| POST | `/hero-video/social` | A vertical 9:16 clip to download and post → `202 {job_id}`; poll `/hero-video/jobs/{job_id}` |
+| GET | `/{id}/hero-video/library` | Every clip the account has stored, newest first, each with a `download_url` |
+| POST | `/{id}/hero-video/apply` | Put a library clip (`job_id`) on this hero, credit-free |
+
+### More things to do with a clip
+
+* **Speed and effect (credit-free).** `speed` (0.25–2, presets 0.5 / 0.75 /
+  1 / 1.25 / 1.5) is applied by the page's own playback bootstrap via
+  `playbackRate`; `effect` (`none` `warm` `cool` `vivid` `mono` `vintage`
+  `dreamy`) is a CSS `filter` on the video element. Both live on the layer
+  as `data-binaapp-speed` / `data-binaapp-effect` (written only when they
+  differ from the clip as made) and round-trip through `detect_hero_video`,
+  so a page patched before they existed reads back as speed 1 / effect none.
+  `GET /hero-video/options` lists `speeds` and `effects`.
+* **Prompt ideas.** `hero_video_ideas.py` keeps a few concrete scene ideas
+  per `BUSINESS_TYPE_VALUES` key (food, bakery, clothing, salon, services)
+  plus general ones; the panel shows them as chips under the prompt field.
+  `GET /{id}/hero-video` now returns `business_type` so the panel knows
+  which list to ask for.
+* **Download link.** `hero_video_download_url()` adds Cloudinary's
+  `fl_attachment` to the delivery transform so the link saves the MP4
+  instead of playing it. Returned as `download_url` on the state read, on
+  every library card and on a completed social clip.
+* **Clip library.** `hero_video_jobs.load_stored_for_user()` lists the
+  account's ledger rows that have a `video_url` (status `completed` or
+  `ready`). `/apply` re-runs the same deterministic patch a finished job
+  runs, keeping the look already on the page (a field the client sends
+  wins) and the `poster_luminance` recorded when the clip was stored. Only
+  the owner's rows are accepted; a social clip is refused
+  (`clip_not_for_hero` 422) because it is tall.
+* **Social clip.** Same gates, caps and price as a hero clip; same prompt
+  builder with `aspect="9:16"`, which swaps the boilerplate suffix for a
+  vertical one and asks DashScope for `ratio: 9:16` (Z.ai: the portrait
+  twin of the configured size). The job is registered with
+  `purpose="social"`, persisted inside the ledger row's `settings` JSON
+  (no new column), and the finaliser marks it `completed` the moment it is
+  stored under the job's own id: it is never applied, never parked as
+  `ready`, never re-homed onto a site. The completed job carries
+  `download_url`, `video_url`, `poster_url` and `aspect`.
 
 Generate body: `style` (`cinematic` `ambient` `energetic` `elegant` `nature`),
 optional `prompt` (≤400 chars, merchant's own scene), `duration` (5 or 10),
@@ -256,10 +296,12 @@ no audio.
 * `backend/app/services/hero_video_patcher.py` — inject / detect / remove.
 * `backend/app/api/v1/endpoints/hero_video.py` — routes above.
 * `backend/app/services/plan_features.py` — `can_use_hero_video`.
+* `backend/app/services/hero_video_ideas.py` — the prompt idea catalogue.
 * `frontend/src/lib/heroVideo.ts` — client + Malay error copy.
 * `frontend/src/components/HeroVideoPanel.tsx` — editor panel (below the
   Design Studio on `/editor/[id]`).
 * `backend/scripts/hero_video_e2e.py` — real end-to-end check against a deployment.
 * Tests: `backend/tests/test_hero_video_patcher.py`,
   `test_zai_video_service.py`, `test_hero_video_api.py`, `test_hero_video_pipeline.py`,
+  `test_hero_video_features.py` (speed/effect, ideas, library, download, social clip),
   `frontend/src/components/HeroVideoPanel.test.tsx`.

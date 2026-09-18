@@ -24,6 +24,11 @@ const pollHeroVideoJob = vi.fn();
 const updateHeroVideoLook = vi.fn();
 const removeHeroVideo = vi.fn();
 const startHeroVideoPurchase = vi.fn(async (..._args: unknown[]) => undefined);
+const fetchHeroVideoIdeas = vi.fn(async (..._args: unknown[]) => [] as unknown[]);
+const fetchHeroVideoLibrary = vi.fn(async (..._args: unknown[]) => [] as unknown[]);
+const applyHeroVideoFromLibrary = vi.fn();
+const startSocialClip = vi.fn();
+const pollPreparedHeroVideoJob = vi.fn();
 
 vi.mock('@/lib/heroVideo', async () => {
   const actual = await vi.importActual<typeof import('@/lib/heroVideo')>('@/lib/heroVideo');
@@ -36,6 +41,11 @@ vi.mock('@/lib/heroVideo', async () => {
     updateHeroVideoLook: (...args: unknown[]) => updateHeroVideoLook(...args),
     removeHeroVideo: (...args: unknown[]) => removeHeroVideo(...args),
     startHeroVideoPurchase: (...args: unknown[]) => startHeroVideoPurchase(...args),
+    fetchHeroVideoIdeas: (...args: unknown[]) => fetchHeroVideoIdeas(...args),
+    fetchHeroVideoLibrary: (...args: unknown[]) => fetchHeroVideoLibrary(...args),
+    applyHeroVideoFromLibrary: (...args: unknown[]) => applyHeroVideoFromLibrary(...args),
+    startSocialClip: (...args: unknown[]) => startSocialClip(...args),
+    pollPreparedHeroVideoJob: (...args: unknown[]) => pollPreparedHeroVideoJob(...args),
   };
 });
 
@@ -99,6 +109,8 @@ describe('HeroVideoPanel', () => {
     vi.useRealTimers();
     fetchHeroVideoOptions.mockResolvedValue(OPTIONS);
     fetchHeroVideoState.mockResolvedValue(cleanState());
+    fetchHeroVideoIdeas.mockResolvedValue([]);
+    fetchHeroVideoLibrary.mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -355,6 +367,186 @@ describe('HeroVideoPanel', () => {
     render(<HeroVideoPanel websiteId="ws-1" onHtmlChange={vi.fn()} />);
     expect((await screen.findByTestId('hero-video-credits')).textContent).toContain('Baki kredit video: 1');
     expect(screen.queryByTestId('upgrade-for-hero-video')).toBeNull();
+  });
+
+  it('fills the prompt from a tapped idea', async () => {
+    fetchHeroVideoState.mockResolvedValue(cleanState({ business_type: 'food' }));
+    fetchHeroVideoIdeas.mockResolvedValue([
+      { key: 'food-wok', ms: 'Asap naik dari kuali panas', en: 'Steam from a hot wok' },
+    ]);
+    render(<HeroVideoPanel websiteId="ws-1" onHtmlChange={vi.fn()} />);
+    fireEvent.click(await screen.findByTestId('video-idea-food-wok'));
+    await waitFor(() => expect(fetchHeroVideoIdeas).toHaveBeenCalledWith('food'));
+    const textarea = document.getElementById('hero-video-prompt-ws-1') as HTMLTextAreaElement;
+    expect(textarea.value).toBe('Asap naik dari kuali panas');
+  });
+
+  it('still renders when the ideas call fails', async () => {
+    fetchHeroVideoIdeas.mockRejectedValue(new Error('offline'));
+    render(<HeroVideoPanel websiteId="ws-1" onHtmlChange={vi.fn()} />);
+    expect(await screen.findByTestId('generate-hero-video')).toBeTruthy();
+    expect(screen.queryByTestId('hero-video-ideas')).toBeNull();
+  });
+
+  it('patches playback speed and colour effect credit-free', async () => {
+    const onHtmlChange = vi.fn();
+    fetchHeroVideoOptions.mockResolvedValue({
+      ...OPTIONS,
+      speeds: [0.5, 1, 1.5],
+      effects: [
+        { key: 'none', label_ms: 'Asli', label_en: 'Original' },
+        { key: 'warm', label_ms: 'Hangat', label_en: 'Warm' },
+      ],
+    });
+    fetchHeroVideoState.mockResolvedValue(
+      cleanState({ has_video: true, settings: { ...SETTINGS, speed: 1, effect: 'none' } })
+    );
+    updateHeroVideoLook
+      .mockResolvedValueOnce({
+        success: true,
+        changed: true,
+        message: 'ok',
+        settings: { ...SETTINGS, speed: 0.5 },
+        live_site_updated: true,
+        html_content: '<html>slow</html>',
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        changed: true,
+        message: 'ok',
+        settings: { ...SETTINGS, speed: 0.5, effect: 'warm' },
+        live_site_updated: true,
+        html_content: '<html>warm</html>',
+      });
+
+    render(<HeroVideoPanel websiteId="ws-1" onHtmlChange={onHtmlChange} />);
+    expect((await screen.findByTestId('speed-1')).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByTestId('effect-none').getAttribute('aria-pressed')).toBe('true');
+
+    fireEvent.click(screen.getByTestId('speed-0.5'));
+    await waitFor(() => expect(updateHeroVideoLook).toHaveBeenCalledWith('ws-1', { speed: 0.5 }, 'tok-123'));
+    expect(onHtmlChange).toHaveBeenCalledWith('<html>slow</html>');
+    await waitFor(() => expect(screen.getByTestId('speed-0.5').getAttribute('aria-pressed')).toBe('true'));
+
+    fireEvent.click(screen.getByTestId('effect-warm'));
+    await waitFor(() => expect(updateHeroVideoLook).toHaveBeenCalledWith('ws-1', { effect: 'warm' }, 'tok-123'));
+    expect(onHtmlChange).toHaveBeenCalledWith('<html>warm</html>');
+    expect(startHeroVideo).not.toHaveBeenCalled();
+  });
+
+  it('offers a download link for the clip on the page', async () => {
+    fetchHeroVideoState.mockResolvedValue(
+      cleanState({
+        has_video: true,
+        settings: SETTINGS,
+        download_url: 'https://res.cloudinary.com/x/video/upload/fl_attachment/v1/hero.mp4',
+      })
+    );
+    render(<HeroVideoPanel websiteId="ws-1" onHtmlChange={vi.fn()} />);
+    const link = await screen.findByTestId('download-hero-video');
+    expect(link.getAttribute('href')).toContain('fl_attachment');
+    expect(link.hasAttribute('download')).toBe(true);
+  });
+
+  it('opens the library and re-applies a stored clip without a credit', async () => {
+    const onHtmlChange = vi.fn();
+    fetchHeroVideoState.mockResolvedValue(cleanState({ has_video: true, settings: SETTINGS }));
+    fetchHeroVideoLibrary.mockResolvedValue([
+      {
+        job_id: 'job-old',
+        video_url: 'https://res.cloudinary.com/x/video/upload/v1/old.mp4',
+        poster_url: null,
+        download_url: 'https://res.cloudinary.com/x/video/upload/fl_attachment/v1/old.mp4',
+        prompt: 'asap',
+        created_at: '2026-09-10T00:00:00Z',
+        website_id: 'ws-1',
+        status: 'completed',
+        purpose: 'hero',
+        aspect: '16:9',
+        can_apply: true,
+        is_current: false,
+      },
+      {
+        job_id: 'job-social',
+        video_url: 'https://res.cloudinary.com/x/video/upload/v1/tall.mp4',
+        poster_url: null,
+        download_url: 'https://res.cloudinary.com/x/video/upload/fl_attachment/v1/tall.mp4',
+        prompt: 'sate',
+        created_at: '2026-09-11T00:00:00Z',
+        website_id: '',
+        status: 'completed',
+        purpose: 'social',
+        aspect: '9:16',
+        can_apply: false,
+        is_current: false,
+      },
+    ]);
+    applyHeroVideoFromLibrary.mockResolvedValue({
+      success: true,
+      changed: true,
+      message: 'Klip dari pustaka telah dipasang pada hero.',
+      settings: { ...SETTINGS, video_url: 'https://res.cloudinary.com/x/video/upload/v1/old.mp4' },
+      live_site_updated: true,
+      html_content: '<html>old</html>',
+    });
+
+    render(<HeroVideoPanel websiteId="ws-1" onHtmlChange={onHtmlChange} />);
+    fireEvent.click(await screen.findByTestId('toggle-hero-video-library'));
+    await waitFor(() => expect(fetchHeroVideoLibrary).toHaveBeenCalledWith('ws-1', 'tok-123'));
+    expect(await screen.findByTestId('library-clip-job-old')).toBeTruthy();
+    // A vertical social clip is download-only.
+    expect(screen.queryByTestId('apply-library-clip-job-social')).toBeNull();
+    expect(screen.getByTestId('library-clip-job-social').textContent).toContain('Sosial 9:16');
+
+    fireEvent.click(screen.getByTestId('apply-library-clip-job-old'));
+    await waitFor(() =>
+      expect(applyHeroVideoFromLibrary).toHaveBeenCalledWith(
+        'ws-1',
+        'job-old',
+        expect.objectContaining({ overlay: 'dark' }),
+        'tok-123'
+      )
+    );
+    expect(onHtmlChange).toHaveBeenCalledWith('<html>old</html>');
+    expect(startHeroVideo).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByTestId('apply-library-clip-job-old')).toBeNull());
+  });
+
+  it('makes a vertical social clip and offers it for download when it lands', async () => {
+    startSocialClip.mockResolvedValue({
+      job_id: 'soc-1',
+      status: 'processing',
+      poll_interval_seconds: 1,
+      prompt: 'p',
+      message: 'Klip sosial sedang dijana.',
+    });
+    pollPreparedHeroVideoJob
+      .mockResolvedValueOnce(job('processing', { purpose: 'social' }))
+      .mockResolvedValueOnce(
+        job('completed', {
+          purpose: 'social',
+          aspect: '9:16',
+          video_url: 'https://res.cloudinary.com/x/video/upload/v1/tall.mp4',
+          download_url: 'https://res.cloudinary.com/x/video/upload/fl_attachment/v1/tall.mp4',
+          message: 'Klip sosial anda sedia.',
+        })
+      );
+
+    render(<HeroVideoPanel websiteId="ws-1" onHtmlChange={vi.fn()} />);
+    fireEvent.click(await screen.findByTestId('generate-social-clip'));
+    await waitFor(() =>
+      expect(startSocialClip).toHaveBeenCalledWith(
+        expect.objectContaining({ website_id: 'ws-1', style: 'cinematic' }),
+        'tok-123'
+      )
+    );
+    expect(await screen.findByTestId('social-clip-progress')).toBeTruthy();
+    const ready = await screen.findByTestId('social-clip-ready', {}, { timeout: 5000 });
+    expect(ready).toBeTruthy();
+    expect(screen.getByTestId('download-social-clip').getAttribute('href')).toContain('fl_attachment');
+    // Nothing landed on the page.
+    expect(screen.queryByTestId('hero-video-current')).toBeNull();
+    expect(toast.success).toHaveBeenCalledWith('Klip sosial anda sedia.');
   });
 
   it('shows the credit balance and charges one credit per generation for paid accounts', async () => {

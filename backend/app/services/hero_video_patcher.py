@@ -131,6 +131,62 @@ OVERLAY_MODES = ("auto", "dark", "light", "none")
 #: How the hero's own text colour is handled once a video sits behind it.
 TEXT_MODES = ("auto", "light", "dark", "keep")
 
+#: Playback speed as a multiple of the clip's own rate. 1.0 is the clip as
+#: generated; below it is the "slow motion" a merchant asks for when steam
+#: or a pour moves too fast; above it lifts a sluggish pan. Applied by the
+#: playback bootstrap (``playbackRate``), so it costs nothing: no new clip,
+#: no re-encode, the same bytes every visitor already downloads.
+SPEED_CHOICES = (0.5, 0.75, 1.0, 1.25, 1.5)
+DEFAULT_SPEED = 1.0
+MIN_SPEED = 0.25
+MAX_SPEED = 2.0
+
+#: Colour looks painted over the clip with a CSS ``filter``. Credit-free
+#: for the same reason as the scrim: the clip is reused, only the rules
+#: change. ``scale`` is set on the looks that blur, because a blurred
+#: edge lets the hero's own background bleed in as a soft fringe and a
+#: few percent of overscan hides it.
+VIDEO_EFFECTS: Dict[str, Dict[str, object]] = {
+    "none": {"label_ms": "Asli", "label_en": "Original", "css": "", "scale": 1.0},
+    "warm": {
+        "label_ms": "Hangat",
+        "label_en": "Warm",
+        "css": "sepia(0.25) saturate(1.2) brightness(1.02)",
+        "scale": 1.0,
+    },
+    "cool": {
+        "label_ms": "Sejuk",
+        "label_en": "Cool",
+        "css": "saturate(0.9) hue-rotate(-12deg) brightness(1.02)",
+        "scale": 1.0,
+    },
+    "vivid": {
+        "label_ms": "Terang",
+        "label_en": "Vivid",
+        "css": "saturate(1.45) contrast(1.08)",
+        "scale": 1.0,
+    },
+    "mono": {
+        "label_ms": "Hitam putih",
+        "label_en": "Black & white",
+        "css": "grayscale(1) contrast(1.05)",
+        "scale": 1.0,
+    },
+    "vintage": {
+        "label_ms": "Retro",
+        "label_en": "Vintage",
+        "css": "sepia(0.55) contrast(0.92) brightness(0.95) saturate(1.1)",
+        "scale": 1.0,
+    },
+    "dreamy": {
+        "label_ms": "Lembut",
+        "label_en": "Dreamy",
+        "css": "blur(2px) brightness(1.05) saturate(1.1)",
+        "scale": 1.05,
+    },
+}
+DEFAULT_EFFECT = "none"
+
 DEFAULT_OVERLAY = "auto"
 DEFAULT_OVERLAY_OPACITY = 0.45
 DEFAULT_TEXT_MODE = "auto"
@@ -223,6 +279,10 @@ class HeroVideoSettings:
     text_mode: str = DEFAULT_TEXT_MODE
     #: False → phones get the still poster instead of the video (data saver).
     show_on_mobile: bool = True
+    #: ``playbackRate`` for the clip, 1.0 = as generated. See SPEED_CHOICES.
+    speed: float = DEFAULT_SPEED
+    #: A VIDEO_EFFECTS key: the CSS colour look painted over the clip.
+    effect: str = DEFAULT_EFFECT
 
     def resolved_overlay(self, page_html: str = "") -> str:
         """``auto`` → ``dark`` or ``light`` from what the HERO paints.
@@ -337,6 +397,8 @@ class HeroVideoSettings:
             "poster_luminance": self.poster_luminance,
             "text_mode": self.text_mode,
             "show_on_mobile": self.show_on_mobile,
+            "speed": self.speed,
+            "effect": self.effect,
         }
 
 
@@ -442,6 +504,34 @@ def hero_video_delivery_url(url: Optional[str]) -> Optional[str]:
     return f"{head}{transform}/{rest}"
 
 
+#: Cloudinary flag that makes the response a download (Content-Disposition:
+#: attachment) instead of an inline play.
+_ATTACHMENT_FLAG = "fl_attachment"
+
+
+def hero_video_download_url(url: Optional[str]) -> Optional[str]:
+    """A link that SAVES the stored clip instead of playing it, for the
+    merchant to post as a WhatsApp status, a Reel or a TikTok.
+
+    The delivery URL with ``fl_attachment`` added to its transformation
+    segment (or as a new segment when it has none). Idempotent; a URL that
+    is not a Cloudinary video upload comes back unchanged, so a legacy or
+    merchant-supplied clip still gets a link that at least plays.
+    """
+    if not url:
+        return url
+    match = _CLOUDINARY_VIDEO_UPLOAD_RE.match(url.strip())
+    if not match:
+        return url
+    head, rest = match.groups()
+    first, _, tail = rest.partition("/")
+    if _ATTACHMENT_FLAG in first.split(","):
+        return url
+    if tail and ("," in first or _CLOUDINARY_TRANSFORM_SEGMENT_RE.match(first)):
+        return f"{head}{_ATTACHMENT_FLAG},{first}/{tail}"
+    return f"{head}{_ATTACHMENT_FLAG}/{rest}"
+
+
 def _clamp_unit(value: Optional[float]) -> Optional[float]:
     """0..1 or None — a luminance that cannot be parsed is simply unknown."""
     if value is None:
@@ -463,6 +553,33 @@ def clamp_opacity(value: Optional[float]) -> float:
     return round(min(max(numeric, 0.0), 0.9), 2)
 
 
+def clamp_speed(value: Optional[float]) -> float:
+    """A playback rate inside [MIN_SPEED, MAX_SPEED], rounded to the
+    hundredth the data-attribute round-trips. Anything unusable — None, a
+    string, zero, a negative — is the clip's own speed."""
+    if value is None:
+        return DEFAULT_SPEED
+    try:
+        speed = float(value)
+    except (TypeError, ValueError):
+        return DEFAULT_SPEED
+    if speed != speed or speed <= 0:  # NaN, zero, negative
+        return DEFAULT_SPEED
+    return round(min(max(speed, MIN_SPEED), MAX_SPEED), 2)
+
+
+def clean_effect(value: Optional[str]) -> str:
+    """A VIDEO_EFFECTS key, or the original look for anything else."""
+    key = (value or "").strip().lower()
+    return key if key in VIDEO_EFFECTS else DEFAULT_EFFECT
+
+
+def effect_css(effect: str) -> Tuple[str, float]:
+    """(filter declaration, overscan scale) for an effect key."""
+    spec = VIDEO_EFFECTS.get(effect) or VIDEO_EFFECTS[DEFAULT_EFFECT]
+    return str(spec.get("css") or ""), float(spec.get("scale") or 1.0)
+
+
 def build_settings(
     *,
     video_url: str,
@@ -472,6 +589,8 @@ def build_settings(
     text_mode: Optional[str] = None,
     show_on_mobile: Optional[bool] = None,
     poster_luminance: Optional[float] = None,
+    speed: Optional[float] = None,
+    effect: Optional[str] = None,
 ) -> HeroVideoSettings:
     """Normalise raw request values into settings. Raises ValueError on a
     video URL we refuse to embed; every other field falls back to a default
@@ -504,6 +623,8 @@ def build_settings(
         poster_luminance=_clamp_unit(poster_luminance),
         text_mode=text,
         show_on_mobile=True if show_on_mobile is None else bool(show_on_mobile),
+        speed=clamp_speed(speed),
+        effect=clean_effect(effect),
     )
 
 
@@ -646,6 +767,10 @@ def detect_hero_video(html: str) -> Optional[Dict]:
         "poster_luminance": _clamp_unit(luminance) if luminance else None,
         "text_mode": (_read_attr(tag, "data-binaapp-text-mode") or DEFAULT_TEXT_MODE).lower(),
         "show_on_mobile": mobile != "poster",
+        # Absent on pages patched before these existed: the clip's own
+        # speed and look, which is exactly what those pages show.
+        "speed": clamp_speed(_read_attr(tag, "data-binaapp-speed")),
+        "effect": clean_effect(_read_attr(tag, "data-binaapp-effect")),
     }
 
 
@@ -1158,7 +1283,19 @@ def _build_layer(settings: HeroVideoSettings) -> str:
         )
         + f' data-binaapp-text-mode="{settings.text_mode}"'
         f' data-binaapp-mobile="{"video" if settings.show_on_mobile else "poster"}"'
-        f"{poster_style}>"
+        # Written only when they differ from the clip as made, so a page
+        # that never touched them is byte-identical to before they existed.
+        + (
+            f' data-binaapp-speed="{settings.speed}"'
+            if settings.speed != DEFAULT_SPEED
+            else ""
+        )
+        + (
+            f' data-binaapp-effect="{settings.effect}"'
+            if settings.effect != DEFAULT_EFFECT
+            else ""
+        )
+        + f"{poster_style}>"
         f'<video class="binaapp-hero-video" autoplay muted loop playsinline'
         f' preload="auto" disablepictureinpicture tabindex="-1"'
         f'{poster_attr}>'
@@ -1188,6 +1325,12 @@ PLAYBACK_BOOTSTRAP = (
     "var s=document.currentScript,l=s&&s.parentNode,v=l&&l.querySelector('video.binaapp-hero-video');"
     "if(!v)return;"
     "var h=l.parentNode;"
+    # Playback speed. Set now and again once metadata is in: Safari resets
+    # the rate when the source loads, so a rate set before ``loadedmetadata``
+    # can silently go back to 1 on the very first play.
+    "var sp=parseFloat(l.getAttribute('data-binaapp-speed')||'1');"
+    "if(sp>0&&sp!==1){var rate=function(){try{v.defaultPlaybackRate=sp;v.playbackRate=sp;}catch(e){}};"
+    "rate();v.addEventListener('loadedmetadata',rate);v.addEventListener('play',rate);}"
     # Keep-colour pass. Anything in the hero that paints an opaque
     # background keeps the text colour its designer gave it — a filled CTA
     # is readable already. Descendants too: the icon and label inside the
@@ -1358,6 +1501,16 @@ def _build_style(
         f"{hero} > .binaapp-hero-video-layer .binaapp-hero-video-scrim{{"
         f"position:absolute;inset:0;{scrim}}}",
     ]
+
+    filter_css, overscan = effect_css(settings.effect)
+    if filter_css:
+        # One selector covers both placements (full-bleed and hosted): the
+        # video element carries the same class in each.
+        scale = f"transform:scale({overscan});" if overscan and overscan != 1.0 else ""
+        rules.append(
+            f"{hero} .binaapp-hero-video-layer .binaapp-hero-video{{"
+            f"filter:{filter_css};{scale}}}"
+        )
 
     floor = hero_height_floor(hero_open_tag) if hero_open_tag else None
     if floor:

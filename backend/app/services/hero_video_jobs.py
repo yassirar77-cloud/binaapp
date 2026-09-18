@@ -136,7 +136,7 @@ def job_from_row(row: Dict[str, Any]):
     the timeout check reads, so a job that was already eight minutes old
     when the process died is still eight minutes old after the restart —
     the hard timeout counts from the real start, not the resume."""
-    from app.services.zai_video_service import HeroVideoJob
+    from app.services.zai_video_service import HeroVideoJob, purpose_of
 
     started = _parse_ts(row.get("created_at")) or _utcnow()
     age = max(0.0, (_utcnow() - started).total_seconds())
@@ -160,6 +160,7 @@ def job_from_row(row: Dict[str, Any]):
         provider_status=row.get("provider_status"),
         provider_message=row.get("provider_message"),
         poll_errors=int(row.get("poll_errors") or 0),
+        purpose=purpose_of(row.get("settings")),
     )
     job.created_at = time.monotonic() - age
     job.created_wall = started.timestamp()
@@ -373,6 +374,21 @@ async def load_ready_for_user(user_id: str, within_seconds: float) -> List[Dict[
         "created_at": f"gte.{cutoff.isoformat()}",
     })
     return list(reversed(rows))  # _select orders created_at.asc
+
+
+async def load_stored_for_user(user_id: str, limit: int = 12) -> List[Dict[str, Any]]:
+    """This user's clips that exist on Cloudinary — applied, parked, or
+    made to be posted — newest first. The clip library: every one of them
+    can go back on a hero, or be downloaded, without a new generation."""
+    if not user_id:
+        return []
+    return await _select({
+        "user_id": f"eq.{user_id}",
+        "video_url": "not.is.null",
+        "status": "in.(completed,ready)",
+        "order": "created_at.desc",
+        "limit": str(max(1, min(int(limit), 50))),
+    })
 
 
 async def load_stale(older_than_seconds: float) -> List[Dict[str, Any]]:
