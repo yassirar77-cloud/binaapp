@@ -64,15 +64,26 @@ def glm_service():
 class TestCallGlm:
 
     @pytest.mark.asyncio
-    async def test_request_disables_thinking(self, glm_service):
-        """The request body MUST carry thinking.type=disabled — without it
-        glm-5.3 burns the whole output budget on reasoning."""
+    async def test_request_carries_a_thinking_level_and_the_core_contract(self, glm_service):
+        """The request opens with a reasoning LEVEL, not thinking=disabled.
+
+        This assertion used to require {"type": "disabled"}, which is precisely
+        what glm-5.3 rejects:
+
+            400 {"code":"1210","message":"This model always engages in thinking
+            and cannot be disabled; please use low, high, or max"}
+
+        With no retry on 400 that killed every GLM call in half a second and
+        sent all generation to the DeepSeek fallback. _call_glm now negotiates
+        the field down _GLM_THINKING_LADDER; see
+        tests/test_glm_thinking_negotiation.py for the ladder itself.
+        """
         patcher, mock_post = _patch_async_client(_mock_httpx_response("<html></html>"))
         with patcher:
             await glm_service._call_glm("make a website")
 
         body = mock_post.call_args.kwargs["json"]
-        assert body["thinking"] == {"type": "disabled"}
+        assert body["thinking"] == {"type": "low"}
         assert body["model"] == "glm-5.3"
         assert body["max_tokens"] == ai_service_module.AI_GLM_MAX_TOKENS
         # Posted to the Z.ai chat-completions endpoint with the bearer key

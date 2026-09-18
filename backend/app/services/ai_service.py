@@ -308,9 +308,28 @@ def design_critique_enabled() -> bool:
     raw = os.getenv("DESIGN_CRITIQUE_ENABLED", "true").strip().lower()
     return raw in ("1", "true", "yes", "on")
 
+# Output-budget contract, appended to every HTML-generating system prompt
+# (designer mode, the _call_deepseek default, and GLM).
+#
+# Root cause of the blank-page failures: the model would elaborate the <head>
+# stylesheet until the output cap ran out, and the response ended part-way
+# through a CSS rule having never opened <body> — 90KB of CSS, no page. A
+# document that never reached the content is worth nothing however good the
+# CSS is, so the budget is stated as a priority order: finish the page first,
+# then spend what is left on polish.
+HTML_OUTPUT_BUDGET_PROMPT = (
+    "OUTPUT BUDGET — your reply is hard-capped and is discarded if it is cut "
+    "off before </html>. Finishing the document beats refining it: write every "
+    "section of <body> and close </html> first, and spend the remaining budget "
+    "on detail. Keep the stylesheet lean — style only classes the page actually "
+    "uses, group shared rules instead of repeating them per section, and skip "
+    "decorative rules you can live without. If you are running long, simplify "
+    "the remaining sections rather than stopping mid-document."
+)
+
 # System prompt for the DeepSeek HTML call in designer mode. The guided-mode
-# prompt ("follow constraints exactly") is kept verbatim as the default of
-# _call_deepseek so every other caller is untouched.
+# prompt ("follow constraints exactly") remains the default of _call_deepseek,
+# so every other caller keeps its wording — both now carry the output budget.
 DESIGNER_SYSTEM_PROMPT = (
     "You are a senior web designer and front-end developer at a boutique "
     "studio, building a real client's website. You own the visual design "
@@ -319,7 +338,7 @@ DESIGNER_SYSTEM_PROMPT = (
     "Two things are never yours to change: the client's facts (never invent "
     "or embellish data) and the technical contract in the brief (exact URLs, "
     "links, mobile layout, free icons, language). Output ONLY the complete "
-    "HTML document — no explanations, no markdown."
+    "HTML document — no explanations, no markdown.\n\n" + HTML_OUTPUT_BUDGET_PROMPT
 )
 CONCEPT_SYSTEM_PROMPT = (
     "You are a senior designer writing a design concept for a client. "
@@ -5404,6 +5423,39 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                 ordered.append(u)
         return ordered
 
+    # `thinking` values tried, in order, until the model stops rejecting one.
+    #
+    # There is no single value that works across GLM models. glm-5.3 requires
+    # reasoning to be ON and answers `disabled` with a hard 400 ("This model
+    # always engages in thinking and cannot be disabled; please use low, high,
+    # or max"), which killed every GLM call in ~0.5s and sent all traffic to
+    # the DeepSeek fallback. Older models need `disabled`, or reasoning eats
+    # the whole output budget and the content comes back empty.
+    #
+    # `low` first: it satisfies the models that demand reasoning while keeping
+    # the least of the output budget away from the HTML. Then `disabled` for
+    # models that accept it, then no field at all so an unknown future
+    # contract degrades to the provider default instead of a hard failure.
+    # GLM_THINKING_TYPE overrides the first rung from the environment.
+    _GLM_THINKING_LADDER = (
+        {"type": os.getenv("GLM_THINKING_TYPE", "low").strip().lower()},
+        {"type": "disabled"},
+        None,
+    )
+
+    @staticmethod
+    def _is_thinking_rejection(response) -> bool:
+        """True when a 400 is about the `thinking` field specifically.
+
+        Keeps the ladder from swallowing unrelated 400s (bad model name,
+        oversized prompt) — those should surface on the first attempt rather
+        than being retried three times.
+        """
+        try:
+            return "thinking" in (response.text or "").lower()
+        except Exception:
+            return False
+
     def _replace_photo_slots(self, html: str, ordered_urls: List[str]) -> str:
         """Deterministically bind GLM's PHOTO_SLOT_N tokens to real image URLs.
 
@@ -5471,9 +5523,13 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
 
         GLM-specific differences:
 
-        - Request body carries `"thinking": {"type": "disabled"}` — without
-          it glm-5.3 spends the whole output budget on reasoning and returns
-          empty content.
+        - Request body carries a `thinking` field, negotiated against the
+          model at call time (see _GLM_THINKING_LADDER). Some GLM models
+          require reasoning to be on and reject `disabled` with a hard 400;
+          others need `disabled` or the whole output budget goes to reasoning
+          and the content comes back empty. Neither value works everywhere,
+          so a thinking-related 400 retries down the ladder instead of
+          failing the call.
         - Any preamble before the first '<' is stripped (GLM sometimes adds
           explanation text before the HTML despite instructions).
         - Empty/whitespace-only content returns None so the fallback chain
@@ -5496,6 +5552,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                 + self._GLM_PROMPT_RULES_TAIL
                 + (self._GLM_PROMPT_PLAN_CLAUSE if plan_mode else self._GLM_PROMPT_FREEDOM)
                 + (self._GLM_PROMPT_DESIGNER_TAIL if designer_mode else "")
+                + "\n\n" + HTML_OUTPUT_BUDGET_PROMPT
             )
         try:
             logger.info(
@@ -5506,29 +5563,50 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             # Client timeout tracks the GLM budget (+30s grace), same pattern
             # as _call_deepseek's primary-budget+30 — the outer wait_for at
             # AI_GLM_TIMEOUT_SECONDS is the effective bound either way.
-            async with httpx.AsyncClient(timeout=AI_GLM_TIMEOUT_SECONDS + 30) as client:
-                r = await client.post(
-                    f"{self.zai_base_url}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {self.zai_api_key}",
-                        "Content-Type": "application/json"
+            body = {
+                "model": chosen_model,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": system_prompt,
                     },
-                    json={
-                        "model": chosen_model,
-                        "messages": [
-                            {
-                                "role": "system",
-                                "content": system_prompt,
-                            },
-                            {"role": "user", "content": prompt},
-                        ],
-                        "temperature": temperature,
-                        "max_tokens": chosen_max_tokens,
-                        # CRITICAL: without this glm-5.3 burns the entire
-                        # token budget on reasoning and returns empty content.
-                        "thinking": {"type": "disabled"},
-                    }
-                )
+                    {"role": "user", "content": prompt},
+                ],
+                "temperature": temperature,
+                "max_tokens": chosen_max_tokens,
+            }
+            async with httpx.AsyncClient(timeout=AI_GLM_TIMEOUT_SECONDS + 30) as client:
+                headers = {
+                    "Authorization": f"Bearer {self.zai_api_key}",
+                    "Content-Type": "application/json",
+                }
+                # Negotiate the `thinking` contract with the model rather than
+                # assuming one. glm-5.3 rejects `disabled` outright:
+                #   400 {"code":"1210","message":"This model always engages in
+                #   thinking and cannot be disabled; please use low, high, or max"}
+                # That 400 used to end the call in half a second, so every
+                # generation silently fell through to DeepSeek and GLM never
+                # produced a single page. Walking the ladder keeps older models
+                # (which need `disabled` to avoid burning the budget on
+                # reasoning) working too.
+                r = None
+                for i, thinking in enumerate(self._GLM_THINKING_LADDER):
+                    if thinking is None:
+                        body.pop("thinking", None)
+                    else:
+                        body["thinking"] = thinking
+                    r = await client.post(
+                        f"{self.zai_base_url}/chat/completions",
+                        headers=headers, json=body,
+                    )
+                    if not (r.status_code == 400 and self._is_thinking_rejection(r)):
+                        break
+                    _next = self._GLM_THINKING_LADDER[i + 1:i + 2]
+                    logger.warning(
+                        f"🟣 GLM rejected thinking={thinking} (400) — "
+                        + (f"retrying with thinking={_next[0]}" if _next
+                           else "no options left on the ladder")
+                    )
                 if r.status_code == 200:
                     payload = r.json()
                     choice = (payload.get("choices") or [{}])[0]
@@ -5824,10 +5902,27 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             logger.error(f"🎨 Pass 2 regeneration failed: {err}")
             self._last_api_call = original_api_call
             return None
-        if not revised or "<" not in revised or self._last_api_call.get("truncated"):
-            logger.error("🎨 Pass 2 regeneration unusable (empty/non-HTML/truncated) — keeping the previous attempt")
+        # A truncated revision is normally discarded in favour of the previous
+        # attempt — but only when the previous attempt is actually a page. When
+        # the thing we would "keep" is a blank body (the model spent its whole
+        # budget on <head> CSS), even a truncated revision that renders content
+        # is strictly better, and discarding it is how a blank site reached
+        # production while the log cheerfully said "keeping the previous attempt".
+        from app.utils.html_balance import has_renderable_body
+        if not revised or "<" not in revised:
+            logger.error("🎨 Pass 2 regeneration unusable (empty/non-HTML) — keeping the previous attempt")
             self._last_api_call = original_api_call
             return None
+        if self._last_api_call.get("truncated"):
+            if has_renderable_body(revised) and not has_renderable_body(previous_html):
+                logger.warning(
+                    "🎨 Pass 2 regeneration truncated, but the previous attempt has no "
+                    "renderable body — taking the truncated revision as the lesser evil"
+                )
+            else:
+                logger.error("🎨 Pass 2 regeneration unusable (truncated) — keeping the previous attempt")
+                self._last_api_call = original_api_call
+                return None
         if has_images and self._PHOTO_SLOT_SRC_RE.search(previous_html) and not self._PHOTO_SLOT_SRC_RE.search(revised):
             logger.error("🎨 Pass 2 regeneration dropped the PHOTO_SLOT contract — keeping the previous attempt")
             self._last_api_call = original_api_call
@@ -5855,6 +5950,8 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         times; the best-scoring attempt is served. Never raises; with no
         critique model the lint alone gates.
         """
+        from app.utils.html_balance import has_renderable_body
+
         attempts: List[Dict] = []
         current = html
         max_retries = max(0, DESIGN_GATE_MAX_RETRIES)
@@ -5898,8 +5995,22 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             score = critique.average if critique else None
             # Rank: critique average (10 when none), minus a penalty per lint failure.
             rank = (score if score is not None else 10.0) - 1.5 * len(lint.errors)
+            # An attempt with no renderable body is a blank page, whatever the
+            # critique scored it. The critique reads the markup, so a document
+            # that is nothing but <head> CSS can still score in the 6s on
+            # "hierarchy" and "appetite" and win the rank — which is exactly how
+            # a blank page got served here. Push it below every attempt that
+            # actually renders, so a real page always wins on rank.
+            renders = has_renderable_body(linted)
+            if not renders:
+                logger.error(
+                    f"🚨 Plan gate attempt {attempt + 1} has NO renderable body "
+                    f"({len(linted)} chars) — ranking it below every other attempt"
+                )
+                rank -= 100.0
             attempts.append({"html": linted, "lint": lint, "critique": critique, "rank": rank})
-            passed = lint.ok and (critique is None or critique.passed)
+            # A blank page can never pass the gate, however clean the lint is.
+            passed = renders and lint.ok and (critique is None or critique.passed)
             if passed:
                 logger.info(f"✅ Plan gate passed on attempt {attempt + 1}" + (f" (critique avg {score})" if score is not None else ""))
                 break
@@ -6063,7 +6174,8 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
 
         chosen_model = model or self.deepseek_model
         chosen_system = system_prompt or (
-            "You generate production-ready HTML only. Follow constraints exactly. Do not invent facts. Output ONLY HTML."
+            "You generate production-ready HTML only. Follow constraints exactly. "
+            "Do not invent facts. Output ONLY HTML.\n\n" + HTML_OUTPUT_BUDGET_PROMPT
         )
         chosen_max_tokens = max_tokens or AI_DEEPSEEK_MAX_TOKENS
         try:
@@ -6384,7 +6496,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         import re
 
         # Reset per-call diagnostic state (single call site at a time per request)
-        self._last_extract_info: Dict = {"was_truncated": False, "unclosed_tags": [], "tail": ""}
+        self._last_extract_info: Dict = {"was_truncated": False, "unclosed_tags": [], "tail": "", "bodyless": False}
 
         if not text:
             return None
@@ -6521,6 +6633,33 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                 # If neither match somehow (shouldn't happen — ends_with_html
                 # implied </html> exists), fall through unmodified; the flag
                 # is still set so downstream knows.
+
+        # Blank-page guard. Auto-closing above makes a truncated response
+        # *structurally* valid, but when the cut landed inside <head> (typically
+        # part-way through the head's <style>) what comes back is a document
+        # with 90KB of CSS and an empty body — a blank white page. That is not a
+        # degraded website, it is no website, and every downstream check
+        # (balance scan, validation, publish gate) passes it happily. Refuse it
+        # here so callers take their retry/failure path instead of shipping a
+        # blank site to the merchant.
+        from app.utils.html_balance import has_renderable_body
+        renderable = has_renderable_body(text)
+        self._last_extract_info["bodyless"] = not renderable
+        if not renderable:
+            if self._last_extract_info.get("was_truncated"):
+                logger.error(
+                    f"🚨 HTML has NO renderable body after truncation repair "
+                    f"({len(text)} chars, unclosed={self._last_extract_info.get('unclosed_tags')}). "
+                    f"The response was cut off before any body content was emitted — "
+                    f"refusing to return a blank page."
+                )
+                return None
+            # Not truncated but still empty: shouldn't happen, and we don't have
+            # the same certainty about the cause, so shout rather than fail.
+            logger.error(
+                f"🚨 HTML has no renderable body content ({len(text)} chars) "
+                f"though the response was not truncated"
+            )
 
         # Deterministic gallery post-pass: enforce uniform card-image heights
         # and drop duplicate category tags regardless of what the model emitted.
@@ -7882,6 +8021,11 @@ IMPORTANT RULES:
             return html, result
 
         repaired = self._extract_html(repaired)
+        # None means the repair pass came back truncated before any body content
+        # — a blank page. Keep the original, which at least renders.
+        if not repaired:
+            logger.error("🧪 Validation repair returned no renderable page — keeping original")
+            return html, result
         repaired = self._sanitize_sensitive_claims(repaired, request)
         brief_after = brief_from_request(
             request,
@@ -9303,10 +9447,20 @@ IMPORTANT INSTRUCTIONS:
                         design_brief=design_brief,
                         designer_mode=designer_mode,
                     )
-                    # Bind PHOTO_SLOT_N tokens to the real image URLs at the
-                    # same boundary where the DeepSeek pipeline's exact-URL
-                    # contract is enforced (before _extract_html/validation).
-                    # No-op in no-photo mode (no tokens to replace).
+
+                # Bind PHOTO_SLOT_N tokens to the real image URLs at the same
+                # boundary where the DeepSeek pipeline's exact-URL contract is
+                # enforced (before _extract_html/validation). No-op in no-photo
+                # mode (no tokens to replace).
+                #
+                # This runs for BOTH review paths. It used to sit inside the
+                # premium-loop branch only, so a GLM generation that went
+                # through the plan gate (plan is not None — the normal case)
+                # shipped its slots unbound: every <img> kept a literal
+                # src="PHOTO_SLOT_1" and the merchant's own photos never made
+                # it onto the page. The model attribution had the same hole,
+                # leaving _html_model empty on every plan-gated GLM run.
+                if html_raw:
                     html_raw = self._replace_photo_slots(html_raw, _glm_image_urls)
                     _html_model = self.zai_model
                     logger.info("🟣 GLM primary path succeeded — skipping DeepSeek")
@@ -9368,10 +9522,31 @@ IMPORTANT INSTRUCTIONS:
 
             await update_progress(75, "Processing generated HTML")
 
+            _bodyless_raw = html
             html = self._extract_html(html)
             if self._last_extract_info.get("was_truncated"):
                 truncation_flags["was_truncated"] = True
                 truncation_flags["unclosed_tags"] = self._last_extract_info.get("unclosed_tags", [])
+                # A truncation the HTML scan caught is still a truncation: this
+                # job shipped degraded markup and a human should look at it.
+                # Previously only an *undetected* API-boundary hit set this, so
+                # the loudest failures were the ones nobody was told about.
+                truncation_flags["needs_manual_review"] = True
+
+            # _extract_html returns None when the response was cut off before
+            # any body content existed — auto-closing that would produce a blank
+            # page. There is no salvage: fail loudly so the job is retried
+            # rather than publishing an empty site under the merchant's name.
+            if html is None and _bodyless_raw:
+                _cut_at = len(_bodyless_raw)
+                logger.error(
+                    f"❌ Generated HTML had no renderable body (cut off at {_cut_at} chars, "
+                    f"provider={api_truncated_provider or _html_model}) — refusing to publish a blank page"
+                )
+                raise Exception(
+                    "Failed to generate website: the model's response was cut off before "
+                    "the page content was written (output limit reached). Please retry."
+                )
 
             # API-boundary signal: if the provider reported finish_reason=length
             # but the post-hoc HTML scan didn't catch it (model gracefully closed
