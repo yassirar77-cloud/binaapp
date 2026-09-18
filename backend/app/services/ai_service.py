@@ -5423,6 +5423,39 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                 ordered.append(u)
         return ordered
 
+    # `thinking` values tried, in order, until the model stops rejecting one.
+    #
+    # There is no single value that works across GLM models. glm-5.3 requires
+    # reasoning to be ON and answers `disabled` with a hard 400 ("This model
+    # always engages in thinking and cannot be disabled; please use low, high,
+    # or max"), which killed every GLM call in ~0.5s and sent all traffic to
+    # the DeepSeek fallback. Older models need `disabled`, or reasoning eats
+    # the whole output budget and the content comes back empty.
+    #
+    # `low` first: it satisfies the models that demand reasoning while keeping
+    # the least of the output budget away from the HTML. Then `disabled` for
+    # models that accept it, then no field at all so an unknown future
+    # contract degrades to the provider default instead of a hard failure.
+    # GLM_THINKING_TYPE overrides the first rung from the environment.
+    _GLM_THINKING_LADDER = (
+        {"type": os.getenv("GLM_THINKING_TYPE", "low").strip().lower()},
+        {"type": "disabled"},
+        None,
+    )
+
+    @staticmethod
+    def _is_thinking_rejection(response) -> bool:
+        """True when a 400 is about the `thinking` field specifically.
+
+        Keeps the ladder from swallowing unrelated 400s (bad model name,
+        oversized prompt) — those should surface on the first attempt rather
+        than being retried three times.
+        """
+        try:
+            return "thinking" in (response.text or "").lower()
+        except Exception:
+            return False
+
     def _replace_photo_slots(self, html: str, ordered_urls: List[str]) -> str:
         """Deterministically bind GLM's PHOTO_SLOT_N tokens to real image URLs.
 
@@ -5490,9 +5523,13 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
 
         GLM-specific differences:
 
-        - Request body carries `"thinking": {"type": "disabled"}` — without
-          it glm-5.3 spends the whole output budget on reasoning and returns
-          empty content.
+        - Request body carries a `thinking` field, negotiated against the
+          model at call time (see _GLM_THINKING_LADDER). Some GLM models
+          require reasoning to be on and reject `disabled` with a hard 400;
+          others need `disabled` or the whole output budget goes to reasoning
+          and the content comes back empty. Neither value works everywhere,
+          so a thinking-related 400 retries down the ladder instead of
+          failing the call.
         - Any preamble before the first '<' is stripped (GLM sometimes adds
           explanation text before the HTML despite instructions).
         - Empty/whitespace-only content returns None so the fallback chain
@@ -5526,29 +5563,50 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             # Client timeout tracks the GLM budget (+30s grace), same pattern
             # as _call_deepseek's primary-budget+30 — the outer wait_for at
             # AI_GLM_TIMEOUT_SECONDS is the effective bound either way.
-            async with httpx.AsyncClient(timeout=AI_GLM_TIMEOUT_SECONDS + 30) as client:
-                r = await client.post(
-                    f"{self.zai_base_url}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {self.zai_api_key}",
-                        "Content-Type": "application/json"
+            body = {
+                "model": chosen_model,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": system_prompt,
                     },
-                    json={
-                        "model": chosen_model,
-                        "messages": [
-                            {
-                                "role": "system",
-                                "content": system_prompt,
-                            },
-                            {"role": "user", "content": prompt},
-                        ],
-                        "temperature": temperature,
-                        "max_tokens": chosen_max_tokens,
-                        # CRITICAL: without this glm-5.3 burns the entire
-                        # token budget on reasoning and returns empty content.
-                        "thinking": {"type": "disabled"},
-                    }
-                )
+                    {"role": "user", "content": prompt},
+                ],
+                "temperature": temperature,
+                "max_tokens": chosen_max_tokens,
+            }
+            async with httpx.AsyncClient(timeout=AI_GLM_TIMEOUT_SECONDS + 30) as client:
+                headers = {
+                    "Authorization": f"Bearer {self.zai_api_key}",
+                    "Content-Type": "application/json",
+                }
+                # Negotiate the `thinking` contract with the model rather than
+                # assuming one. glm-5.3 rejects `disabled` outright:
+                #   400 {"code":"1210","message":"This model always engages in
+                #   thinking and cannot be disabled; please use low, high, or max"}
+                # That 400 used to end the call in half a second, so every
+                # generation silently fell through to DeepSeek and GLM never
+                # produced a single page. Walking the ladder keeps older models
+                # (which need `disabled` to avoid burning the budget on
+                # reasoning) working too.
+                r = None
+                for i, thinking in enumerate(self._GLM_THINKING_LADDER):
+                    if thinking is None:
+                        body.pop("thinking", None)
+                    else:
+                        body["thinking"] = thinking
+                    r = await client.post(
+                        f"{self.zai_base_url}/chat/completions",
+                        headers=headers, json=body,
+                    )
+                    if not (r.status_code == 400 and self._is_thinking_rejection(r)):
+                        break
+                    _next = self._GLM_THINKING_LADDER[i + 1:i + 2]
+                    logger.warning(
+                        f"🟣 GLM rejected thinking={thinking} (400) — "
+                        + (f"retrying with thinking={_next[0]}" if _next
+                           else "no options left on the ladder")
+                    )
                 if r.status_code == 200:
                     payload = r.json()
                     choice = (payload.get("choices") or [{}])[0]
@@ -9389,10 +9447,20 @@ IMPORTANT INSTRUCTIONS:
                         design_brief=design_brief,
                         designer_mode=designer_mode,
                     )
-                    # Bind PHOTO_SLOT_N tokens to the real image URLs at the
-                    # same boundary where the DeepSeek pipeline's exact-URL
-                    # contract is enforced (before _extract_html/validation).
-                    # No-op in no-photo mode (no tokens to replace).
+
+                # Bind PHOTO_SLOT_N tokens to the real image URLs at the same
+                # boundary where the DeepSeek pipeline's exact-URL contract is
+                # enforced (before _extract_html/validation). No-op in no-photo
+                # mode (no tokens to replace).
+                #
+                # This runs for BOTH review paths. It used to sit inside the
+                # premium-loop branch only, so a GLM generation that went
+                # through the plan gate (plan is not None — the normal case)
+                # shipped its slots unbound: every <img> kept a literal
+                # src="PHOTO_SLOT_1" and the merchant's own photos never made
+                # it onto the page. The model attribution had the same hole,
+                # leaving _html_model empty on every plan-gated GLM run.
+                if html_raw:
                     html_raw = self._replace_photo_slots(html_raw, _glm_image_urls)
                     _html_model = self.zai_model
                     logger.info("🟣 GLM primary path succeeded — skipping DeepSeek")
