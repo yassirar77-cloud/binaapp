@@ -308,9 +308,28 @@ def design_critique_enabled() -> bool:
     raw = os.getenv("DESIGN_CRITIQUE_ENABLED", "true").strip().lower()
     return raw in ("1", "true", "yes", "on")
 
+# Output-budget contract, appended to every HTML-generating system prompt
+# (designer mode, the _call_deepseek default, and GLM).
+#
+# Root cause of the blank-page failures: the model would elaborate the <head>
+# stylesheet until the output cap ran out, and the response ended part-way
+# through a CSS rule having never opened <body> — 90KB of CSS, no page. A
+# document that never reached the content is worth nothing however good the
+# CSS is, so the budget is stated as a priority order: finish the page first,
+# then spend what is left on polish.
+HTML_OUTPUT_BUDGET_PROMPT = (
+    "OUTPUT BUDGET — your reply is hard-capped and is discarded if it is cut "
+    "off before </html>. Finishing the document beats refining it: write every "
+    "section of <body> and close </html> first, and spend the remaining budget "
+    "on detail. Keep the stylesheet lean — style only classes the page actually "
+    "uses, group shared rules instead of repeating them per section, and skip "
+    "decorative rules you can live without. If you are running long, simplify "
+    "the remaining sections rather than stopping mid-document."
+)
+
 # System prompt for the DeepSeek HTML call in designer mode. The guided-mode
-# prompt ("follow constraints exactly") is kept verbatim as the default of
-# _call_deepseek so every other caller is untouched.
+# prompt ("follow constraints exactly") remains the default of _call_deepseek,
+# so every other caller keeps its wording — both now carry the output budget.
 DESIGNER_SYSTEM_PROMPT = (
     "You are a senior web designer and front-end developer at a boutique "
     "studio, building a real client's website. You own the visual design "
@@ -319,7 +338,7 @@ DESIGNER_SYSTEM_PROMPT = (
     "Two things are never yours to change: the client's facts (never invent "
     "or embellish data) and the technical contract in the brief (exact URLs, "
     "links, mobile layout, free icons, language). Output ONLY the complete "
-    "HTML document — no explanations, no markdown."
+    "HTML document — no explanations, no markdown.\n\n" + HTML_OUTPUT_BUDGET_PROMPT
 )
 CONCEPT_SYSTEM_PROMPT = (
     "You are a senior designer writing a design concept for a client. "
@@ -5496,6 +5515,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                 + self._GLM_PROMPT_RULES_TAIL
                 + (self._GLM_PROMPT_PLAN_CLAUSE if plan_mode else self._GLM_PROMPT_FREEDOM)
                 + (self._GLM_PROMPT_DESIGNER_TAIL if designer_mode else "")
+                + "\n\n" + HTML_OUTPUT_BUDGET_PROMPT
             )
         try:
             logger.info(
@@ -5824,10 +5844,27 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             logger.error(f"🎨 Pass 2 regeneration failed: {err}")
             self._last_api_call = original_api_call
             return None
-        if not revised or "<" not in revised or self._last_api_call.get("truncated"):
-            logger.error("🎨 Pass 2 regeneration unusable (empty/non-HTML/truncated) — keeping the previous attempt")
+        # A truncated revision is normally discarded in favour of the previous
+        # attempt — but only when the previous attempt is actually a page. When
+        # the thing we would "keep" is a blank body (the model spent its whole
+        # budget on <head> CSS), even a truncated revision that renders content
+        # is strictly better, and discarding it is how a blank site reached
+        # production while the log cheerfully said "keeping the previous attempt".
+        from app.utils.html_balance import has_renderable_body
+        if not revised or "<" not in revised:
+            logger.error("🎨 Pass 2 regeneration unusable (empty/non-HTML) — keeping the previous attempt")
             self._last_api_call = original_api_call
             return None
+        if self._last_api_call.get("truncated"):
+            if has_renderable_body(revised) and not has_renderable_body(previous_html):
+                logger.warning(
+                    "🎨 Pass 2 regeneration truncated, but the previous attempt has no "
+                    "renderable body — taking the truncated revision as the lesser evil"
+                )
+            else:
+                logger.error("🎨 Pass 2 regeneration unusable (truncated) — keeping the previous attempt")
+                self._last_api_call = original_api_call
+                return None
         if has_images and self._PHOTO_SLOT_SRC_RE.search(previous_html) and not self._PHOTO_SLOT_SRC_RE.search(revised):
             logger.error("🎨 Pass 2 regeneration dropped the PHOTO_SLOT contract — keeping the previous attempt")
             self._last_api_call = original_api_call
@@ -5855,6 +5892,8 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         times; the best-scoring attempt is served. Never raises; with no
         critique model the lint alone gates.
         """
+        from app.utils.html_balance import has_renderable_body
+
         attempts: List[Dict] = []
         current = html
         max_retries = max(0, DESIGN_GATE_MAX_RETRIES)
@@ -5898,8 +5937,22 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             score = critique.average if critique else None
             # Rank: critique average (10 when none), minus a penalty per lint failure.
             rank = (score if score is not None else 10.0) - 1.5 * len(lint.errors)
+            # An attempt with no renderable body is a blank page, whatever the
+            # critique scored it. The critique reads the markup, so a document
+            # that is nothing but <head> CSS can still score in the 6s on
+            # "hierarchy" and "appetite" and win the rank — which is exactly how
+            # a blank page got served here. Push it below every attempt that
+            # actually renders, so a real page always wins on rank.
+            renders = has_renderable_body(linted)
+            if not renders:
+                logger.error(
+                    f"🚨 Plan gate attempt {attempt + 1} has NO renderable body "
+                    f"({len(linted)} chars) — ranking it below every other attempt"
+                )
+                rank -= 100.0
             attempts.append({"html": linted, "lint": lint, "critique": critique, "rank": rank})
-            passed = lint.ok and (critique is None or critique.passed)
+            # A blank page can never pass the gate, however clean the lint is.
+            passed = renders and lint.ok and (critique is None or critique.passed)
             if passed:
                 logger.info(f"✅ Plan gate passed on attempt {attempt + 1}" + (f" (critique avg {score})" if score is not None else ""))
                 break
@@ -6063,7 +6116,8 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
 
         chosen_model = model or self.deepseek_model
         chosen_system = system_prompt or (
-            "You generate production-ready HTML only. Follow constraints exactly. Do not invent facts. Output ONLY HTML."
+            "You generate production-ready HTML only. Follow constraints exactly. "
+            "Do not invent facts. Output ONLY HTML.\n\n" + HTML_OUTPUT_BUDGET_PROMPT
         )
         chosen_max_tokens = max_tokens or AI_DEEPSEEK_MAX_TOKENS
         try:
@@ -6384,7 +6438,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         import re
 
         # Reset per-call diagnostic state (single call site at a time per request)
-        self._last_extract_info: Dict = {"was_truncated": False, "unclosed_tags": [], "tail": ""}
+        self._last_extract_info: Dict = {"was_truncated": False, "unclosed_tags": [], "tail": "", "bodyless": False}
 
         if not text:
             return None
@@ -6521,6 +6575,33 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                 # If neither match somehow (shouldn't happen — ends_with_html
                 # implied </html> exists), fall through unmodified; the flag
                 # is still set so downstream knows.
+
+        # Blank-page guard. Auto-closing above makes a truncated response
+        # *structurally* valid, but when the cut landed inside <head> (typically
+        # part-way through the head's <style>) what comes back is a document
+        # with 90KB of CSS and an empty body — a blank white page. That is not a
+        # degraded website, it is no website, and every downstream check
+        # (balance scan, validation, publish gate) passes it happily. Refuse it
+        # here so callers take their retry/failure path instead of shipping a
+        # blank site to the merchant.
+        from app.utils.html_balance import has_renderable_body
+        renderable = has_renderable_body(text)
+        self._last_extract_info["bodyless"] = not renderable
+        if not renderable:
+            if self._last_extract_info.get("was_truncated"):
+                logger.error(
+                    f"🚨 HTML has NO renderable body after truncation repair "
+                    f"({len(text)} chars, unclosed={self._last_extract_info.get('unclosed_tags')}). "
+                    f"The response was cut off before any body content was emitted — "
+                    f"refusing to return a blank page."
+                )
+                return None
+            # Not truncated but still empty: shouldn't happen, and we don't have
+            # the same certainty about the cause, so shout rather than fail.
+            logger.error(
+                f"🚨 HTML has no renderable body content ({len(text)} chars) "
+                f"though the response was not truncated"
+            )
 
         # Deterministic gallery post-pass: enforce uniform card-image heights
         # and drop duplicate category tags regardless of what the model emitted.
@@ -7882,6 +7963,11 @@ IMPORTANT RULES:
             return html, result
 
         repaired = self._extract_html(repaired)
+        # None means the repair pass came back truncated before any body content
+        # — a blank page. Keep the original, which at least renders.
+        if not repaired:
+            logger.error("🧪 Validation repair returned no renderable page — keeping original")
+            return html, result
         repaired = self._sanitize_sensitive_claims(repaired, request)
         brief_after = brief_from_request(
             request,
@@ -9368,10 +9454,31 @@ IMPORTANT INSTRUCTIONS:
 
             await update_progress(75, "Processing generated HTML")
 
+            _bodyless_raw = html
             html = self._extract_html(html)
             if self._last_extract_info.get("was_truncated"):
                 truncation_flags["was_truncated"] = True
                 truncation_flags["unclosed_tags"] = self._last_extract_info.get("unclosed_tags", [])
+                # A truncation the HTML scan caught is still a truncation: this
+                # job shipped degraded markup and a human should look at it.
+                # Previously only an *undetected* API-boundary hit set this, so
+                # the loudest failures were the ones nobody was told about.
+                truncation_flags["needs_manual_review"] = True
+
+            # _extract_html returns None when the response was cut off before
+            # any body content existed — auto-closing that would produce a blank
+            # page. There is no salvage: fail loudly so the job is retried
+            # rather than publishing an empty site under the merchant's name.
+            if html is None and _bodyless_raw:
+                _cut_at = len(_bodyless_raw)
+                logger.error(
+                    f"❌ Generated HTML had no renderable body (cut off at {_cut_at} chars, "
+                    f"provider={api_truncated_provider or _html_model}) — refusing to publish a blank page"
+                )
+                raise Exception(
+                    "Failed to generate website: the model's response was cut off before "
+                    "the page content was written (output limit reached). Please retry."
+                )
 
             # API-boundary signal: if the provider reported finish_reason=length
             # but the post-hoc HTML scan didn't catch it (model gracefully closed

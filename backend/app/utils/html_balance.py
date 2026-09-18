@@ -161,3 +161,51 @@ def is_html_balanced(text: str) -> Tuple[bool, List[str]]:
     if mid_body:
         return False, mid_body
     return True, []
+
+
+# ── Renderable-body detection ────────────────────────────────────────────────
+# Elements that paint something on screen even when they carry no text.
+_VISIBLE_EMPTY_TAGS = frozenset({
+    "img", "svg", "video", "iframe", "canvas", "input", "picture",
+    "hr", "object", "embed", "audio", "select", "textarea", "button",
+})
+
+_BODY_OPEN_RE = re.compile(r"<\s*body\b[^>]*>", re.IGNORECASE)
+_BODY_CLOSE_RE = re.compile(r"</\s*body\s*>", re.IGNORECASE)
+# A whole <script>/<style> block — opener, body and closer. An unclosed block
+# at the end of a truncated document is swallowed too (the `\Z` alternative),
+# which is exactly the case this module exists for.
+_FULL_SCRIPT_OR_STYLE_RE = re.compile(
+    r"<\s*(script|style)\b[^>]*>.*?(?:</\s*\1\s*>|\Z)", re.DOTALL | re.IGNORECASE
+)
+
+
+def has_renderable_body(html: str) -> bool:
+    """True when the document has a <body> that would actually render something.
+
+    Guards the failure mode that shipped blank sites to production: a generation
+    truncated inside <head> (typically part-way through the <head>'s <style>)
+    gets auto-closed into a *syntactically valid* document whose body is empty.
+    Every structural check passes, `</html>` is present, the tag stack balances
+    — and the merchant's website is a blank white page.
+
+    Renderable means: any non-whitespace text outside <script>/<style>, or any
+    element that paints on its own (img, svg, video, iframe, ...). CSS and JS
+    are not content, so a body holding nothing but a <style> block is empty.
+    """
+    if not html:
+        return False
+    open_match = _BODY_OPEN_RE.search(html)
+    if not open_match:
+        # No <body> at all — a head-only fragment renders nothing.
+        return False
+    inner = html[open_match.end():]
+    close_match = _BODY_CLOSE_RE.search(inner)
+    if close_match:
+        inner = inner[: close_match.start()]
+    inner = _COMMENT_RE.sub("", inner)
+    inner = _FULL_SCRIPT_OR_STYLE_RE.sub("", inner)
+    for tag_match in _TAG_RE.finditer(inner):
+        if tag_match.group(1) != "/" and tag_match.group(2).lower() in _VISIBLE_EMPTY_TAGS:
+            return True
+    return bool(_TAG_RE.sub("", inner).strip())
