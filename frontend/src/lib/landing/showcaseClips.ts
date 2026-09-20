@@ -16,8 +16,12 @@
  *      the video loads. `preload` is off, so without a poster the card sits on
  *      its gradient until playback starts.
  *
- * `href` points at the merchant's live site. Only Wak Hassan is live; the rest
- * are demo builds, so their `href` stays empty and those cards do not link.
+ * `live` marks a real merchant site and puts a LIVE tag on the card; every
+ * other card is tagged CONTOH, because it is a design BinaApp can build rather
+ * than a shop that is trading. Only Wak Hassan is live today.
+ *
+ * `href` is separate on purpose: a demo can be given a link to its preview
+ * subdomain without that making it a real business.
  */
 
 export type ShowcaseClip = {
@@ -36,7 +40,10 @@ export type ShowcaseClip = {
   src: string
   /** `/showcase/<file>.jpg` — first frame, shown while the video loads. */
   poster?: string
-  /** The live site, when there is one. Empty means the card does not link. */
+  /** True only for a real merchant's site. Tags the card LIVE instead of
+   *  CONTOH — never set it on a demo build. */
+  live?: boolean
+  /** Where the card links, if anywhere. Empty means the card does not link. */
   href?: string
 }
 
@@ -49,6 +56,7 @@ export const SHOWCASE_CLIPS: ShowcaseClip[] = [
     to: '#0B0B15',
     ratio: 'tall',
     src: '/showcase/nasi-kukus-wak-hassan.mp4',
+    live: true,
     href: 'https://mayam.binaapp.my',
   },
   {

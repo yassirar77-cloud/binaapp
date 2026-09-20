@@ -1,10 +1,13 @@
 'use client'
 
 /**
- * The showcase wall — merchant sites, each card playing that site's own hero
- * video. A plain masonry grid the visitor scrolls past; nothing moves on its
- * own. Card heights are uneven so the grid staggers instead of marching in
+ * The showcase wall — design examples, each card playing a restaurant site's
+ * hero video. A plain masonry grid the visitor scrolls past; nothing moves on
+ * its own. Card heights are uneven so the grid staggers instead of marching in
  * rows.
+ *
+ * Every card is tagged: CONTOH for a design BinaApp can build, LIVE for a real
+ * merchant's trading site. Only the tag and the business name go on a card.
  *
  * Two things keep a wall of videos cheap. `preload="none"` means a card costs
  * nothing until it is reached, and one IntersectionObserver plays each video
@@ -106,6 +109,21 @@ function ClipCard({ clip, registerVideo, unregisterVideo }: ClipCardProps) {
           className="absolute inset-0 h-full w-full object-cover"
         />
       )}
+
+      {/* Tag, top-right: whether this is a shop that is trading or a design
+          the visitor could have built. */}
+      <div className="absolute right-2.5 top-2.5 sm:right-3 sm:top-3">
+        {clip.live ? (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-volt-400 px-2 py-1 font-geist-mono text-[9px] font-bold uppercase tracking-[.12em] text-ink-950">
+            <span className="h-1.5 w-1.5 rounded-full bg-ink-950" />
+            Live
+          </span>
+        ) : (
+          <span className="inline-flex items-center rounded-full border border-white/20 bg-ink-950/70 px-2 py-1 font-geist-mono text-[9px] font-semibold uppercase tracking-[.12em] text-white/80 backdrop-blur-sm">
+            Contoh
+          </span>
+        )}
+      </div>
 
       {/* The business name, and nothing else. */}
       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-ink-950/92 via-ink-950/55 to-transparent px-3.5 pb-3 pt-12 sm:px-4 sm:pb-4">
@@ -211,16 +229,13 @@ export default function LandingShowcase() {
 
       {/* Heading */}
       <div className="relative mx-auto mb-12 max-w-[760px] px-4 text-center sm:px-8 lg:mb-16">
-        <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-volt-400/30 bg-volt-400/[.08] px-3.5 py-1.5 font-geist-mono text-[11px] font-medium uppercase tracking-[.12em] text-volt-400">
-          <span className="h-1.5 w-1.5 rounded-full bg-volt-400 shadow-[0_0_12px_theme(colors.volt.400)]" />
-          Website sebenar, bukan mockup
-        </div>
         <h2 className="mb-5 font-geist text-3xl font-extrabold leading-[1.08] tracking-[-0.04em] text-white sm:text-4xl lg:text-5xl">
-          Tengok sendiri website<br />
-          <span className="text-volt-400">yang AI dah bina.</span>
+          Inspirasi website untuk<br />
+          <span className="text-volt-400">kedai makan anda</span>
         </h2>
         <p className="font-geist text-base leading-relaxed text-ink-300 sm:text-lg">
-          Setiap satu dibina dari satu perbualan dalam Bahasa Melayu.
+          Contoh reka bentuk yang boleh dibina dengan BinaApp dalam beberapa
+          minit.
         </p>
       </div>
 
