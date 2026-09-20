@@ -1,12 +1,13 @@
 /**
- * BinaApp Terms of Service v3.0 — Bahasa Malaysia (prevailing version)
+ * BinaApp Terms of Service v3.1 — Bahasa Malaysia (prevailing version)
  *
  * Source-of-truth content for the BM Terms of Service. Consumed by the
  * terms rendering components built in Step 3e. Per s24
  * (`prevailingLanguage`), the BM version controls if there is any
  * conflict with the EN translation built in Step 3d.
  *
- * Effective: 21 Mei 2026. Supersedes v2.0 (31 Januari 2025) and v1.0.
+ * Effective: 21 Oktober 2026. Supersedes v3.0 (21 Mei 2026), v2.0
+ * (31 Januari 2025) and v1.0.
  *
  * Maintenance notes:
  * - When updating, bump `version`, update `lastUpdated`, append a new
@@ -91,10 +92,10 @@ export type TermsOfService = {
 };
 
 export const termsBM: TermsOfService = {
-  version: '3.0',
-  effectiveDate: '21 Mei 2026',
-  lastUpdated: '21 Mei 2026',
-  estimatedReadingMinutes: 43,
+  version: '3.1',
+  effectiveDate: '21 Oktober 2026',
+  lastUpdated: '20 September 2026',
+  estimatedReadingMinutes: 55,
 
   executiveSummary: {
     title: 'Ringkasan 1-Minit',
@@ -104,7 +105,10 @@ export const termsBM: TermsOfService = {
 - **Pelan langganan:** Free (RM 0, tera air & mod pratonton), Starter (RM 5/bulan), Basic (RM 29/bulan), Pro (RM 49/bulan). Pembaharuan auto setiap bulan, boleh batal bila-bila masa, tiada refund pro-rata mid-cycle.
 - **Addon:** Slot tambahan untuk had tertentu (laman web, AI hero, AI imej, slot rider, zon penghantaran). Sah selama 365 hari. Belum digunakan boleh direfund dalam 7 hari pembelian.
 - **Apa anda bertanggungjawab:** Kandungan menu, ketepatan harga, keselamatan makanan, lesen perniagaan (SSM, halal, food handling), kewajipan kepada rider yang anda lantik, dan integriti data customer yang anda muat naik.
-- **Apa BinaApp TIDAK bertanggungjawab:** Kualiti makanan, masa penghantaran, perselisihan customer-merchant, halusinasi AI yang tidak disemak, pembayaran customer yang tidak sampai melalui QR statik, dan tindakan rider semasa penghantaran.
+- **Video dan imej janaan AI:** Klip video hero ialah **rakaman sintetik yang dihasilkan AI** — bukan rakaman sebenar kedai, pekerja, atau makanan anda. Anda mesti menyemak setiap klip dan **tidak boleh mempersembahkannya kepada customer sebagai rakaman sebenar perniagaan anda**. Berbuat demikian boleh melanggar Akta Perihal Dagangan 2011 dan Akta Perlindungan Pengguna 1999, dan liabiliti itu adalah milik anda, bukan kami (seksyen 11).
+- **Kawalan kandungan automatik:** Platform boleh membuang, menulis semula atau menyekat kandungan pada laman web anda yang dijana secara automatik — dakwaan tidak disokong, fakta yang anda tidak pernah bekalkan, pautan tidak boleh disahkan, imej yang gagal — dan boleh menolak untuk menerbitkan sesuatu laman. Ini ialah jaring keselamatan, **bukan jaminan bahawa laman anda tepat** (seksyen 13A).
+- **Pameran (showcase):** Kami boleh memaparkan laman web anda yang diterbitkan, nama perniagaan anda dan klip hero anda di binaapp.my dan dalam pemasaran kami, di bawah lesen yang boleh anda tarik balik pada bila-bila masa dengan emel kepada admin@binaapp.my (seksyen 14A).
+- **Apa BinaApp TIDAK bertanggungjawab:** Kualiti makanan, masa penghantaran, perselisihan customer-merchant, halusinasi AI dan video AI yang tidak disemak, pembayaran customer yang tidak sampai melalui QR statik, dan tindakan rider semasa penghantaran.
 - **Liabiliti:** Dihadkan kepada fi langganan 12 bulan (atau RM 100 untuk pengguna Pelan Free).
 - **Pertikaian:** Tertakluk kepada undang-undang Malaysia. Mahkamah Kuala Lumpur mempunyai bidang kuasa eksklusif.
 - **Privasi:** Pengumpulan dan pemprosesan data peribadi ditadbir oleh Polisi Privasi BinaApp (\`/polisi-privasi\`).`,
@@ -717,8 +721,10 @@ Sebarang pertikaian pembayaran QR Statik adalah **antara customer dan merchant**
       title: '11. Disclaimer Kandungan AI',
       content: `BinaApp menggunakan AI generatif dan AI analitis untuk menyediakan ciri-ciri seperti:
 
-- Penjanaan HTML laman web;
+- Penjanaan HTML laman web (pelan reka bentuk berstruktur, kemudian laman dibina berdasarkannya);
 - Penjanaan imej menu dan hero;
+- **Penjanaan video hero** — klip video sintetik pendek untuk bahagian atas laman web anda;
+- Semakan visual automatik laman yang dijana (model penglihatan menilai tangkapan skrin laman anda);
 - Penjanaan teks balasan dalam chat customer-merchant;
 - Analisis aduan dan cadangan tindakan refund;
 - Pengesahan foto bukti penghantaran.
@@ -731,7 +737,33 @@ Kandungan yang dijana oleh AI disediakan **"sebagaimana adanya" (as-is)** tanpa 
 - **Kandungan tidak sesuai budaya** — contohnya, imej atau teks yang tidak menghormati nilai-nilai tempatan Malaysia;
 - **Bahasa yang tidak tepat** — contohnya, tatabahasa BM yang salah, penggunaan loghat yang tidak sesuai;
 - **Cadangan refund yang tidak tepat** — analisis aduan AI hanya cadangan; keputusan akhir terletak pada merchant;
-- **Foto bukti penghantaran yang tersalah disahkan** — AI boleh tersalah mengesahkan foto kabur atau foto yang tidak sah sebagai sah, atau sebaliknya.
+- **Foto bukti penghantaran yang tersalah disahkan** — AI boleh tersalah mengesahkan foto kabur atau foto yang tidak sah sebagai sah, atau sebaliknya;
+- **Video sintetik yang mengelirukan** — lihat fasal khusus di bawah.
+
+**11A. Video janaan AI — disclaimer khusus dan kewajipan merchant:**
+
+Klip video hero yang dihasilkan oleh BinaApp ialah **rakaman sintetik yang dijana oleh model AI**, sama ada daripada teks prompt sahaja atau dengan menganimasikan satu gambar yang anda bekalkan.
+
+**Fahami apa klip itu dan apa ia bukan:**
+
+- Ia **bukan rakaman premis, dapur, pekerja, atau makanan sebenar anda**, walaupun ia kelihatan seperti rakaman sebenar;
+- Makanan yang ditunjukkan **bukan makanan anda**. Ruang dalaman yang ditunjukkan **bukan ruang dalaman anda**. Orang yang ditunjukkan, jika ada, **tidak wujud dan bukan pekerja atau customer anda**;
+- Video AI lazimnya mengandungi kemustahilan fizikal, tangan cacat, papan tanda tidak terbaca dan peralatan yang salah.
+
+**Kewajipan anda sebelum menerbitkan sesuatu klip:**
+
+- **Semak setiap klip sepenuhnya sebelum ia dipaparkan pada laman aktif anda.** Klip tidak pernah diterbitkan secara automatik tanpa tindakan anda;
+- **Jangan persembahkan klip janaan sebagai rakaman tulen perniagaan anda.** Jangan beri kapsyen, gambarkan, atau menjawab soalan customer dengan cara yang menyatakan atau membayangkan ia menunjukkan premis sebenar, pekerja sebenar, atau hidangan sebenar yang akan diterima customer;
+- **Jangan gunakan klip janaan untuk menggambarkan hidangan, saiz hidangan, bahan atau kemudahan yang anda tidak tawarkan.** Jika klip itu bersifat hiasan, kekalkan gambar menu dan penerangan sebenar anda sebagai rekod tepat tentang apa yang anda jual;
+- **Jangan jana klip daripada gambar yang anda tidak berhak menggunakannya.** Jika gambar itu menunjukkan pekerja, customer atau individu lain yang boleh dikenal pasti, dapatkan persetujuan mereka sebelum menganimasikannya — gambar itu dipindahkan kepada pembekal AI di Republik Rakyat China (Polisi Privasi seksyen 16).
+
+**Pendedahan undang-undang adalah tanggungan anda:**
+
+Menerbitkan rakaman sintetik dengan cara yang mengelirukan pengguna tentang barangan atau perkhidmatan yang anda bekalkan boleh menjadi **perihal dagangan palsu di bawah Akta Perihal Dagangan 2011**, **representasi mengelirukan di bawah Akta Perlindungan Pengguna 1999**, atau pelanggaran Kod Amalan Pengiklanan Malaysia. Ia juga boleh melanggar polisi platform mana-mana rangkaian sosial jika anda menyiarkan semula klip tersebut.
+
+**Anda bertanggungjawab sepenuhnya ke atas cara anda mempersembahkan dan memberi kapsyen kepada klip janaan.** BinaApp memberikan anda alat penjanaan, tidak menentukan cara anda menggambarkan perniagaan anda kepada customer anda, dan **tidak menerima sebarang liabiliti** untuk sebarang tindakan kawal selia, penguatkuasaan, penalti atau tuntutan pengguna yang berbangkit daripada penggunaan atau kapsyen klip janaan oleh anda. Indemniti anda di bawah seksyen 19 meliputi tuntutan sedemikian.
+
+**Kredit dan kegagalan:** penjanaan video hero menggunakan satu kredit atau unit addon. Jika klip gagal dijana akibat kesalahan pembekal atau platform, kredit dipulangkan secara automatik. Ketidakpuasan hati terhadap hasil kreatif klip yang berjaya dijana **bukan** satu kesalahan dan tidak melayakkan refund — output AI sememangnya berubah-ubah, dan anda patut membuat pratonton sebelum menjana secara pukal.
 
 **Tanggungjawab merchant:**
 
@@ -750,7 +782,9 @@ Merchant **bertanggungjawab penuh untuk menyemak dan meluluskan semua kandungan 
 
 **Pemindahan data kepada pembekal AI:**
 
-Penggunaan ciri AI melibatkan pemindahan data kepada pembekal AI pihak ketiga (Stability AI, DeepSeek, Qwen, Anthropic). Lihat **Polisi Privasi seksyen 6 dan 16** untuk butiran pembekal, wilayah pemprosesan, dan risiko PII.
+Penggunaan ciri AI melibatkan pemindahan data kepada pembekal AI pihak ketiga (Stability AI, DeepSeek, **Z.ai / Zhipu AI**, Qwen, Anthropic). Lihat **Polisi Privasi seksyen 6, 6A dan 16** untuk butiran pembekal, wilayah pemprosesan, dan risiko PII.
+
+Ambil perhatian khususnya bahawa **semakan visual automatik menghantar tangkapan skrin laman anda yang dijana** — termasuk nama perniagaan, alamat dan nombor telefon anda sebagaimana dipaparkan padanya — kepada model penglihatan, dan bahawa **laluan foto-ke-video menghantar satu gambar yang anda pilih** kepada pembekal di Republik Rakyat China.
 
 **Hak untuk menolak penggunaan AI:**
 
@@ -767,7 +801,10 @@ Jika anda tidak selesa dengan pemprosesan AI untuk mana-mana ciri tertentu, anda
 
 Dengan menggunakan Perkhidmatan, **anda bersetuju dengan terma-terma Polisi Privasi tersebut**, termasuk:
 
-- Pendedahan data kepada pembekal AI pihak ketiga (Stability AI, DeepSeek, Qwen, Anthropic);
+- Pendedahan data kepada pembekal AI pihak ketiga (Stability AI, DeepSeek, Z.ai / Zhipu AI, Qwen, Anthropic);
+- Pendedahan kepada pembekal media dan infrastruktur (Cloudinary, Supabase, Render, Vercel) dan kepada pihak ketiga yang failnya dimuatkan oleh laman web anda ke dalam pelayar pelawat (Cloudinary, Google Fonts, embed Google Maps, Unsplash, CDN kod awam — Polisi Privasi seksyen 13A);
+- Geokod alamat perniagaan anda sekali sahaja melalui Nominatim OpenStreetMap semasa penerbitan;
+- Penyimpanan rekod kualiti penjanaan (Polisi Privasi seksyen 6B);
 - Pemindahan data merentas sempadan kepada Singapura, Amerika Syarikat, dan Republik Rakyat China;
 - Pengumpulan data analitis pertama-pihak (first-party) pada laman web yang dijana;
 - Pemprosesan pembayaran langganan melalui ToyyibPay.
@@ -778,9 +815,9 @@ Anda mempunyai hak akses, pembetulan, penarikan persetujuan, pemadaman, mudah al
 
 **Untuk pertanyaan privasi atau permintaan PDPA**, sila hantar emel kepada **admin@binaapp.my** dengan format yang dinyatakan dalam Polisi Privasi.
 
-**Komitmen masa hadapan:**
+**Status komitmen privasi terdahulu:**
 
-BinaApp komited untuk meningkatkan amalan privasi melalui pelaksanaan UI persetujuan eksplisit untuk ciri-ciri AI yang mengandungi PII, banner kuki pada laman web restoran, dan sokongan untuk pengepala HTTP Do-Not-Track dalam tempoh **60 hari** dari tarikh berkuat kuasa Polisi Privasi (lihat **Polisi Privasi seksyen 20**).`,
+Sokongan Do-Not-Track telah dilaksanakan, dan analitik turut dibina semula supaya tanpa kuki dengan Global Privacy Control dipatuhi. UI persetujuan eksplisit untuk ciri AI yang mengandungi PII dan banner notis pelawat **tidak** dilaksanakan menjelang tarikh akhir 20 Julai 2026 dan dikomitkan semula kepada **31 Januari 2027**. Lihat **Polisi Privasi seksyen 20** untuk laporan status penuh.`,
     },
 
     {
@@ -821,9 +858,84 @@ Penjejakan trafik laman web restoran untuk papan pemuka analitis merchant. Lihat
 **(k) BinaBot:**
 Chatbot sokongan dalam dashboard untuk membantu merchant dengan soalan tentang platform.
 
+**(l) Studio video hero:**
+Penjanaan, pratonton, pustaka, pemakaian dan pembuangan klip video pendek janaan AI untuk bahagian atas laman web anda. Klip dijana daripada prompt, atau dengan menganimasikan satu gambar yang anda bekalkan. Tertakluk kepada seksyen 11A dan kepada penggunaan kredit atau addon.
+
+**(m) Design Studio:**
+Penyuntingan laman anda selepas penjanaan — seksyen, imej, palet, teks dan susun atur — termasuk pembuangan seksyen seperti embed peta.
+
+**(n) Bina semula laman web dan variasi gaya:**
+Penjanaan semula laman web sedia ada, dan penjanaan gaya alternatif untuk perbandingan sebelum penerbitan.
+
+**(o) Galeri templat:**
+Pustaka arah reka bentuk dan titik permulaan untuk penjanaan.
+
+**(p) Kit QR, kit promosi, kit kaunter dan kit perniagaan:**
+Penjanaan bahan perniagaan yang boleh dicetak dan dikongsi — kod QR laman, grafik promosi, bahan kaunter dan aset perniagaan — yang diterbitkan daripada laman web anda.
+
+**(q) Embed Google Maps dan geokod alamat:**
+Bingkai peta pada seksyen hubungi anda, ditunjukkan pada koordinat yang diterbitkan daripada alamat perniagaan yang anda masukkan. Bingkai itu dilayan kepada pelawat anda oleh Google di bawah polisi privasi Google sendiri (**Polisi Privasi seksyen 13A**). Anda boleh membuang peta dalam Design Studio.
+
+**(r) Seksyen borang tempahan / reservasi:**
+Borang tempahan meja pilihan pada laman web anda yang dijana. **Borang ini tidak menghantar apa-apa kepada BinaApp.** Penghantaran disusun dalam pelayar pelawat dan diserahkan kepada WhatsApp sebagai mesej pra-isi. BinaApp tidak menerima, menyimpan, menyandarkan atau mengeksport tempahan — ia hanya wujud dalam akaun WhatsApp anda, dan anda ialah pengawal tunggalnya. Lihat **Polisi Privasi seksyen 11A**.
+
+**(s) Laporan isu dan penjanaan semula percuma:**
+Saluran untuk melaporkan kecacatan pada laman web yang dijana, yang mungkin melayakkan bilangan penjanaan semula percuma yang berhad.
+
+**(t) Rujukan, skor kepercayaan dan penalti merchant:**
+Penjejakan rujukan, penunjuk kepercayaan merchant, dan mekanisme penalti yang diterangkan di tempat lain dalam Terma ini.
+
+**(u) Pemantauan SLA dan semakan kesihatan laman web:**
+Pemantauan automatik laman web yang dijana dan tahap perkhidmatan penghantaran.
+
 **Kemas kini ciri:**
 
 BinaApp boleh menambah, mengubah, atau mengeluarkan ciri dari semasa ke semasa. Ciri-ciri material baru atau pembuangan ciri akan dimaklumkan kepada anda mengikut seksyen 22 (Pindaan Terma).`,
+    },
+
+    {
+      id: 'kawalan-kandungan-automatik',
+      title: '13A. Kawalan Kandungan Automatik',
+      content: `Saluran penjanaan menggunakan semakan automatik yang boleh **mengubah, membuang atau menyekat kandungan pada laman web anda sendiri, dan boleh menolak untuk menerbitkannya**, tanpa keputusan itu disemak oleh seorang manusia. Dengan menggunakan Perkhidmatan, anda menerima bahawa kawalan ini beroperasi ke atas kandungan anda.
+
+**(a) Apa yang kawalan ini lakukan**
+
+- **Kawalan dakwaan tidak disokong** — dakwaan promosi yang tidak dapat disokong oleh laman yang dijana berdasarkan apa yang anda benar-benar bekalkan (contohnya kata-kata melampau, dakwaan kesihatan, atau anugerah yang anda tidak pernah masukkan) boleh ditulis semula atau dibuang;
+- **Kawalan fakta** — seksyen yang menyatakan fakta tentang perniagaan anda yang anda tidak pernah bekalkan boleh dibuang dan bukan diterbitkan;
+- **Sekatan ketidakselarasan lokasi** — jika alamat yang anda masukkan menamakan bandar yang berbeza daripada penerangan perniagaan anda, penjanaan disekat sehingga anda menyelesaikan percanggahan itu;
+- **Kawalan imej** — setiap imej janaan AI disemak oleh model penglihatan untuk teks terpapar, wajah manusia dan padanan kategori. Imej yang gagal dijana semula sekali dan kemudian digugurkan, dan seksyen itu memaparkan jubin teks sebagai gantinya;
+- **Pintu kritik reka bentuk dan lantai kualiti** — laman yang dipaparkan dinilai oleh model penglihatan dan diuji terhadap peraturan susun atur deterministik. Laman di bawah ambang dijana semula dan bukan dilayan, dan laman yang gagal lantai kualiti tidak diterbitkan;
+- **Pengawal penerbitan** — penerbitan yang akan menulis ganti laman yang sudah aktif ditolak sehingga anda mengesahkannya;
+- **Pengawal pautan** — pautan yang tidak dapat disahkan dibuang atau dineutralkan dan bukan diterbitkan dalam keadaan rosak;
+- **Moderasi imej** — imej yang dimuat naik boleh disaring, dan kandungan yang melanggar seksyen 6 boleh ditolak.
+
+**(b) Kenapa ia wujud**
+
+Kawalan ini wujud untuk mengurangkan risiko saluran AI menerbitkan sesuatu yang tidak benar tentang perniagaan anda — yang mana ia adalah pendedahan undang-undang anda, bukan kami. Ia ialah jaring keselamatan, dilaksanakan atas asas usaha terbaik.
+
+**(c) Apa yang ia BUKAN**
+
+**Kawalan ini bukan jaminan.** BinaApp **tidak** menjamin bahawa:
+
+- Setiap kenyataan tidak tepat pada laman anda akan dikesan;
+- Setiap dakwaan yang dibiarkan kekal adalah tersokong, sah di sisi undang-undang, atau mematuhi Akta Perihal Dagangan 2011, Akta Perlindungan Pengguna 1999, keperluan pensijilan halal, atau mana-mana kod pengiklanan;
+- Setiap imej atau klip pada laman anda adalah sesuai, tepat, atau bebas daripada hak pihak ketiga.
+
+**Anda tetap bertanggungjawab sepenuhnya untuk menyemak laman web anda yang diterbitkan** (seksyen 7, 8 dan 11). Laman yang melepasi setiap kawalan automatik tetap laman anda, diterbitkan oleh anda, dan ketepatannya adalah kewajipan anda.
+
+**(d) Ia juga boleh tersilap dalam arah sebaliknya**
+
+Sesuatu kawalan boleh membuang sesuatu yang sebenarnya betul, atau menyekat penjanaan yang sepatutnya dibenarkan. Apabila itu berlaku:
+
+- Anda boleh memasukkan semula maklumat melalui medan berstruktur, yang dianggap sebagai autoritatif;
+- Anda boleh menyunting laman yang diterbitkan secara terus dalam Design Studio;
+- Anda boleh meminta semakan manual di **admin@binaapp.my** (**Polisi Privasi seksyen 19**).
+
+BinaApp **tidak bertanggungan** untuk kehilangan masa, penjanaan, kredit atau perniagaan yang timbul daripada kawalan automatik yang bertindak sama ada dengan betul atau tersilap, kecuali setakat yang diperuntukkan dalam seksyen 18.
+
+**(e) Hak untuk mengubah kawalan**
+
+BinaApp boleh menambah, memperhalus, atau membuang kawalan ini pada bila-bila masa sepanjang kerja peningkatan kualiti penjanaan diteruskan. Perubahan kepada kawalan ini bersifat operasi dan **bukan** dianggap sebagai pindaan material di bawah seksyen 22.`,
     },
 
     {
@@ -869,7 +981,7 @@ Lesen ini tamat apabila anda menamatkan akaun, tertakluk kepada tempoh penyimpan
 
 **14.3 Kandungan yang Dijana oleh AI**
 
-Untuk kandungan yang dijana melalui pipeline AI BinaApp (HTML laman web, imej menu, imej hero, teks balasan):
+Untuk kandungan yang dijana melalui pipeline AI BinaApp (HTML laman web, imej menu, imej hero, **klip video hero**, teks balasan):
 
 - **Pemilikan dipindahkan kepada merchant** — BinaApp **tidak menuntut hak cipta** ke atas output AI;
 - Anda bebas untuk menggunakan, mengubah, atau menerbitkan kandungan AI yang dijana untuk perniagaan anda;
@@ -877,8 +989,19 @@ Untuk kandungan yang dijana melalui pipeline AI BinaApp (HTML laman web, imej me
 
 **Pengecualian penting:**
 
-- **BinaApp tidak menjamin** bahawa kandungan AI yang dijana adalah **bebas daripada pelanggaran hak cipta pihak ketiga**. Imej yang dijana oleh AI mungkin menyerupai karya berhak cipta sedia ada (lihat seksyen 11);
-- **Anda bertanggungjawab** untuk pelanggaran hak cipta yang timbul daripada penggunaan kandungan AI yang dijana.
+- **BinaApp tidak menjamin** bahawa kandungan AI yang dijana adalah **bebas daripada pelanggaran hak cipta pihak ketiga**. Imej dan video yang dijana oleh AI mungkin menyerupai karya berhak cipta sedia ada (lihat seksyen 11);
+- **Anda bertanggungjawab** untuk pelanggaran hak cipta yang timbul daripada penggunaan kandungan AI yang dijana;
+- **Terma pembekal AI terpakai kepada anda.** Pemilikan output AI tertakluk kepada terma pembekal yang menjananya (Stability AI, Z.ai / Zhipu AI, DeepSeek, Qwen). Terma tersebut mungkin menghadkan penggunaan tertentu, dan boleh berubah. BinaApp hanya menyalurkan hak yang dipegangnya dan tidak boleh memindahkan lebih daripada itu;
+- **Kepastian undang-undang ke atas output AI belum mantap.** Di beberapa bidang kuasa, output yang dijana sepenuhnya oleh mesin mungkin langsung tidak mendapat perlindungan hak cipta, yang boleh menghadkan keupayaan anda untuk menghalang pihak ketiga menyalinnya. BinaApp tidak membuat sebarang representasi mengenai perkara ini.
+
+**14.5 Fotografi Stok dan Aset Pihak Ketiga**
+
+Apabila laman yang dijana menggunakan **fotografi stok** (dilayan daripada Unsplash) atau set ikon, fon atau pustaka kod pihak ketiga:
+
+- **Anda tidak memilikinya.** Ia digunakan di bawah lesen yang diberikan oleh pembekal, dan lesen itu — bukan Terma ini — mengawal apa yang anda boleh lakukan dengannya;
+- **Lesen Unsplash membenarkan penggunaan komersial tetapi tidak membenarkan** menjual semula gambar itu sebagaimana adanya, menghimpunkan gambar-gambar tersebut menjadi perkhidmatan yang bersaing, atau menggunakannya dengan cara yang membayangkan pengesahan oleh jurugambar atau oleh orang yang ditunjukkan;
+- **Gambar stok bukan gambar perniagaan anda.** Sekatan yang sama dalam seksyen 11A tentang tidak mempersembahkan imej sintetik atau imej pihak ketiga sebagai premis, pekerja atau makanan anda sendiri terpakai sama kepada fotografi stok;
+- **Jika anda memerlukan hak penuh**, gantikan fotografi stok dengan gambar anda sendiri melalui Design Studio. Kami mengesyorkan ini bagi mana-mana imej yang boleh disalah anggap oleh customer sebagai makanan atau premis sebenar anda.
 
 **14.4 Lesen Subdomain**
 
@@ -908,6 +1031,49 @@ Lesen subdomain **terhenti secara automatik** apabila:
 - Subdomain dibatalkan untuk sebab yang dinyatakan di atas.
 
 Selepas penamatan, BinaApp boleh **menarik balik dan menetapkan semula** subdomain tersebut untuk pengguna lain.`,
+    },
+
+    {
+      id: 'lesen-pameran',
+      title: '14A. Lesen Pameran dan Publisiti',
+      content: `BinaApp menyelenggara satu **pameran (showcase)** laman web merchant — pada laman utama binaapp.my dan dalam bahan pemasaran — untuk menunjukkan apa yang platform ini hasilkan.
+
+**(a) Lesen yang anda berikan**
+
+Apabila anda **menerbitkan laman web ke subdomain \`*.binaapp.my\` yang aktif**, anda memberikan BinaApp satu **lesen bukan eksklusif, bebas royalti, seluruh dunia, dan boleh ditarik balik** untuk:
+
+- Memaparkan laman web anda yang diterbitkan, tangkapan skrinnya, dan rakaman pendek atau klip video hero daripadanya, dalam pameran BinaApp dan dalam bahan pemasaran BinaApp, termasuk media sosial;
+- Menggunakan **nama perniagaan** anda dan, jika anda membekalkannya, logo anda, semata-mata untuk mengenal pasti pemilik laman yang dipaparkan;
+- Memaut ke laman web aktif anda daripada pameran tersebut.
+
+**(b) Had kepada lesen tersebut**
+
+- Lesen ini meliputi **hanya apa yang anda telah terbitkan kepada umum** pada subdomain aktif anda. Ia **tidak** meliputi draf, laman yang belum diterbitkan, subdomain pratonton, menu anda sebagai set data, data customer anda, data pesanan anda, atau apa-apa di dalam dashboard anda;
+- Ia **boleh ditarik balik pada bila-bila masa** (lihat (c)). Ia bukan kekal dan tidak terus hidup selepas ditarik balik;
+- Ia **tidak memberikan sebarang pemilikan**. Anda mengekalkan segalanya di bawah seksyen 14.2, dan tiada apa-apa di sini memindahkan hak cipta dalam gambar, logo atau teks anda;
+- BinaApp **tidak akan** menyatakan atau membayangkan bahawa anda menyokong, mengesyorkan atau bergabung secara komersial dengan BinaApp melebihi fakta mudah bahawa anda menggunakan platform ini;
+- BinaApp **tidak akan** melesenkan semula kandungan anda kepada pihak ketiga untuk pemasaran pihak ketiga itu sendiri.
+
+**(c) Menarik balik lesen — opt-out**
+
+Anda boleh menarik balik lesen ini **pada bila-bila masa dan atas apa jua sebab, tanpa perlu memberi sebarang sebab**, dengan menghantar emel kepada **admin@binaapp.my** dengan subjek \`Showcase Opt-Out\` dan nama perniagaan atau subdomain anda.
+
+- Kami akan mengeluarkan laman web anda daripada pameran BinaApp **dalam tempoh 7 hari bekerja** dari tarikh permintaan anda diterima;
+- Penarikan balik **tidak memberi sebarang kesan kepada langganan, pelan, harga, ciri atau sokongan anda**. Ia bukan satu pelanggaran, dan kami tidak akan mengenakan sebarang penalti kepada anda kerananya;
+- Bahan yang telah dicetak atau telah disiarkan ke platform pihak ketiga akan dikeluarkan atau ditarik daripada edaran **secepat yang boleh dilaksanakan**, yang mungkin mengambil masa lebih lama daripada 7 hari bekerja bagi bahan fizikal;
+- Anda juga boleh meminta kami terlebih dahulu supaya tidak sekali-kali memaparkan anda, dan kami akan merekodkannya pada akaun anda.
+
+**(d) Pelabelan entri pameran**
+
+Entri pameran dilabelkan untuk membezakan laman web merchant yang **aktif** dan benar-benar berniaga daripada laman **demonstrasi** yang dibina untuk menunjukkan sesuatu reka bentuk. BinaApp tidak akan mempersembahkan laman demonstrasi sebagai perniagaan yang berniaga, dan tidak akan mempersembahkan laman aktif anda sebagai demonstrasi.
+
+**(e) Jaminan anda bagi kandungan yang dipamerkan**
+
+Apabila laman anda dipamerkan, anda mengesahkan bahawa anda memegang hak ke atas kandungan padanya — termasuk mana-mana gambar individu yang boleh dikenal pasti — dan bahawa anda mempunyai persetujuan yang diperlukan untuk ia dipaparkan secara umum. Indemniti anda di bawah seksyen 19 terpakai kepada tuntutan pihak ketiga yang berbangkit daripada kandungan yang anda terbitkan pada laman anda sendiri dan yang kemudiannya kami paparkan dalam pameran.
+
+**(f) Budi bicara kami**
+
+BinaApp **tidak mempunyai sebarang kewajipan** untuk memaparkan mana-mana merchant, dan boleh mengeluarkan mana-mana entri pada bila-bila masa tanpa notis atau sebab. Penyertaan bukan faedah mana-mana pelan, bukan satu kedudukan (ranking), bukan pengesahan terhadap perniagaan anda, dan tidak mempunyai nilai komersial yang boleh dituntut.`,
     },
 
     {
@@ -1087,6 +1253,46 @@ Anda digalakkan untuk membaca polisi privasi setiap pembekal pihak ketiga untuk 
           region: 'Amerika Syarikat',
           purpose: 'Analisis emel sokongan (dengan sanitization)',
           policyUrl: 'https://www.anthropic.com/privacy',
+        },
+        {
+          service: 'Z.ai / Zhipu AI (GLM)',
+          region: 'Republik Rakyat China',
+          purpose:
+            'Penjanaan laman web AI (glm-5.3), penghasilan imej janaan (glm-image / CogView), kritik reka bentuk visual automatik (glm-4.5v), dan penjanaan video hero (CogVideoX / wan / HappyHorse)',
+          policyUrl: 'https://z.ai/terms/privacy-policy',
+        },
+        {
+          service: 'Cloudinary',
+          region: 'Amerika Syarikat / CDN global',
+          purpose:
+            'Pengehosan, transformasi dan penghantaran setiap imej dan klip video hero pada laman web yang dijana; menerima alamat IP pelawat laman web anda',
+          policyUrl: 'https://cloudinary.com/privacy',
+        },
+        {
+          service: 'Unsplash',
+          region: 'Amerika Syarikat / CDN global',
+          purpose: 'Fotografi stok yang dilayan kepada pelawat laman web yang dijana',
+          policyUrl: 'https://unsplash.com/privacy',
+        },
+        {
+          service: 'Google (embed Maps dan Fonts)',
+          region: 'Amerika Syarikat / global',
+          purpose:
+            'Bingkai peta pada seksyen hubungi dan fon web yang digunakan oleh reka bentuk halaman, kedua-duanya dimuatkan terus oleh pelayar pelawat anda; Google mungkin menetapkan kukinya sendiri dalam bingkai peta',
+          policyUrl: 'https://policies.google.com/privacy',
+        },
+        {
+          service: 'OpenStreetMap Foundation (Nominatim)',
+          region: 'Kesatuan Eropah / global',
+          purpose: 'Geokod alamat perniagaan sekali sahaja semasa penerbitan',
+          policyUrl: 'https://osmfoundation.org/wiki/Privacy_Policy',
+        },
+        {
+          service: 'CDN kod awam (Tailwind, unpkg, cdnjs, jsDelivr)',
+          region: 'Global',
+          purpose:
+            'Helaian gaya, fon ikon dan skrip kecil yang dimuatkan oleh laman web yang dijana ke dalam pelayar pelawat',
+          policyUrl: 'https://www.cloudflare.com/privacypolicy/',
         },
       ],
     },
@@ -1443,13 +1649,32 @@ Penerimaan ini kekal berkuat kuasa sehingga akaun anda ditamatkan atau Terma dip
 
 Setiap kemas kini versi disenaraikan dengan nombor versi, tarikh, dan ringkasan perubahan material. Perubahan kecil seperti pembetulan tatabahasa atau penjelasan teks tidak disenaraikan secara individu.
 
-**Versi semasa:** v3.0 (21 Mei 2026)
+**Versi semasa:** v3.1 (berkuat kuasa 21 Oktober 2026)
+
+**Versi terdahulu:** v3.0 (21 Mei 2026)
 
 **Versi terdahulu boleh diminta** dengan menghubungi admin@binaapp.my jika anda ingin meninjau versi sebelumnya.`,
     },
   ],
 
   changelog: [
+    {
+      version: '3.1',
+      date: '21 Oktober 2026',
+      changes: [
+        'MATERIAL — Seksyen 11A baharu mengenai video janaan AI: klip hero ialah rakaman sintetik dan bukan rakaman premis, pekerja atau makanan anda. Anda mesti menyemak setiap klip sebelum menerbitkannya dan tidak boleh mempersembahkannya sebagai rakaman tulen perniagaan anda. Notis nyata bahawa berbuat demikian boleh melibatkan Akta Perihal Dagangan 2011, Akta Perlindungan Pengguna 1999 dan Kod Amalan Pengiklanan Malaysia, dan bahawa liabiliti ini adalah tanggungan merchant;',
+        'MATERIAL — Seksyen 13A baharu mengenai kawalan kandungan automatik: saluran penjanaan boleh menulis semula dakwaan tidak disokong, membuang seksyen yang menyatakan fakta yang merchant tidak pernah bekalkan, menyekat penjanaan apabila lokasi bercanggah, menggugurkan imej yang gagal semakan penglihatan, menjana semula atau menolak untuk menerbitkan laman di bawah lantai kualiti, menolak penerbitan yang akan menulis ganti laman aktif, dan meneutralkan pautan yang tidak boleh disahkan. Kenyataan nyata bahawa kawalan ini ialah jaring keselamatan dan BUKAN jaminan ketepatan, dan bahawa merchant tetap bertanggungjawab menyemak laman yang diterbitkan;',
+        'MATERIAL — Seksyen 14A baharu memberikan BinaApp lesen bukan eksklusif, bebas royalti dan boleh ditarik balik untuk memaparkan laman web merchant yang diterbitkan, nama perniagaan dan klip hero dalam pameran dan pemasaran BinaApp, terhad kepada kandungan yang telah diterbitkan secara umum, dengan opt-out tanpa perlu memberi sebarang sebab di admin@binaapp.my yang dilaksanakan dalam 7 hari bekerja dan tanpa sebarang kesan kepada langganan, harga, ciri atau sokongan;',
+        'MATERIAL — Pembekal pihak ketiga baharu ditambah kepada jadual perkhidmatan pihak ketiga dan didedahkan: Z.ai / Zhipu AI (Republik Rakyat China), Cloudinary, Unsplash, Google Maps dan Fonts, Nominatim OpenStreetMap, dan CDN kod awam (seksyen 17);',
+        'MATERIAL — Notis nyata bahawa semakan visual automatik menghantar tangkapan skrin laman yang dijana kepada model penglihatan, dan bahawa penjanaan video hero daripada gambar menghantar gambar tersebut kepada pembekal di Republik Rakyat China (seksyen 11 dan 12);',
+        'Seksyen 14.5 baharu mengenai fotografi stok dan aset pihak ketiga: merchant tidak memilikinya, Lesen Unsplash mengawal penggunaannya, dan gambar stok tidak boleh dipersembahkan sebagai premis atau makanan merchant sendiri;',
+        'Seksyen 14.3 diperluas kepada klip video hero, dengan notis nyata bahawa terma pembekal AI terpakai kepada merchant dan bahawa hak cipta ke atas output yang dijana sepenuhnya oleh mesin belum mantap di sisi undang-undang;',
+        'Senarai ciri seksyen 13 diperluas dengan studio video hero, Design Studio, bina semula laman web dan variasi gaya, galeri templat, kit QR/promosi/kaunter/perniagaan, embed Google Maps dan geokod alamat, seksyen borang tempahan, laporan isu dan penjanaan semula percuma, rujukan, skor kepercayaan dan penalti merchant, serta pemantauan SLA dan kesihatan laman web;',
+        'Pendedahan bahawa borang tempahan / reservasi pada laman web yang dijana tidak menghantar apa-apa kepada BinaApp — entri diserahkan kepada WhatsApp dari pelayar pelawat, BinaApp tidak menyimpan tempahan dan tidak boleh memulihkan atau mengeksportnya, dan merchant ialah pengawal tunggalnya (seksyen 13(r));',
+        'Layanan kredit video hero dinyatakan: kegagalan pembekal atau platform memulangkan kredit secara automatik; ketidakpuasan hati terhadap hasil kreatif klip yang berjaya dijana tidak (seksyen 11A);',
+        'Seksyen 12 dikemas kini untuk merekodkan status komitmen privasi v3.0: sokongan Do-Not-Track dilaksanakan dan melebihi skop (analitik kini tanpa kuki dan Global Privacy Control dipatuhi), manakala UI persetujuan AI dan banner notis pelawat tidak dilaksanakan menjelang 20 Julai 2026 dan dikomitkan semula kepada 31 Januari 2027.',
+      ],
+    },
     {
       version: '3.0',
       date: '21 Mei 2026',
