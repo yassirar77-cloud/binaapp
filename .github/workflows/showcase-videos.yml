@@ -1,0 +1,172 @@
+# Generate the homepage showcase clips on DashScope, then commit them back.
+#
+# Manual only — this spends money. Each billable clip is roughly USD 0.70, so
+# a full run of the fifteen generated cards is around USD 10. The script is
+# always invoked with --skip-existing, which means a rerun only pays for what
+# is actually missing: a card that already has an MP4 on the branch is passed
+# over. Use the dry_run checkbox to see the plan and the prompts first.
+#
+# Card sixteen (Nasi Kukus Wak Hassan) is lifted from the live site rather
+# than generated, so it costs nothing.
+
+name: Showcase videos
+
+on:
+  workflow_dispatch:
+    inputs:
+      only:
+        description: 'One clip to build (e.g. ckt-ah-seng). Leave empty for all.'
+        required: false
+        type: string
+      dry_run:
+        description: 'Dry run — print the plan and prompts, spend nothing'
+        required: false
+        type: boolean
+        default: false
+
+# The branch the clips are committed back to. The workflow itself has to live
+# on the default branch for GitHub to offer the "Run workflow" button at all,
+# so the branch being built is named here rather than taken from the run's ref.
+env:
+  TARGET_BRANCH: claude/binaapp-hero-video-2qm80n
+
+permissions:
+  contents: write
+
+# Two runs committing to the same branch would race. Never cancel one in
+# flight — the clips it has already paid for would be lost.
+concurrency:
+  group: showcase-videos
+  cancel-in-progress: false
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    # Fifteen clips at a minute or two each, plus polling. Well clear of a
+    # normal run, short enough that a stuck poll does not burn an hour.
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out the showcase branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install ffmpeg and httpx
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          python -m pip install --upgrade pip
+          pip install httpx
+
+      - name: Check the API key is present
+        # Tests only that the secret is non-empty. The value is never echoed,
+        # and GitHub masks it in the log even if something else tried to.
+        if: ${{ !inputs.dry_run }}
+        env:
+          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+        run: |
+          if [ -z "$DASHSCOPE_API_KEY" ]; then
+            echo "::error::DASHSCOPE_API_KEY is not set. Add it under" \
+                 "Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          echo "DASHSCOPE_API_KEY is set (${#DASHSCOPE_API_KEY} characters)."
+
+      - name: Generate the clips
+        env:
+          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+          # Through the environment, never interpolated into the script body:
+          # `only` is free text from whoever pressed the button, and
+          # ${{ }} inside a run block would make it executable shell.
+          ONLY: ${{ inputs.only }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          # --skip-existing on every run: a clip already on the branch is
+          # never paid for a second time.
+          args=(--skip-existing)
+          if [ -n "$ONLY" ]; then
+            args+=(--only "$ONLY")
+          fi
+          if [ "$DRY_RUN" = "true" ]; then
+            args+=(--dry-run)
+          fi
+          echo "Running: scripts/generate_showcase_videos.py ${args[*]}"
+          python3 scripts/generate_showcase_videos.py "${args[@]}"
+
+      - name: List what was produced
+        if: ${{ !inputs.dry_run }}
+        run: |
+          echo '### Showcase clips' >> "$GITHUB_STEP_SUMMARY"
+          echo '' >> "$GITHUB_STEP_SUMMARY"
+          echo '| File | Size |' >> "$GITHUB_STEP_SUMMARY"
+          echo '|---|---|' >> "$GITHUB_STEP_SUMMARY"
+          for f in frontend/public/showcase/*.mp4; do
+            [ -e "$f" ] || continue
+            printf '| %s | %s |\n' "$(basename "$f")" "$(du -h "$f" | cut -f1)" \
+              >> "$GITHUB_STEP_SUMMARY"
+          done
+
+      # Uploaded before the commit, so the clips survive even if the push
+      # fails (a protected branch, someone else pushing mid-run).
+      - name: Upload the clips as an artifact
+        if: ${{ !inputs.dry_run }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: showcase-videos-${{ github.run_number }}
+          path: |
+            frontend/public/showcase/*.mp4
+            frontend/public/showcase/*.jpg
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Commit the clips back to the branch
+        if: ${{ !inputs.dry_run }}
+        env:
+          ONLY: ${{ inputs.only }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          git add -- frontend/public/showcase frontend/src/lib/landing/showcaseClips.ts
+
+          if git diff --cached --quiet; then
+            echo "Nothing new to commit — every clip was already on the branch."
+            exit 0
+          fi
+
+          git diff --cached --name-only
+
+          if [ -n "$ONLY" ]; then
+            subject="Add showcase clip: $ONLY"
+          else
+            subject="Add generated showcase clips"
+          fi
+
+          git commit -m "$subject" \
+            -m "Generated by the Showcase videos workflow (run ${{ github.run_number }})." \
+            -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+
+          # Someone may have pushed to the branch while the clips rendered.
+          # Rebase onto whatever is there rather than failing the run after
+          # paying for the footage.
+          for attempt in 1 2 3; do
+            if git push origin "HEAD:${TARGET_BRANCH}"; then
+              echo "Pushed to ${TARGET_BRANCH}."
+              exit 0
+            fi
+            echo "Push rejected (attempt ${attempt}) — rebasing onto the branch."
+            git fetch origin "${TARGET_BRANCH}"
+            git rebase "origin/${TARGET_BRANCH}"
+          done
+
+          echo "::error::Could not push to ${TARGET_BRANCH} after 3 attempts." \
+               "The clips are still available as the run's artifact."
+          exit 1
