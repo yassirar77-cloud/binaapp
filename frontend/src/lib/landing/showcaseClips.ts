@@ -56,6 +56,7 @@ export const SHOWCASE_CLIPS: ShowcaseClip[] = [
     to: '#0B0B15',
     ratio: 'tall',
     src: '/showcase/nasi-kukus-wak-hassan.mp4',
+    poster: '/showcase/nasi-kukus-wak-hassan.jpg',
     live: true,
     href: 'https://mayam.binaapp.my',
   },
@@ -67,6 +68,7 @@ export const SHOWCASE_CLIPS: ShowcaseClip[] = [
     to: '#161623',
     ratio: 'square',
     src: '/showcase/nasi-kandar-pak-din.mp4',
+    poster: '/showcase/nasi-kandar-pak-din.jpg',
   },
   {
     id: 'roti-canai-abang-li',
@@ -76,6 +78,7 @@ export const SHOWCASE_CLIPS: ShowcaseClip[] = [
     to: '#05050C',
     ratio: 'portrait',
     src: '/showcase/roti-canai-abang-li.mp4',
+    poster: '/showcase/roti-canai-abang-li.jpg',
   },
   {
     id: 'ckt-ah-seng',
@@ -85,6 +88,7 @@ export const SHOWCASE_CLIPS: ShowcaseClip[] = [
     to: '#05050C',
     ratio: 'tall',
     src: '/showcase/ckt-ah-seng.mp4',
+    poster: '/showcase/ckt-ah-seng.jpg',
   },
   {
     id: 'satay-haji-ramli',
@@ -94,6 +98,7 @@ export const SHOWCASE_CLIPS: ShowcaseClip[] = [
     to: '#120D55',
     ratio: 'square',
     src: '/showcase/satay-haji-ramli.mp4',
+    poster: '/showcase/satay-haji-ramli.jpg',
   },
   {
     id: 'laksa-mak-timah',
@@ -103,6 +108,7 @@ export const SHOWCASE_CLIPS: ShowcaseClip[] = [
     to: '#120D55',
     ratio: 'portrait',
     src: '/showcase/laksa-mak-timah.mp4',
+    poster: '/showcase/laksa-mak-timah.jpg',
   },
   {
     id: 'nasi-lemak-kak-yah',
@@ -112,6 +118,7 @@ export const SHOWCASE_CLIPS: ShowcaseClip[] = [
     to: '#05050C',
     ratio: 'tall',
     src: '/showcase/nasi-lemak-kak-yah.mp4',
+    poster: '/showcase/nasi-lemak-kak-yah.jpg',
   },
   {
     id: 'burger-abang-burn',
@@ -121,6 +128,7 @@ export const SHOWCASE_CLIPS: ShowcaseClip[] = [
     to: '#1C1580',
     ratio: 'square',
     src: '/showcase/burger-abang-burn.mp4',
+    poster: '/showcase/burger-abang-burn.jpg',
   },
   {
     id: 'kopitiam-lim',
@@ -130,6 +138,7 @@ export const SHOWCASE_CLIPS: ShowcaseClip[] = [
     to: '#05050C',
     ratio: 'portrait',
     src: '/showcase/kopitiam-lim.mp4',
+    poster: '/showcase/kopitiam-lim.jpg',
   },
   {
     id: 'cendol-tok-mat',
@@ -139,6 +148,7 @@ export const SHOWCASE_CLIPS: ShowcaseClip[] = [
     to: '#05050C',
     ratio: 'square',
     src: '/showcase/cendol-tok-mat.mp4',
+    poster: '/showcase/cendol-tok-mat.jpg',
   },
   {
     id: 'tandoori-raju',
@@ -148,6 +158,7 @@ export const SHOWCASE_CLIPS: ShowcaseClip[] = [
     to: '#161623',
     ratio: 'tall',
     src: '/showcase/tandoori-raju.mp4',
+    poster: '/showcase/tandoori-raju.jpg',
   },
   {
     id: 'sup-tulang-johor',
@@ -157,6 +168,7 @@ export const SHOWCASE_CLIPS: ShowcaseClip[] = [
     to: '#05050C',
     ratio: 'portrait',
     src: '/showcase/sup-tulang-johor.mp4',
+    poster: '/showcase/sup-tulang-johor.jpg',
   },
   {
     id: 'ayam-penyet-mbok-sri',
@@ -166,6 +178,7 @@ export const SHOWCASE_CLIPS: ShowcaseClip[] = [
     to: '#120D55',
     ratio: 'square',
     src: '/showcase/ayam-penyet-mbok-sri.mp4',
+    poster: '/showcase/ayam-penyet-mbok-sri.jpg',
   },
   {
     id: 'dimsum-hong-kee',
@@ -175,6 +188,7 @@ export const SHOWCASE_CLIPS: ShowcaseClip[] = [
     to: '#0B0B15',
     ratio: 'tall',
     src: '/showcase/dimsum-hong-kee.mp4',
+    poster: '/showcase/dimsum-hong-kee.jpg',
   },
   {
     id: 'al-mandi-house',
@@ -184,6 +198,7 @@ export const SHOWCASE_CLIPS: ShowcaseClip[] = [
     to: '#161623',
     ratio: 'portrait',
     src: '/showcase/al-mandi-house.mp4',
+    poster: '/showcase/al-mandi-house.jpg',
   },
   {
     id: 'sweet-crumbs',
@@ -193,5 +208,6 @@ export const SHOWCASE_CLIPS: ShowcaseClip[] = [
     to: '#2A1FB8',
     ratio: 'square',
     src: '/showcase/sweet-crumbs.mp4',
+    poster: '/showcase/sweet-crumbs.jpg',
   },
 ]
