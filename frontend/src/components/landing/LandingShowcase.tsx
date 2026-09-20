@@ -1,41 +1,26 @@
 'use client'
 
 /**
- * The moving showcase wall — real merchant sites, running.
+ * The showcase wall — merchant sites, each card playing that site's own hero
+ * video. A plain masonry grid the visitor scrolls past; nothing moves on its
+ * own. Card heights are uneven so the grid staggers instead of marching in
+ * rows.
  *
- * Columns of cards drift in alternating directions, each card a short loop of
- * one BinaApp site in use: the page scrolling, an order landing in WhatsApp,
- * the rider map moving. Card heights are deliberately uneven so the grid
- * staggers rather than marching in rows.
+ * Two things keep a wall of videos cheap. `preload="none"` means a card costs
+ * nothing until it is reached, and one IntersectionObserver plays each video
+ * as it enters the viewport and pauses it as it leaves — so at most a screen's
+ * worth is ever running. `prefers-reduced-motion` holds every card on its
+ * poster instead.
  *
- * Three things keep it cheap:
- *  - videos only play while the section is on screen and the tab is visible;
- *    everything pauses otherwise,
- *  - `prefers-reduced-motion` stops the drift and the playback, leaving the
- *    posters,
- *  - a clip with no `src` (or one whose file 404s) draws a gradient card
- *    instead, so the wall never shows a broken frame.
+ * A clip whose file has not been uploaded yet (or 404s) falls back to a drawn
+ * card — gradient and food mark — rather than a broken frame.
  *
  * The clip list lives in `@/lib/landing/showcaseClips`.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import {
-  SHOWCASE_CLIPS,
-  dealClipsIntoColumns,
-  type ShowcaseClip,
-} from '@/lib/landing/showcaseClips'
-
-const COLUMN_COUNT = 5
-
-/** Seconds for one full pass, per column. Uneven on purpose — matching
- *  durations make the columns look locked together. */
-const COLUMN_DURATIONS = [58, 46, 70, 52, 64]
-
-/** Narrow screens get two columns; the grid below drops the rest at the same
- *  breakpoints so the cards stay their size instead of stretching. */
-const COLUMN_VISIBILITY = ['flex', 'flex', 'hidden md:flex', 'hidden lg:flex', 'hidden xl:flex']
+import { SHOWCASE_CLIPS, type ShowcaseClip } from '@/lib/landing/showcaseClips'
 
 const RATIO_CLASS: Record<ShowcaseClip['ratio'], string> = {
   tall: 'aspect-[9/16]',
@@ -59,121 +44,164 @@ function usePrefersReducedMotion() {
 
 type ClipCardProps = {
   clip: ShowcaseClip
-  registerVideo: (video: HTMLVideoElement | null) => void
+  registerVideo: (video: HTMLVideoElement) => void
+  unregisterVideo: (video: HTMLVideoElement) => void
 }
 
-function ClipCard({ clip, registerVideo }: ClipCardProps) {
+function ClipCard({ clip, registerVideo, unregisterVideo }: ClipCardProps) {
+  const videoRef = useRef<HTMLVideoElement>(null)
   const [failed, setFailed] = useState(false)
-  const showVideo = Boolean(clip.src) && !failed
 
-  return (
-    <div className="pb-3 sm:pb-4">
-      <div
-        className={`relative w-full overflow-hidden rounded-2xl ring-1 ring-white/10 shadow-[0_18px_44px_rgba(5,5,12,.5)] ${RATIO_CLASS[clip.ratio]}`}
-        style={{ background: `linear-gradient(145deg, ${clip.from}, ${clip.to})` }}
-      >
-        {showVideo ? (
-          <video
-            ref={registerVideo}
-            src={clip.src}
-            poster={clip.poster}
-            muted
-            loop
-            playsInline
-            preload="none"
-            disablePictureInPicture
-            onError={() => setFailed(true)}
-            className="absolute inset-0 h-full w-full object-cover"
+  // Hands the element to the wall's observer, and takes it back when the card
+  // swaps to the drawn fallback — otherwise the observer holds a detached node.
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+
+    registerVideo(video)
+    return () => unregisterVideo(video)
+  }, [registerVideo, unregisterVideo, failed])
+
+  const card = (
+    <div
+      className={`relative w-full overflow-hidden rounded-2xl ring-1 ring-white/10 shadow-[0_18px_44px_rgba(5,5,12,.5)] ${RATIO_CLASS[clip.ratio]}`}
+      style={{ background: `linear-gradient(145deg, ${clip.from}, ${clip.to})` }}
+    >
+      {failed ? (
+        /* No file uploaded yet — the card draws itself. */
+        <>
+          <div
+            className="absolute inset-0 opacity-70"
+            style={{
+              backgroundImage:
+                'radial-gradient(circle at 30% 20%, rgba(255,255,255,.28), transparent 55%)',
+            }}
           />
-        ) : (
-          /* No file yet — the card draws itself. */
-          <>
-            <div
-              className="absolute inset-0 opacity-70"
-              style={{
-                backgroundImage:
-                  'radial-gradient(circle at 30% 20%, rgba(255,255,255,.28), transparent 55%)',
-              }}
-            />
-            <div
-              className="absolute inset-0 opacity-30"
-              style={{
-                backgroundImage:
-                  'radial-gradient(circle at 1px 1px, rgba(255,255,255,.35) 1px, transparent 0)',
-                backgroundSize: '14px 14px',
-              }}
-            />
-            <div className="absolute inset-0 flex items-center justify-center">
-              <span className="text-5xl drop-shadow-[0_6px_18px_rgba(5,5,12,.55)] sm:text-6xl">
-                {clip.mark}
-              </span>
-            </div>
-          </>
-        )}
+          <div
+            className="absolute inset-0 opacity-30"
+            style={{
+              backgroundImage:
+                'radial-gradient(circle at 1px 1px, rgba(255,255,255,.35) 1px, transparent 0)',
+              backgroundSize: '14px 14px',
+            }}
+          />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className="text-5xl drop-shadow-[0_6px_18px_rgba(5,5,12,.55)] sm:text-6xl">
+              {clip.mark}
+            </span>
+          </div>
+        </>
+      ) : (
+        <video
+          ref={videoRef}
+          src={clip.src}
+          poster={clip.poster}
+          muted
+          loop
+          playsInline
+          preload="none"
+          disablePictureInPicture
+          aria-hidden="true"
+          onError={() => setFailed(true)}
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+      )}
 
-        {/* Caption — the same on a video card and a drawn one. */}
-        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-ink-950/92 via-ink-950/55 to-transparent px-3.5 pb-3 pt-10 sm:px-4 sm:pb-3.5">
-          <div className="mb-0.5 font-geist-mono text-[9px] font-semibold uppercase tracking-[.14em] text-volt-400">
-            {clip.kind}
-          </div>
-          <div className="font-geist text-sm font-bold uppercase leading-tight tracking-tight text-white sm:text-base">
-            {clip.label}
-          </div>
+      {/* The business name, and nothing else. */}
+      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-ink-950/92 via-ink-950/55 to-transparent px-3.5 pb-3 pt-12 sm:px-4 sm:pb-4">
+        <div className="font-geist text-sm font-bold uppercase leading-tight tracking-tight text-white sm:text-base">
+          {clip.label}
         </div>
       </div>
+    </div>
+  )
+
+  return (
+    <div className="mb-3 break-inside-avoid sm:mb-4">
+      {clip.href ? (
+        <Link
+          href={clip.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block rounded-2xl transition-transform duration-300 hover:scale-[1.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-volt-400 focus-visible:ring-offset-2 focus-visible:ring-offset-ink-950"
+        >
+          {card}
+        </Link>
+      ) : (
+        card
+      )}
     </div>
   )
 }
 
 export default function LandingShowcase() {
-  const wallRef = useRef<HTMLDivElement>(null)
   const videosRef = useRef<Set<HTMLVideoElement>>(new Set())
-  const [onScreen, setOnScreen] = useState(false)
-  const [tabVisible, setTabVisible] = useState(true)
+  const observerRef = useRef<IntersectionObserver | null>(null)
+  const visibleRef = useRef<Set<HTMLVideoElement>>(new Set())
   const reducedMotion = usePrefersReducedMotion()
 
-  const playing = onScreen && tabVisible && !reducedMotion
-
-  const columns = useMemo(() => dealClipsIntoColumns(SHOWCASE_CLIPS, COLUMN_COUNT), [])
-
-  // Only run while the wall is in view — a dozen videos playing under the
-  // pricing table is pure battery burn.
+  // One observer for the whole wall: a card plays as it scrolls in and pauses
+  // as it scrolls out, so only what is on screen is ever decoding.
   useEffect(() => {
-    const wall = wallRef.current
-    if (!wall) return
+    if (reducedMotion) {
+      videosRef.current.forEach((video) => video.pause())
+      return
+    }
 
+    const visible = visibleRef.current
     const observer = new IntersectionObserver(
-      ([entry]) => setOnScreen(entry.isIntersecting),
-      { rootMargin: '200px' }
+      (entries) => {
+        entries.forEach((entry) => {
+          const video = entry.target as HTMLVideoElement
+          if (entry.isIntersecting) {
+            visible.add(video)
+            // Autoplay can still be refused (data saver, low power mode); the
+            // poster or the gradient underneath stays put when it is.
+            void video.play().catch(() => {})
+          } else {
+            visible.delete(video)
+            video.pause()
+          }
+        })
+      },
+      { rootMargin: '150px', threshold: 0.15 }
     )
-    observer.observe(wall)
-    return () => observer.disconnect()
-  }, [])
 
+    observerRef.current = observer
+    videosRef.current.forEach((video) => observer.observe(video))
+
+    return () => {
+      observer.disconnect()
+      observerRef.current = null
+      visible.clear()
+    }
+  }, [reducedMotion])
+
+  // A backgrounded tab keeps decoding otherwise.
   useEffect(() => {
-    const sync = () => setTabVisible(document.visibilityState === 'visible')
-    sync()
+    const sync = () => {
+      if (document.visibilityState === 'visible') {
+        if (reducedMotion) return
+        visibleRef.current.forEach((video) => void video.play().catch(() => {}))
+      } else {
+        videosRef.current.forEach((video) => video.pause())
+      }
+    }
+
     document.addEventListener('visibilitychange', sync)
     return () => document.removeEventListener('visibilitychange', sync)
+  }, [reducedMotion])
+
+  const registerVideo = useCallback((video: HTMLVideoElement) => {
+    videosRef.current.add(video)
+    observerRef.current?.observe(video)
   }, [])
 
-  useEffect(() => {
-    videosRef.current.forEach((video) => {
-      if (playing) {
-        // Autoplay can still be refused (data saver, low power mode); the
-        // poster or the gradient underneath stays put when it is.
-        void video.play().catch(() => {})
-      } else {
-        video.pause()
-      }
-    })
-  }, [playing])
-
-  const registerVideo = (video: HTMLVideoElement | null) => {
-    if (!video) return
-    videosRef.current.add(video)
-    if (playing) void video.play().catch(() => {})
-  }
+  const unregisterVideo = useCallback((video: HTMLVideoElement) => {
+    videosRef.current.delete(video)
+    visibleRef.current.delete(video)
+    observerRef.current?.unobserve(video)
+  }, [])
 
   return (
     <section id="showcase" className="relative overflow-hidden bg-ink-950 py-20 lg:py-28">
@@ -192,43 +220,23 @@ export default function LandingShowcase() {
           <span className="text-volt-400">yang AI dah bina.</span>
         </h2>
         <p className="font-geist text-base leading-relaxed text-ink-300 sm:text-lg">
-          Setiap satu dibina dari satu perbualan — menu, gambar, pesanan
-          WhatsApp dan jejakan penghantar, siap terus.
+          Setiap satu dibina dari satu perbualan dalam Bahasa Melayu.
         </p>
       </div>
 
-      {/* The wall */}
-      <div ref={wallRef} aria-hidden="true" className="pointer-events-none relative h-[560px] sm:h-[640px] lg:h-[720px]">
-        <div className="grid h-full grid-cols-2 gap-3 px-3 sm:gap-4 sm:px-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-          {columns.map((column, index) => (
-            <div key={index} className={`${COLUMN_VISIBILITY[index]} flex-col overflow-hidden`}>
-              <div
-                className="animate-showcase-marquee will-change-transform"
-                style={{
-                  animationDuration: `${COLUMN_DURATIONS[index]}s`,
-                  animationDirection: index % 2 === 1 ? 'reverse' : 'normal',
-                  animationPlayState: playing ? 'running' : 'paused',
-                }}
-              >
-                {/* Doubled so the -50% translate loops seamlessly. The bottom
-                    padding lives on each card, not as a grid gap, so the two
-                    halves are exactly the same height. */}
-                {[...column, ...column].map((clip, position) => (
-                  <ClipCard
-                    key={`${clip.id}-${position}`}
-                    clip={clip}
-                    registerVideo={registerVideo}
-                  />
-                ))}
-              </div>
-            </div>
+      {/* The wall — CSS columns, so cards of different heights stagger the way
+          a masonry grid does without any measuring. */}
+      <div className="relative mx-auto max-w-[1400px] px-3 sm:px-4">
+        <div className="columns-2 gap-3 sm:gap-4 md:columns-3 lg:columns-4">
+          {SHOWCASE_CLIPS.map((clip) => (
+            <ClipCard
+              key={clip.id}
+              clip={clip}
+              registerVideo={registerVideo}
+              unregisterVideo={unregisterVideo}
+            />
           ))}
         </div>
-
-        {/* Fade the columns into the section top and bottom so cards are never
-            seen entering or leaving. */}
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-ink-950 to-transparent" />
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-ink-950 to-transparent" />
       </div>
 
       {/* CTA under the wall */}

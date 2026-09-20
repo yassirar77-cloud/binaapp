@@ -89,8 +89,6 @@ module.exports = {
         'sheet-out': 'sheetOut 0.2s ease-in forwards',
         'bounce-slow': 'bounce 2s infinite',
         'pulse-red': 'pulseRed 1.6s ease-out infinite',
-        // Duration and direction are set per column on the landing showcase wall.
-        'showcase-marquee': 'showcaseMarquee 60s linear infinite',
       },
       keyframes: {
         fadeIn: {
@@ -120,10 +118,6 @@ module.exports = {
         scaleIn: {
           '0%': { transform: 'scale(0.96)', opacity: '0' },
           '100%': { transform: 'scale(1)', opacity: '1' },
-        },
-        showcaseMarquee: {
-          '0%': { transform: 'translate3d(0, 0, 0)' },
-          '100%': { transform: 'translate3d(0, -50%, 0)' },
         },
         pulseRed: {
           '0%': { transform: 'scale(1)', opacity: '1' },

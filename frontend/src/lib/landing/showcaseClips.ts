@@ -1,34 +1,30 @@
 /**
- * Clips for the landing showcase wall — the moving grid of website demos
+ * Clips for the landing showcase wall — the masonry grid of merchant sites
  * further down the homepage.
  *
- * The wall is a set of columns that drift slowly in alternating directions,
- * each one filled with cards of uneven height so the grid staggers instead of
- * marching in rows. A card plays a video when the clip below has a `src`; when
- * it does not, the card draws itself — gradient, food mark, caption — so the
+ * Each card is one restaurant's own hero video, the way it plays on their
+ * site. Nothing else goes on the card: no feature caption, no numbers, just
+ * the business name. A card plays a video when the clip below has a `src`;
+ * when it does not, the card draws itself — gradient and food mark — so the
  * section looks finished whether or not the MP4s have been uploaded yet.
  *
  * TO ADD A VIDEO
- *   1. Drop the file in `frontend/public/showcase/` (see the README there for
- *      the size and encoding the wall expects — short, muted, ~480px wide).
- *   2. Uncomment the `src` line on the matching clip below, or point it at
- *      whatever you named the file.
- *   3. Optionally add a `poster` JPG with the same name so the first frame
- *      shows while the video is still loading.
+ *   1. Drop the file in `frontend/public/showcase/` under the name already
+ *      written in the `src` line below (see the README there for the size and
+ *      encoding the wall expects — short, muted, ~480px wide).
+ *   2. Add a `poster` JPG with the same name so the first frame shows while
+ *      the video loads. `preload` is off, so without a poster the card sits on
+ *      its gradient until playback starts.
  *
- * Each clip is one restaurant's site: the screen recording of the site
- * scrolling, an order coming in over WhatsApp, the rider map moving. Clips are
- * dealt into columns in order, so keeping the list varied keeps each column
- * varied. Any number works; 10-20 fills the wall nicely.
+ * `href` points at the merchant's live site. Only Wak Hassan is live; the rest
+ * are demo builds, so their `href` stays empty and those cards do not link.
  */
 
 export type ShowcaseClip = {
-  /** Stable key, and the file name the video/poster are expected to use. */
+  /** Stable key, and the file name the video/poster use. */
   id: string
-  /** Business name, shown large on the card. */
+  /** Business name — the only text on the card. */
   label: string
-  /** The BinaApp feature this card is showing off. */
-  kind: string
   /** Drawn large on the card when there is no video. */
   mark: string
   /** Gradient stops for the card behind the video (and instead of it). */
@@ -36,198 +32,158 @@ export type ShowcaseClip = {
   to: string
   /** Card shape. Mixed heights are what make the grid stagger. */
   ratio: 'tall' | 'portrait' | 'square'
-  /** `/showcase/<file>.mp4` once the clip has been uploaded. */
-  src?: string
+  /** `/showcase/<file>.mp4` — the merchant's hero video. */
+  src: string
   /** `/showcase/<file>.jpg` — first frame, shown while the video loads. */
   poster?: string
+  /** The live site, when there is one. Empty means the card does not link. */
+  href?: string
 }
 
 export const SHOWCASE_CLIPS: ShowcaseClip[] = [
   {
-    id: 'nasi-lemak',
-    label: 'Nasi Lemak Kak Yah',
-    kind: 'Website siap 60 saat',
+    id: 'nasi-kukus-wak-hassan',
+    label: 'Nasi Kukus Wak Hassan',
     mark: '🍚',
     from: '#2A1FB8',
     to: '#0B0B15',
     ratio: 'tall',
-    // src: '/showcase/nasi-lemak.mp4',
+    src: '/showcase/nasi-kukus-wak-hassan.mp4',
+    href: 'https://mayam.binaapp.my',
   },
   {
-    id: 'mamak',
-    label: 'Mamak Corner 24J',
-    kind: 'Order WhatsApp auto',
-    mark: '🫖',
-    from: '#7FB500',
-    to: '#120D55',
-    ratio: 'square',
-    // src: '/showcase/mamak.mp4',
-  },
-  {
-    id: 'satay',
-    label: 'Satay Station Kajang',
-    kind: 'QR menu atas meja',
-    mark: '🍢',
+    id: 'nasi-kandar-pak-din',
+    label: 'Nasi Kandar Pak Din',
+    mark: '🍛',
     from: '#E08800',
     to: '#161623',
-    ratio: 'portrait',
-    // src: '/showcase/satay.mp4',
+    ratio: 'square',
+    src: '/showcase/nasi-kandar-pak-din.mp4',
   },
   {
-    id: 'roti-canai',
-    label: 'Roti Canai Express',
-    kind: 'Bayar ToyyibPay',
+    id: 'roti-canai-abang-li',
+    label: 'Roti Canai Abang Li',
     mark: '🫓',
     from: '#4F3DFF',
     to: '#05050C',
-    ratio: 'square',
-    // src: '/showcase/roti-canai.mp4',
-  },
-  {
-    id: 'tomyam',
-    label: 'Tomyam Seafood Bagan',
-    kind: 'Jejak penghantar live',
-    mark: '🦐',
-    from: '#E03A3F',
-    to: '#120D55',
-    ratio: 'tall',
-    // src: '/showcase/tomyam.mp4',
-  },
-  {
-    id: 'bubble-tea',
-    label: 'Bubble Tea Lab',
-    kind: 'Pre-order & pickup',
-    mark: '🧋',
-    from: '#8F80FF',
-    to: '#0B0B15',
     ratio: 'portrait',
-    // src: '/showcase/bubble-tea.mp4',
+    src: '/showcase/roti-canai-abang-li.mp4',
   },
   {
-    id: 'burger-bakar',
-    label: 'Burger Bakar Malam',
-    kind: 'Delivery sendiri',
-    mark: '🍔',
-    from: '#C7FF3D',
-    to: '#1C1580',
-    ratio: 'square',
-    // src: '/showcase/burger-bakar.mp4',
-  },
-  {
-    id: 'kuey-teow',
-    label: 'Char Kuey Teow Ah Hock',
-    kind: 'Menu dalam BM',
+    id: 'ckt-ah-seng',
+    label: 'Char Kuey Teow Ah Seng',
     mark: '🍜',
     from: '#22C08F',
     to: '#05050C',
     ratio: 'tall',
-    // src: '/showcase/kuey-teow.mp4',
+    src: '/showcase/ckt-ah-seng.mp4',
   },
   {
-    id: 'kuih',
-    label: 'Kuih Muih Pagi',
-    kind: 'Tempahan awal pagi',
-    mark: '🧁',
-    from: '#DDFF7A',
-    to: '#2A1FB8',
+    id: 'satay-haji-ramli',
+    label: 'Satay Kajang Haji Ramli',
+    mark: '🍢',
+    from: '#7FB500',
+    to: '#120D55',
+    ratio: 'square',
+    src: '/showcase/satay-haji-ramli.mp4',
+  },
+  {
+    id: 'laksa-mak-timah',
+    label: 'Laksa Penang Mak Timah',
+    mark: '🍲',
+    from: '#E03A3F',
+    to: '#120D55',
     ratio: 'portrait',
-    // src: '/showcase/kuih.mp4',
+    src: '/showcase/laksa-mak-timah.mp4',
   },
   {
-    id: 'ayam-penyet',
-    label: 'Ayam Penyet Joyah',
-    kind: 'Sifar komisen',
+    id: 'nasi-lemak-kak-yah',
+    label: 'Nasi Lemak Kak Yah',
+    mark: '🥥',
+    from: '#1C1580',
+    to: '#05050C',
+    ratio: 'tall',
+    src: '/showcase/nasi-lemak-kak-yah.mp4',
+  },
+  {
+    id: 'burger-abang-burn',
+    label: 'Burger Bakar Abang Burn',
+    mark: '🍔',
+    from: '#C7FF3D',
+    to: '#1C1580',
+    ratio: 'square',
+    src: '/showcase/burger-abang-burn.mp4',
+  },
+  {
+    id: 'kopitiam-lim',
+    label: 'Kopitiam Lim',
+    mark: '☕',
+    from: '#3A3A4A',
+    to: '#05050C',
+    ratio: 'portrait',
+    src: '/showcase/kopitiam-lim.mp4',
+  },
+  {
+    id: 'cendol-tok-mat',
+    label: 'Cendol Pulut Tok Mat',
+    mark: '🍧',
+    from: '#6B5CFF',
+    to: '#05050C',
+    ratio: 'square',
+    src: '/showcase/cendol-tok-mat.mp4',
+  },
+  {
+    id: 'tandoori-raju',
+    label: 'Tandoori Bistro Raju',
+    mark: '🍗',
+    from: '#FF5A5F',
+    to: '#161623',
+    ratio: 'tall',
+    src: '/showcase/tandoori-raju.mp4',
+  },
+  {
+    id: 'sup-tulang-johor',
+    label: 'Sup Tulang Merah Johor',
+    mark: '🍖',
+    from: '#E03A3F',
+    to: '#05050C',
+    ratio: 'portrait',
+    src: '/showcase/sup-tulang-johor.mp4',
+  },
+  {
+    id: 'ayam-penyet-mbok-sri',
+    label: 'Ayam Penyet Mbok Sri',
     mark: '🍗',
     from: '#3FB8FF',
     to: '#120D55',
     ratio: 'square',
-    // src: '/showcase/ayam-penyet.mp4',
+    src: '/showcase/ayam-penyet-mbok-sri.mp4',
   },
   {
-    id: 'cendol',
-    label: 'Cendol & ABC Pak Mat',
-    kind: 'Promo musim panas',
-    mark: '🍧',
-    from: '#6B5CFF',
-    to: '#05050C',
+    id: 'dimsum-hong-kee',
+    label: 'Dim Sum Hong Kee',
+    mark: '🥟',
+    from: '#8F80FF',
+    to: '#0B0B15',
     ratio: 'tall',
-    // src: '/showcase/cendol.mp4',
+    src: '/showcase/dimsum-hong-kee.mp4',
   },
   {
-    id: 'katering',
-    label: 'Katering Kenduri Suria',
-    kind: 'Tempahan pukal',
-    mark: '🍛',
+    id: 'al-mandi-house',
+    label: 'Nasi Arab Al-Mandi House',
+    mark: '🍚',
     from: '#A8E81C',
     to: '#161623',
     ratio: 'portrait',
-    // src: '/showcase/katering.mp4',
+    src: '/showcase/al-mandi-house.mp4',
   },
   {
-    id: 'kopitiam',
-    label: 'Kopitiam Ah Seng',
-    kind: 'Menu digital',
-    mark: '☕',
-    from: '#3A3A4A',
-    to: '#05050C',
+    id: 'sweet-crumbs',
+    label: 'Sweet Crumbs Bakery',
+    mark: '🧁',
+    from: '#DDFF7A',
+    to: '#2A1FB8',
     ratio: 'square',
-    // src: '/showcase/kopitiam.mp4',
-  },
-  {
-    id: 'pizza-kampung',
-    label: 'Pizza Kampung',
-    kind: 'Kod promo QR',
-    mark: '🍕',
-    from: '#FF5A5F',
-    to: '#1C1580',
-    ratio: 'tall',
-    // src: '/showcase/pizza-kampung.mp4',
-  },
-  {
-    id: 'nasi-kandar',
-    label: 'Nasi Kandar Pulau',
-    kind: 'Kutipan harian',
-    mark: '🍛',
-    from: '#0F9D6B',
-    to: '#0B0B15',
-    ratio: 'portrait',
-    // src: '/showcase/nasi-kandar.mp4',
-  },
-  {
-    id: 'western-kampung',
-    label: 'Western Kampung Pak Su',
-    kind: 'Jualan naik 3x',
-    mark: '🍳',
-    from: '#1C1580',
-    to: '#05050C',
-    ratio: 'square',
-    // src: '/showcase/western-kampung.mp4',
+    src: '/showcase/sweet-crumbs.mp4',
   },
 ]
-
-/**
- * Deals the clips into `count` columns, one after another, so no clip lands in
- * two columns at once and neighbouring cards are never the same dish.
- *
- * A short list would leave columns with one or two cards, which loops visibly.
- * Those columns wrap back around the list until they have enough to stay
- * taller than the section they scroll through; columns are allowed to end up
- * different lengths, since each one animates against its own height.
- */
-export function dealClipsIntoColumns(clips: ShowcaseClip[], count: number): ShowcaseClip[][] {
-  if (clips.length === 0) return Array.from({ length: count }, () => [])
-
-  const MIN_PER_COLUMN = 3
-
-  return Array.from({ length: count }, (_, column) => {
-    const dealt = clips.filter((_, index) => index % count === column)
-
-    let index = column
-    while (dealt.length < MIN_PER_COLUMN) {
-      index = (index + count) % clips.length
-      dealt.push(clips[index])
-    }
-
-    return dealt
-  })
-}
