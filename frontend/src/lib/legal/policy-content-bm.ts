@@ -1,12 +1,13 @@
 /**
- * BinaApp Privacy Policy v3.0 — Bahasa Malaysia (prevailing version)
+ * BinaApp Privacy Policy v3.1 — Bahasa Malaysia (prevailing version)
  *
  * Source-of-truth content for the BM Privacy Policy. Consumed by the
  * policy rendering components built in Step 3e. Per s23
  * (`prevailingLanguage`), the BM version controls if there is any
  * conflict with the EN translation built in Step 3d.
  *
- * Effective: 21 Mei 2026. Supersedes v2.0 (31 Januari 2025) and v1.0.
+ * Effective: 21 Oktober 2026. Supersedes v3.0 (21 Mei 2026), v2.0
+ * (31 Januari 2025) and v1.0.
  *
  * Maintenance notes:
  * - When updating, bump `version`, update `lastUpdated`, append a new
@@ -70,10 +71,10 @@ export type PrivacyPolicy = {
 };
 
 export const privacyPolicyBM: PrivacyPolicy = {
-  version: '3.0',
-  effectiveDate: '21 Mei 2026',
-  lastUpdated: '21 Mei 2026',
-  estimatedReadingMinutes: 32,
+  version: '3.1',
+  effectiveDate: '21 Oktober 2026',
+  lastUpdated: '20 September 2026',
+  estimatedReadingMinutes: 44,
 
   executiveSummary: {
     title: 'Ringkasan 1-Minit',
@@ -82,10 +83,12 @@ export const privacyPolicyBM: PrivacyPolicy = {
 - **Siapa kami:** BinaApp ialah platform pembina laman web AI untuk perniagaan makanan dan minuman (F&B) di Malaysia, dimiliki dan dikendalikan oleh **Ezy Work Asia Solution** (No. SSM: 002944700-D).
 - **Data apa kami kumpul:** Data akaun anda (emel, nama perniagaan, nombor telefon), data penggunaan dashboard, data pesanan customer yang anda input, data lokasi GPS penghantar semasa penghantaran aktif, dan rekod transaksi langganan.
 - **Untuk apa:** Untuk menyediakan perkhidmatan platform anda — menjana laman web, memproses pesanan, menyokong penghantaran, mengeluarkan invois langganan, dan menyediakan sokongan pelanggan.
-- **Kepada siapa kami dedahkan:** Pembekal infrastruktur (Supabase, Render), pemproses pembayaran langganan (ToyyibPay), dan pembekal AI (Stability AI, DeepSeek, Qwen/Alibaba Cloud, Anthropic Claude). Kami **tidak menjual** data anda kepada sesiapa.
-- **Apa kami TIDAK proses:** Kami **tidak memproses pembayaran customer untuk pesanan makanan** (COD = tunai terus kepada penghantar; QR statik = pemindahan bank terus kepada merchant). Kami juga **tidak mengakses mesej WhatsApp** anda — pautan WhatsApp adalah deep-link sahaja.
+- **Kepada siapa kami dedahkan:** Pembekal infrastruktur (Supabase, Render, Vercel, Cloudinary), pemproses pembayaran langganan (ToyyibPay), dan pembekal AI (Stability AI, DeepSeek, Z.ai/GLM, Qwen/Alibaba Cloud, Anthropic Claude). Kami **tidak menjual** data anda kepada sesiapa.
+- **Video dan imej janaan AI:** Klip video hero dan imej yang dijana untuk laman web anda ialah **media sintetik yang dihasilkan oleh AI** — ia bukan rakaman atau gambar sebenar premis, pekerja, atau makanan sebenar anda melainkan anda sendiri yang membekalkan foto tersebut. Lihat seksyen 6 dan 6A.
+- **Apa kami TIDAK proses:** Kami **tidak memproses pembayaran customer untuk pesanan makanan** (COD = tunai terus kepada penghantar; QR statik = pemindahan bank terus kepada merchant). Kami juga **tidak mengakses mesej WhatsApp** anda — pautan WhatsApp dan borang tempahan pada laman web anda adalah deep-link sahaja (seksyen 10 dan 11A).
+- **Analitik pelawat tanpa kuki:** Analitik kami pada laman web yang dijana **tidak menetapkan sebarang kuki dan tiada ID localStorage**, tidak pernah menyimpan alamat IP atau User-Agent pelawat, dan mematuhi isyarat pelayar **Do-Not-Track** dan **Global Privacy Control** (seksyen 11).
 - **Hak anda:** Anda mempunyai hak akses, pembetulan, penarikan persetujuan, pemadaman, mudah alih, dan hadkan pemprosesan di bawah PDPA 2010. Hubungi admin@binaapp.my.
-- **Komitmen masa depan:** Dalam tempoh 60 hari dari tarikh berkuat kuasa, kami akan melancarkan (a) UI persetujuan khusus per-ciri untuk fungsi AI yang mengandungi PII customer, (b) banner kuki pada laman web restoran yang dijana, dan (c) sokongan untuk pengepala HTTP Do-Not-Track.`,
+- **Komitmen tertunggak:** Sokongan Do-Not-Track/Global Privacy Control dan analitik tanpa kuki yang dijanjikan dalam v3.0 telah dilaksanakan. UI persetujuan AI eksplisit per-ciri dan banner notis pelawat **belum** dilaksanakan — lihat seksyen 20 untuk status dan tarikh yang disemak semula.`,
   },
 
   introduction: {
@@ -268,6 +271,10 @@ Jadual berikut menyenaraikan setiap ciri AI, pembekal yang digunakan, wilayah pe
 
 **Nota mengenai Anthropic Claude (analisis emel sokongan):** Sebelum kandungan emel dihantar kepada Anthropic, alamat emel pengirim dicincang (di-hash secara satu hala) supaya alamat emel asal tidak dapat diketahui semula. Selain itu, di bawah kontrak komersial standard, **Anthropic tidak menggunakan data customer mereka untuk melatih model Claude**.
 
+**Nota mengenai Z.ai (GLM) — diperkenalkan semula sejak v3.0:** Versi 3.0 Polisi ini menyatakan bahawa GLM telah dikeluarkan daripada platform. Kenyataan itu **tidak lagi tepat.** Model Z.ai (Zhipu AI) kini digunakan untuk penjanaan laman web (\`glm-5.3\`), penghasilan imej janaan (\`glm-image\` / CogView, di mana ia diaktifkan), kritik reka bentuk visual (\`glm-4.5v\`), dan penjanaan video hero (model video CogVideoX / wan / HappyHorse). Z.ai memproses di Republik Rakyat China. Seksyen ini dan seksyen Pemindahan Data Merentas Sempadan adalah pendedahan yang berkuat kuasa; kenyataan v3.0 itu digantikan.
+
+**Nota mengenai video janaan AI:** Klip video hero ialah **rakaman sintetik yang dijana oleh model AI** daripada teks prompt, atau daripada satu foto yang anda bekalkan. Ia bukan rakaman premis, pekerja, dapur, atau makanan sebenar anda. Anda bertanggungjawab menyemak setiap klip sebelum menerbitkannya dan tidak boleh mempersembahkannya kepada customer sebagai rakaman sebenar — lihat Terma Perkhidmatan seksyen 11.
+
 **Nota mengenai pembekal AI di luar Malaysia:** Penggunaan ciri-ciri AI ini melibatkan pemindahan data merentas sempadan ke Amerika Syarikat, Republik Rakyat China, dan Singapura. Sila lihat seksyen Pemindahan Data Merentas Sempadan untuk butiran perlindungan yang digunakan.
 
 Jika anda tidak selesa dengan pemprosesan AI untuk mana-mana ciri tertentu, anda boleh:
@@ -346,7 +353,125 @@ Jika anda tidak selesa dengan pemprosesan AI untuk mana-mana ciri tertentu, anda
           piiNote: 'Boleh mengandungi PII customer dalam soalan mereka',
           consentStatus: 'Notis sahaja — UI persetujuan eksplisit akan dilancarkan dalam tempoh 60 hari',
         },
+        {
+          feature: 'Penjanaan Laman Web — Pelan Reka Bentuk (Pass 1) dan HTML (Pass 2)',
+          vendor: 'Z.ai / Zhipu AI (glm-5.3)',
+          region: 'Republik Rakyat China',
+          dataSent:
+            'Nama perniagaan, penerangan, alamat, waktu operasi, item menu atau perkhidmatan dan harga, serta ringkasan bertulis merchant sendiri',
+          piiRisk: 'warning',
+          piiNote:
+            'Mengandungi PII perniagaan merchant sendiri (nama, alamat, telefon). Berisiko jika anda menampal PII customer ke dalam ringkasan tersebut',
+          consentStatus: 'Persetujuan tersirat apabila memulakan penjanaan',
+        },
+        {
+          feature: 'Kritik Reka Bentuk (semakan visual automatik laman yang dijana)',
+          vendor: 'Z.ai (glm-4.5v), dengan Qwen (qwen-vl-max) sebagai sandaran',
+          region: 'Republik Rakyat China / Singapura',
+          dataSent:
+            'Tangkapan skrin desktop dan mudah alih laman anda, serta pelan reka bentuk — tangkapan skrin mengandungi segala yang kelihatan pada laman, termasuk nama perniagaan, alamat, nombor telefon dan foto anda',
+          piiRisk: 'warning',
+          piiNote:
+            'Tangkapan skrin menghasilkan semula semua butiran perniagaan merchant yang dipaparkan pada laman; tiada data customer kerana laman belum melayan pesanan pada peringkat ini',
+          consentStatus: 'Persetujuan tersirat apabila memulakan penjanaan',
+        },
+        {
+          feature: 'Semakan Keselamatan dan Kategori Imej Janaan',
+          vendor: 'Qwen (Alibaba Cloud International, qwen-vl-max)',
+          region: 'Singapura',
+          dataSent: 'Setiap imej janaan AI, disemak untuk teks terpapar, wajah dan padanan kategori',
+          piiRisk: 'safe',
+          piiNote: 'Hanya imej janaan AI disemak, bukan gambar merchant atau customer',
+          consentStatus: 'Automatik — sebahagian daripada saluran penjanaan imej',
+        },
+        {
+          feature: 'Penjanaan Video Hero (teks ke video)',
+          vendor: 'Model video Z.ai (CogVideoX / HappyHorse)',
+          region: 'Republik Rakyat China',
+          dataSent:
+            'Teks prompt untuk klip, dibina daripada jenis perniagaan, masakan atau perkhidmatan dan item utama anda',
+          piiRisk: 'safe',
+          piiNote: 'Teks prompt sahaja. Tiada foto dihantar melalui laluan ini',
+          consentStatus: 'Persetujuan eksplisit — anda memulakan setiap klip dan ia menggunakan satu kredit',
+        },
+        {
+          feature: 'Penjanaan Video Hero (foto ke video)',
+          vendor: 'Model video Z.ai (wan3.0)',
+          region: 'Republik Rakyat China',
+          dataSent: 'Satu foto yang anda pilih, serta prompt pergerakan untuk klip',
+          piiRisk: 'warning',
+          piiNote:
+            'Jika foto yang anda pilih menunjukkan pekerja, customer atau orang awam, wajah mereka dihantar kepada pembekal dan dianimasikan. Pilih hanya foto yang anda berhak menggunakannya',
+          consentStatus: 'Persetujuan eksplisit — anda memilih foto dan memulakan setiap klip',
+        },
+        {
+          feature: 'Idea Prompt Video Hero',
+          vendor: 'DeepSeek',
+          region: 'Republik Rakyat China',
+          dataSent: 'Jenis perniagaan, penerangan masakan atau perkhidmatan, dan nama item anda',
+          piiRisk: 'safe',
+          piiNote: 'Penerangan perniagaan sahaja',
+          consentStatus: 'Persetujuan tersirat apabila membuka panel idea video hero',
+        },
       ],
+    },
+
+    {
+      id: 'media-dijana',
+      title: '6A. Media Dijana — Video Hero, Imej, dan Di Mana Ia Dihoskan',
+      content: `Seksyen ini merangkumi media yang BinaApp jana atau layan untuk laman web anda: imej janaan AI, klip video hero janaan AI, dan gambar yang anda muat naik sendiri.
+
+**(a) Di mana media janaan disimpan**
+
+Pembekal AI memulangkan imej dan video janaan melalui **pautan sementara yang akan luput**. Untuk memastikan laman anda terus berfungsi, BinaApp memuat turun setiap aset dan memuat naiknya ke **Cloudinary** (pembekal hosting dan transformasi media, Amerika Syarikat / CDN global). Laman anda kemudian melayan salinan Cloudinary tersebut.
+
+Ini bermakna:
+- Setiap imej dan klip video pada laman web anda — sama ada janaan AI atau muat naik anda sendiri — disimpan pada Cloudinary dan dihantar dari CDN global Cloudinary;
+- Cloudinary menerima **alamat IP setiap pelawat** yang memuatkan laman anda, sebagaimana mana-mana CDN;
+- Gambar yang anda muat naik ditransformasikan oleh Cloudinary (saiz semula, pemotongan, penukaran format) sebelum dihantar.
+
+**(b) Apa yang kami rekodkan tentang satu kerja video hero**
+
+Apabila anda meminta klip video hero, kami menyimpan rekod kerja (lejar \`hero_video_jobs\`) yang mengandungi: ID pengguna dan ID laman web anda, teks prompt yang digunakan, rujukan foto sumber jika anda memilih foto-ke-video, status kerja, ID tugasan pembekal, URL Cloudinary yang terhasil, cap masa, dan sebab kegagalan jika ada. Rekod ini wujud supaya klip tidak hilang dan kredit tidak terpakai secara salah apabila pelayan kami dimulakan semula pertengahan penjanaan.
+
+**(c) Apa yang kami baca daripada foto yang anda muat naik**
+
+Sebelum mereka bentuk laman anda, BinaApp membaca gambar yang anda muat naik **pada pelayan kami sendiri** untuk mengukur ketajaman dan resolusi serta mengeluarkan warna dominan bagi palet laman. Analisis ini dilakukan secara setempat — **gambar anda tidak dihantar kepada pembekal AI untuk langkah ini.** Ia dihantar kepada pembekal hanya apabila anda memilih penjanaan video hero foto-ke-video (seksyen 6).
+
+**(d) Fotografi stok**
+
+Apabila laman yang dijana menggunakan fotografi stok, ia dilayan daripada **Unsplash**. Unsplash menerima alamat IP pelawat yang memuatkan imej tersebut. Lihat seksyen 13A.
+
+**(e) Penyimpanan**
+
+Media janaan dan rekod kerjanya disimpan sepanjang tempoh akaun aktif anda dan dipadam mengikut jadual penyimpanan dalam seksyen 14. Memadam laman web akan membuang rujukan medianya; salinan pada CDN dan dalam sandaran akan dikosongkan mengikut kitaran yang dinyatakan dalam seksyen 14.`,
+    },
+
+    {
+      id: 'pembelajaran-reka-bentuk',
+      title: '6B. Rekod Kualiti Penjanaan (Gelung Pembelajaran Reka Bentuk)',
+      content: `Untuk mengelakkan setiap laman yang dijana kelihatan sama dan untuk meningkatkan kualiti penjanaan dari semasa ke semasa, BinaApp merekodkan apa yang dihasilkan untuk anda dan bagaimana semakan automatik menilainya.
+
+**Apa yang direkodkan (jadual \`design_plans\`):**
+- ID pengguna dan ID laman web anda, serta ID kerja penjanaan;
+- Kategori perniagaan dan arah reka bentuk yang dipilih;
+- **Pelan reka bentuk** — ringkasan berstruktur yang dihasilkan AI daripada butiran perniagaan yang anda masukkan, yang oleh itu mengandungi nama perniagaan, penerangan, alamat dan maklumat item anda;
+- Skor kritik daripada semakan visual automatik, dan laporan lint;
+- **Cincangan SHA-256 bagi HTML yang dijana** (cincangan sahaja — bukan kandungan laman);
+- Bilangan percubaan penjanaan, dan apa yang anda lakukan seterusnya (terbit, sunting, atau jana semula).
+
+**Untuk apa ia digunakan:**
+- Memutarkan arah reka bentuk supaya dua laman berturut-turut dalam kategori yang sama tidak kelihatan serupa;
+- **Kerja statistik dalaman mingguan** yang mengagregatkan skor mengikut arah reka bentuk untuk mengenal pasti arah yang berprestasi lemah.
+
+**Apa ia TIDAK digunakan:**
+- Ia **tidak** digunakan untuk melatih mana-mana model AI pihak ketiga. Rekod kekal dalam pangkalan data Supabase kami sendiri;
+- Ia **tidak** dikongsi dengan merchant lain, dan tiada merchant lain boleh melihat pelan atau skor anda;
+- Laporan mingguan yang kami baca secara dalaman adalah **agregat mengikut arah reka bentuk**, bukan mengikut merchant.
+
+**Penarikan diri:** Jika anda tidak mahu rekod penjanaan anda disimpan untuk tujuan ini, emel admin@binaapp.my dan kami akan mengecualikan akaun anda. Penjanaan tetap berfungsi seperti biasa; hanya rekod kualiti yang disimpan itu dihentikan.
+
+**Penyimpanan:** Lihat seksyen 14.`,
     },
 
     {
@@ -483,14 +608,24 @@ Pautan deep-link hanyalah satu cara untuk memudahkan customer menghubungi mercha
       content: `Apabila pelawat melayari laman web restoran yang dihos oleh BinaApp (contohnya, \`namaperniagaan.binaapp.my\`), kami mengumpul data analitis pertama-pihak (first-party) untuk menyediakan papan pemuka analitis kepada anda sebagai merchant.
 
 **Data yang dikumpul:**
-- Alamat IP pelawat (dipendekkan untuk privasi);
-- String User-Agent pelayar;
 - Jenis peranti (mudah alih, tablet, desktop);
 - Keluarga pelayar dan sistem operasi;
 - URL rujukan (referrer) — laman web yang pelawat datang daripadanya;
 - Laluan halaman yang dilawati (\`/menu\`, \`/about\`, dll.);
 - Tarikh dan masa lawatan;
-- ID pelawat tanpa nama yang dijana secara tempatan (cincangan IP + User-Agent, atau ID localStorage \`bina_visitor\`).
+- **Cincangan satu hala bergaram yang berputar setiap hari**, diterbitkan daripada alamat IP dan User-Agent pelawat, digunakan semata-mata untuk mengira lawatan unik dalam satu hari.
+
+**Bagaimana kiraan lawatan unik berfungsi — dan apa yang kami TIDAK simpan (dikemas kini dalam v3.1):**
+
+Analitik kami kini **tanpa kuki**. Laman web yang dijana **tidak menetapkan sebarang kuki dan tiada pengecam localStorage** untuk tujuan analitis. ID localStorage \`bina_visitor\` yang diterangkan dalam v3.0 Polisi ini **tidak lagi dicipta**, dan jika laman lama yang telah diterbitkan masih menghantarnya, pelayan kami **mengabaikannya**.
+
+- **Alamat IP dan User-Agent pelawat tidak pernah disimpan dan tidak pernah ditulis ke dalam log kami.** Ia hanya berada dalam ingatan selama yang diperlukan untuk mengira cincangan harian, kemudian dibuang;
+- Garam (salt) **berputar setiap hari**, jadi pelawat yang sama menghasilkan cincangan berbeza esok dan tidak boleh dijejaki merentas hari;
+- Cincangan adalah satu hala — ia tidak boleh diterbalikkan untuk mendapatkan semula alamat IP.
+
+**Isyarat opt-out pelayar dipatuhi (dikemas kini dalam v3.1):**
+
+Jika pelayar pelawat menghantar **Do-Not-Track (\`DNT: 1\`)** atau **Global Privacy Control (\`Sec-GPC: 1\`)**, tiada permintaan analitis dibuat langsung, dan pelayan kami secara berasingan menolak sebarang permintaan sedemikian sebelum melakukan sebarang kerja. Permintaan yang dikenal pasti datang daripada bot dan perangkak juga dibuang.
 
 **Tujuan pengumpulan:**
 - Untuk menyediakan statistik lalu lintas laman web kepada merchant;
@@ -500,6 +635,8 @@ Pautan deep-link hanyalah satu cara untuk memudahkan customer menghubungi mercha
 
 **Apa yang TIDAK dikumpul:**
 - Nama, emel, atau nombor telefon pelawat (melainkan pelawat memilih untuk memasukkannya melalui borang pesanan);
+- Alamat IP atau string User-Agent yang disimpan (lihat di atas);
+- Sebarang kuki analitis atau pengecam peranti kekal;
 - Lokasi GPS yang tepat;
 - Aktiviti pelayaran di laman web lain;
 - Data pengiklanan atau profil pemasaran.
@@ -509,9 +646,9 @@ Pautan deep-link hanyalah satu cara untuk memudahkan customer menghubungi mercha
 - Data analitis dipaparkan kepada merchant melalui dashboard mereka sahaja;
 - Data **tidak dijual, dikongsi, atau dipindahkan** kepada pengiklan atau pihak ketiga lain.
 
-**Pendedahan penting — pelawat tidak diberi notis langsung pada masa ini:**
+**Pendedahan penting — pelawat masih tidak diberi notis pada halaman:**
 
-Pada masa ini, laman web restoran yang dijana **tidak memaparkan banner kuki atau notis penjejakan** kepada pelawat. Pelawat mungkin tidak menyedari bahawa data lawatan mereka dikumpul. Kami **komited untuk melancarkan banner notis pelawat dan sokongan untuk pengepala HTTP Do-Not-Track dalam tempoh 60 hari** dari tarikh berkuat kuasa Polisi ini (lihat seksyen Komitmen 60 Hari).
+Sokongan Do-Not-Track dan Global Privacy Control **telah dilaksanakan**, dan analitik kini tanpa kuki seperti diterangkan di atas. Namun, laman web restoran yang dijana **masih tidak memaparkan notis analitis pada halaman** kepada pelawat. Pelawat yang tidak menghantar isyarat opt-out mungkin tidak menyedari bahawa kiraan lawatan tanpa nama sedang direkodkan. Ini kekal sebagai **komitmen tertunggak** — lihat seksyen 20 untuk tarikh yang disemak semula.
 
 **Pilihan opt-out merchant:**
 
@@ -522,6 +659,40 @@ Sebagai merchant, anda boleh **mematikan penjejakan analitis pelawat** untuk lam
 - Tiada data lawatan baru akan direkodkan untuk laman web anda.
 
 **Tempoh penyimpanan:** Sepanjang akaun merchant aktif (data ialah aset analitis perniagaan merchant). Apabila akaun ditamatkan, data dipadam mengikut polisi pengekalan akaun.`,
+    },
+
+    {
+      id: 'borang-tempahan',
+      title: '11A. Pendedahan Penting — Borang Tempahan Adalah Deep-Link Sahaja',
+      content: `Sesetengah laman web restoran yang dijana mengandungi **borang tempahan meja / reservasi** yang meminta nama, nombor telefon, tarikh, masa, dan bilangan orang daripada pelawat.
+
+**Borang ini tidak menghantar apa-apa kepada BinaApp.**
+
+Apabila pelawat menekan butang hantar:
+
+1. Nilai yang mereka taip dibaca **di dalam pelayar mereka sendiri**;
+2. Pelayar membina mesej WhatsApp pra-isi daripada nilai tersebut;
+3. Pelayar membuka **WhatsApp** pada nombor merchant dengan mesej itu sedia untuk dihantar.
+
+**Apa maksudnya:**
+
+- **Tiada data tempahan dihantar kepada pelayan BinaApp.** Tiada permintaan rangkaian kepada kami semasa penghantaran;
+- **Kami tidak menyimpan tempahan.** Kami tidak mempunyai pangkalan data tempahan, dan tempahan tidak boleh diperoleh semula daripada kami;
+- **Kami tidak dapat melihat mesej tersebut.** Setelah WhatsApp dibuka, perbualan adalah antara pelawat dan merchant, pada infrastruktur WhatsApp sendiri dan tertakluk kepada **polisi privasi WhatsApp / Meta**, bukan polisi kami;
+- **Tempahan hanya wujud apabila pelawat benar-benar menghantar mesej WhatsApp itu.** Jika mereka menutup WhatsApp tanpa menghantar, tiada apa-apa sampai kepada merchant.
+
+**Implikasi kepada merchant:**
+
+- Anda ialah pengawal tunggal bagi sebarang data tempahan yang sampai kepada anda melalui WhatsApp;
+- Tempahan hanya wujud dalam akaun WhatsApp anda. **BinaApp tidak dapat memulihkannya untuk anda**, dan ia bukan sebahagian daripada sebarang eksport atau sandaran BinaApp;
+- Jika customer menggunakan hak PDPA ke atas data tempahan mereka, anda mesti memenuhinya daripada rekod WhatsApp anda sendiri.
+
+**Implikasi kepada pelawat:**
+
+- Butiran anda diserahkan kepada WhatsApp, bukan kepada BinaApp. Semak mesej sebelum anda menghantarnya;
+- Untuk memadam butiran tempahan anda, hubungi merchant secara terus.
+
+Perkara yang sama terpakai kepada setiap butang WhatsApp lain pada laman yang dijana — lihat seksyen 10.`,
     },
 
     {
@@ -557,7 +728,11 @@ Merchant mungkin mempunyai polisi privasi tersendiri yang mengawal pengumpulan d
 
 **Analitis lawatan:**
 
-Lawatan anda ke laman web ini dijejaki untuk tujuan analitis perniagaan merchant. Sila lihat seksyen 11 untuk butiran data yang dikumpul. Pada masa ini tiada banner notis langsung dipaparkan; kami akan melancarkan banner notis dan sokongan Do-Not-Track dalam tempoh 60 hari.`,
+Lawatan anda ke laman web ini dikira untuk tujuan analitis perniagaan merchant. Kiraan ini **tanpa kuki** — tiada apa-apa disimpan pada peranti anda, dan alamat IP serta User-Agent anda tidak pernah disimpan atau dilog. Jika pelayar anda menghantar **Do-Not-Track** atau **Global Privacy Control**, tiada apa-apa direkodkan langsung. Sila lihat seksyen 11 untuk butiran penuh. Banner notis pada halaman masih belum dilancarkan; lihat seksyen 20.
+
+**Borang pada laman web:**
+
+Jika laman web ini memaparkan **borang tempahan meja atau reservasi**, apa yang anda taip di dalamnya (nama, nombor telefon, tarikh, masa, bilangan orang) **kekal dalam pelayar anda** dan diserahkan kepada WhatsApp sebagai mesej pra-isi apabila anda menghantarnya. BinaApp tidak menerima atau menyimpannya. Lihat seksyen 11A.`,
     },
 
     {
@@ -582,7 +757,8 @@ Kuki ini menyimpan pilihan anda untuk pengalaman yang lebih baik.
 
 **(c) Penyimpanan Tempatan Analitis (First-Party):**
 
-- **\`bina_visitor\` (localStorage):** ID pelawat tanpa nama yang dijana secara tempatan pada peranti pelawat laman web restoran. Digunakan untuk membezakan pelawat berulang daripada pelawat baru dalam analitis merchant. Boleh dikosongkan pada bila-bila masa dengan mengosongkan cache pelayar.
+- **\`bina_visitor\` (localStorage): tidak lagi dicipta.** Versi 3.0 Polisi ini menerangkan ID pelawat tanpa nama yang disimpan dalam localStorage pelawat laman web restoran. Pengecam itu telah **dibuang**. Laman web yang dijana kini **tidak menetapkan apa-apa pun** pada peranti pelawat untuk tujuan analitis, dan jika laman lama yang telah diterbitkan masih menghantar ID lama itu, pelayan kami membuangnya. Lawatan unik dikira pada pelayan menggunakan cincangan bergaram yang berputar setiap hari dan tidak pernah disimpan bersama alamat IP — lihat seksyen 11.
+- Sebarang nilai \`bina_visitor\` yang masih tertinggal dalam pelayar pelawat daripada laman lama tidak digunakan dan boleh dikosongkan dengan mengosongkan cache pelayar.
 
 **Pendedahan penting — TIADA SDK analitis pihak ketiga:**
 
@@ -607,6 +783,30 @@ Semua data telemetri dikumpul dan disimpan dalam infrastruktur Supabase kami sah
 Anda boleh mengurus atau memadam kuki melalui tetapan pelayar anda. Sila ambil perhatian bahawa mematikan kuki penting akan menjejaskan keupayaan anda untuk log masuk dan menggunakan platform.
 
 Untuk pelawat laman web restoran: pada masa ini tiada banner pengurusan kuki ditunjukkan. Kami akan melancarkan banner dengan pilihan kuki dalam tempoh 60 hari (lihat seksyen Komitmen 60 Hari).`,
+    },
+
+    {
+      id: 'sumber-pihak-ketiga-laman',
+      title: '13A. Sumber Pihak Ketiga yang Dimuatkan oleh Laman Web yang Dijana',
+      content: `Laman web restoran yang dijana memuatkan sebahagian fail daripada rangkaian pihak ketiga dan bukan daripada BinaApp. **Mana-mana pihak ketiga yang melayan fail kepada pelayar pelawat semestinya menerima alamat IP pelawat itu, User-Agent, dan halaman yang mereka berada.** BinaApp tidak mengawal apa yang pembekal tersebut lakukan dengan maklumat itu.
+
+Ini terpakai kepada pelawat laman merchant. Ia didedahkan di sini supaya merchant dan pelawat sama-sama tahu ia berlaku.
+
+**Sumber yang dimuatkan daripada pihak ketiga:**
+
+- **Cloudinary** — melayan semua imej dan klip video hero pada halaman. Amerika Syarikat / CDN global;
+- **Google Fonts** (\`fonts.googleapis.com\`, \`fonts.gstatic.com\`) — melayan fon web yang digunakan oleh reka bentuk halaman. Amerika Syarikat / global;
+- **Google Maps** (embed \`maps.google.com\`) — melayan bingkai peta pada seksyen hubungi, jika halaman mempunyainya. Amerika Syarikat / global;
+- **Unsplash** (\`images.unsplash.com\`) — melayan fotografi stok, jika halaman menggunakannya. Amerika Syarikat / global;
+- **CDN JavaScript dan CSS awam** (\`cdn.tailwindcss.com\`, \`unpkg.com\`, \`cdnjs.cloudflare.com\`, \`cdn.jsdelivr.net\`) — melayan helaian gaya, fon ikon dan skrip kecil yang diperlukan halaman untuk dipaparkan. Global.
+
+**Mengenai embed Google Maps:** bingkai peta dimuatkan oleh pelayar pelawat terus daripada Google. **Google mungkin menetapkan kukinya sendiri** dalam bingkai itu dan menggunakan polisi privasinya sendiri ke atasnya. BinaApp tidak mengawal, dan tidak menerima apa-apa daripada, bingkai tersebut. Merchant yang tidak mahu peta yang dilayan Google pada halaman mereka boleh membuang seksyen peta dalam Design Studio.
+
+**Geokod alamat (data merchant, bukan data pelawat):** untuk memastikan peta menunjuk ke tempat yang betul, BinaApp menghantar **alamat perniagaan yang anda masukkan** sekali sahaja semasa penerbitan kepada perkhidmatan geokod **Nominatim OpenStreetMap** untuk menukarnya kepada koordinat. Koordinat itu kemudian disimpan pada rekod laman web anda. Tiada data customer terlibat.
+
+**Apa yang TIDAK dimuatkan:** laman web yang dijana **tidak mengandungi rangkaian pengiklanan pihak ketiga, tiada piksel penjejakan media sosial, dan tiada SDK analitis pihak ketiga** (tiada Google Analytics, tiada Meta Pixel, tiada PostHog, tiada piksel TikTok). Satu-satunya analitik ialah pengira pertama-pihak tanpa kuki kami sendiri yang diterangkan dalam seksyen 11.
+
+**Polisi privasi pembekal:** Cloudinary (\`cloudinary.com/privacy\`), Google (\`policies.google.com/privacy\`), Unsplash (\`unsplash.com/privacy\`), OpenStreetMap Foundation (\`osmfoundation.org/wiki/Privacy_Policy\`).`,
     },
 
     {
@@ -672,8 +872,40 @@ Jadual berikut meringkaskan tempoh pengekalan untuk pelbagai jenis data:
           period: '7 tahun',
         },
         {
-          dataType: 'ID pelawat localStorage (`bina_visitor`)',
-          period: 'Sehingga pelawat mengosongkan cache pelayar',
+          dataType: 'Cincangan pelawat harian (kiraan lawatan unik tanpa kuki)',
+          period: 'Diputar dan dibuang setiap 24 jam; IP dan User-Agent asalnya tidak pernah disimpan',
+        },
+        {
+          dataType: 'ID pelawat localStorage warisan (`bina_visitor`)',
+          period: 'Tidak lagi dicipta atau dibaca. Sebarang nilai yang tertinggal pada peranti pelawat tidak digunakan',
+        },
+        {
+          dataType: 'Imej dan klip video hero janaan AI (Cloudinary)',
+          period: 'Sepanjang tempoh akaun aktif; dipadam bersama laman web',
+        },
+        {
+          dataType: 'Lejar kerja video hero (`hero_video_jobs` — prompt, status, ID tugasan pembekal)',
+          period: '12 bulan dari tarikh kerja selesai (disimpan untuk pertikaian kredit dan refund)',
+        },
+        {
+          dataType: 'Rekod kualiti penjanaan (`design_plans` — pelan, skor, cincangan HTML)',
+          period: '24 bulan dari tarikh penjanaan, atau atas permintaan kepada admin@binaapp.my',
+        },
+        {
+          dataType: 'Input kerja penjanaan (ringkasan dan butiran perniagaan yang anda hantar)',
+          period: '90 hari',
+        },
+        {
+          dataType: 'Koordinat geokod alamat perniagaan',
+          period: 'Sepanjang tempoh rekod laman web aktif',
+        },
+        {
+          dataType: 'Gambar yang dimuat naik oleh merchant',
+          period: 'Sepanjang tempoh akaun aktif; dipadam bersama laman web',
+        },
+        {
+          dataType: 'Entri borang tempahan meja / reservasi',
+          period: 'Tidak disimpan — tidak pernah dihantar kepada BinaApp (lihat seksyen 11A)',
         },
       ],
     },
@@ -748,13 +980,23 @@ Jika anda tidak berpuas hati dengan respons kami, anda boleh membuat aduan kepad
 - Render (pelayan aplikasi belakang) — wilayah Asia Tenggara;
 - Qwen (Alibaba Cloud International) — pengesahan foto penghantaran AI.
 
+**(b) Singapura (sambungan):**
+- Qwen (Alibaba Cloud International) — semakan keselamatan dan kategori imej janaan, serta sandaran bagi kritik reka bentuk.
+
 **(c) Amerika Syarikat:**
 - Stability AI — penjanaan imej AI;
 - Anthropic Claude — analisis emel sokongan;
-- Vercel / Render (jika digunakan untuk pengehosan frontend global).
+- Vercel / Render (jika digunakan untuk pengehosan frontend global);
+- **Cloudinary** — pengehosan, transformasi dan penghantaran CDN bagi setiap imej dan klip video hero pada laman web anda, dan oleh itu alamat IP pelawat laman web anda;
+- **Google** — Google Fonts dan embed Google Maps yang dimuatkan oleh pelawat laman web anda;
+- **Unsplash** — fotografi stok yang dimuatkan oleh pelawat laman web anda.
 
 **(d) Republik Rakyat China:**
-- DeepSeek — penjanaan laman web AI, analisis aduan, balasan chat AI, BinaBot.
+- DeepSeek — penjanaan laman web AI, analisis aduan, balasan chat AI, BinaBot, idea prompt video hero;
+- **Z.ai / Zhipu AI** — penjanaan laman web (\`glm-5.3\`), penghasilan imej janaan (\`glm-image\` / CogView jika diaktifkan), kritik reka bentuk visual (\`glm-4.5v\`), dan penjanaan video hero (CogVideoX / wan / HappyHorse). Jika anda memilih penjanaan video hero foto-ke-video, **satu foto yang anda pilih dipindahkan kepada pembekal ini.**
+
+**(e) Kesatuan Eropah / global:**
+- **OpenStreetMap Foundation (Nominatim)** — geokod alamat perniagaan anda sekali sahaja semasa penerbitan.
 
 **Perlindungan yang digunakan:**
 
@@ -770,7 +1012,8 @@ Untuk setiap pemindahan merentas sempadan, kami memastikan sekurang-kurangnya sa
 Anda harus sedar bahawa undang-undang perlindungan data di wilayah penerima mungkin berbeza daripada PDPA 2010. Sebagai contoh:
 
 - Data yang diproses di Amerika Syarikat tertakluk kepada undang-undang AS, termasuk akses berpotensi oleh agensi penguatkuasaan AS;
-- Data yang diproses di Republik Rakyat China tertakluk kepada undang-undang siber China, termasuk Undang-Undang Keselamatan Siber (Cybersecurity Law) dan Undang-Undang Perlindungan Maklumat Peribadi (PIPL).
+- Data yang diproses di Republik Rakyat China tertakluk kepada undang-undang siber China, termasuk Undang-Undang Keselamatan Siber (Cybersecurity Law) dan Undang-Undang Perlindungan Maklumat Peribadi (PIPL);
+- **Data yang diproses oleh Z.ai melalui laluan foto-ke-video termasuk satu foto yang anda pilih.** Jika foto itu menunjukkan individu yang boleh dikenal pasti, imej mereka dipindahkan ke Republik Rakyat China. Pilih hanya foto yang anda berhak menggunakannya dan, jika foto itu menunjukkan pekerja, customer atau individu lain yang boleh dikenal pasti, dapatkan persetujuan mereka terlebih dahulu.
 
 Dengan menggunakan ciri-ciri AI BinaApp yang melibatkan pembekal pihak ketiga ini, anda mengakui dan bersetuju dengan pemindahan merentas sempadan tersebut.
 
@@ -856,12 +1099,25 @@ Apabila akaun merchant anda ditamatkan, kami akan memadam semua data customer da
 - AI (Qwen) menganalisis foto bukti penghantaran untuk mengesahkan unsur-unsur tertentu (contohnya, bungkusan kelihatan, pintu rumah);
 - Kegagalan pengesahan tidak menghalang penghantaran ditandakan selesai — ia hanya membendera untuk semakan merchant.
 
+**(d) Kawalan automatik ke atas kandungan laman web anda yang dijana (baharu dalam v3.1):**
+
+Saluran penjanaan menggunakan semakan automatik yang boleh **mengubah atau menyekat kandungan pada laman web anda sendiri tanpa keputusan itu disemak oleh manusia.** Anda perlu tahu kawalan ini wujud dan apa yang ia lakukan:
+
+- **Kawalan fakta dan dakwaan:** seksyen yang menyatakan fakta yang anda tidak pernah bekalkan boleh **dibuang secara automatik**, dan dakwaan promosi yang tidak disokong boleh **ditulis semula atau dibuang**. Ini wujud supaya laman anda tidak mengiklankan sesuatu yang tidak benar tentang perniagaan anda;
+- **Sekatan ketidakselarasan lokasi:** jika alamat yang anda masukkan menamakan bandar yang berbeza daripada penerangan perniagaan anda, penjanaan **disekat** dan anda diminta membetulkan percanggahan itu, dan bukannya alamat yang salah diterbitkan;
+- **Semakan imej:** setiap imej janaan AI disemak oleh model penglihatan untuk teks terpapar, wajah, dan padanan kategori. Imej yang gagal dijana semula sekali dan kemudian **digugurkan** — seksyen itu memaparkan jubin teks sebagai gantinya;
+- **Pintu kritik reka bentuk dan lantai kualiti:** model penglihatan menilai laman yang dipaparkan; laman di bawah ambang **dijana semula dan bukannya dilayan**, dan laman yang gagal lantai kualiti **tidak diterbitkan**;
+- **Pengawal penerbitan:** penerbitan yang akan menulis ganti laman yang sudah aktif **ditolak** sehingga anda mengesahkannya;
+- **Pengawal pautan:** pautan yang tidak dapat disahkan **dibuang atau dineutralkan** dan bukannya diterbitkan dalam keadaan rosak.
+
+**Ini ialah keputusan automatik, dan ia boleh tersilap.** Ia bukan jaminan bahawa laman anda yang diterbitkan adalah tepat — anda tetap bertanggungjawab menyemaknya (lihat Terma Perkhidmatan seksyen 11 dan 13A). Jika kawalan automatik membuang sesuatu yang sebenarnya betul, atau menyekat penjanaan yang sepatutnya dibenarkan, hak anda untuk semakan manual di bawah terpakai.
+
 **Hak anda untuk semakan manual:**
 
-Anda mempunyai hak untuk meminta semakan manual oleh manusia bagi mana-mana keputusan yang dipengaruhi oleh sistem AI kami. Untuk meminta semakan manual:
+Anda mempunyai hak untuk meminta semakan manual oleh manusia bagi mana-mana keputusan yang dipengaruhi oleh sistem AI kami, **termasuk kawalan penjanaan automatik dalam (d)**. Untuk meminta semakan manual:
 
 - Hantarkan emel kepada **admin@binaapp.my** dengan subjek \`AI Decision Review - [Butiran Ringkas]\`;
-- Sertakan butiran khusus keputusan yang anda ingin disemak dan sebab anda meminta semakan.
+- Sertakan butiran khusus keputusan yang anda ingin disemak dan sebab anda meminta semakan — bagi kawalan penjanaan, sertakan alamat laman web dan apa yang dibuang atau disekat.
 
 **Tempoh tindak balas:**
 
@@ -877,35 +1133,39 @@ Sila ambil perhatian bahawa sistem AI tidak sempurna dan boleh membuat kesilapan
 
     {
       id: 'komitmen-60-hari',
-      title: '20. Komitmen 60 Hari',
-      content: `Kami komited untuk memperbaiki amalan privasi kami secara berterusan. Dalam tempoh **60 hari** dari tarikh berkuat kuasa Polisi ini (iaitu, sebelum atau pada **20 Julai 2026**), kami akan melancarkan perubahan berikut:
+      title: '20. Komitmen Privasi — Status dan Tarikh Disemak Semula',
+      content: `Versi 3.0 Polisi ini membuat tiga komitmen yang perlu disiapkan **sebelum atau pada 20 Julai 2026**. Kami berkata kami akan melaporkan statusnya dengan jujur. Dua telah dilaksanakan; satu tidak, dan satu dilaksanakan dalam bentuk yang lebih kukuh daripada yang dijanjikan. Seksyen ini merekodkan kedudukan setiap satu pada **20 September 2026**.
 
-**(a) UI Persetujuan Eksplisit untuk Ciri AI yang Mengandungi PII**
+**(a) UI Persetujuan Eksplisit untuk Ciri AI yang Mengandungi PII — TIDAK DILAKSANAKAN**
 
-Pada masa ini, beberapa ciri AI beroperasi atas asas notis sahaja (anda diberitahu melalui Polisi ini bahawa data dihantar kepada pembekal AI). Kami akan melancarkan dialog persetujuan eksplisit per-ciri untuk:
+Kami komited kepada dialog persetujuan eksplisit per-ciri untuk analisis aduan (DeepSeek), balasan chat AI (DeepSeek), pengesahan foto penghantaran (Qwen), dan chatbot merchant yang dilayan customer (DeepSeek).
 
-- Analisis aduan / pertikaian (DeepSeek);
-- Balasan AI dalam chat customer-merchant (DeepSeek);
-- Pengesahan foto penghantaran (Qwen);
-- Chatbot merchant yang dilayan customer (DeepSeek).
+**Ini belum dibina.** Ciri-ciri tersebut masih beroperasi atas asas notis sahaja, dan tarikh akhir telah terlepas. Kami tidak memenuhi komitmen ini.
 
-Anda akan diminta untuk memberi persetujuan eksplisit sekali bagi setiap ciri, dengan pilihan untuk menarik balik persetujuan pada bila-bila masa melalui tetapan dashboard.
+**Komitmen disemak semula:** untuk melancarkan UI persetujuan per-ciri **sebelum atau pada 31 Januari 2027**. Sementara itu, remedi sedia ada anda kekal dan bukan sekadar teori:
+- Anda boleh menolak mana-mana ciri ini dan beroperasi secara manual — aduan boleh diuruskan tanpa analisis AI, dan balasan chat AI boleh dimatikan dalam tetapan chat;
+- Anda boleh emel admin@binaapp.my untuk mematikan pemprosesan AI bagi akaun anda secara per-ciri, dan kami akan melaksanakannya.
 
-**(b) Banner Notis Kuki pada Laman Web Restoran yang Dijana**
+**(b) Banner Notis Pelawat pada Laman Web Restoran yang Dijana — TIDAK DILAKSANAKAN**
 
-Pelawat laman web restoran yang dihos oleh BinaApp akan diberi notis yang jelas tentang penjejakan analitis pertama-pihak (\`bina_visitor\`), dengan pilihan untuk menerima atau menolak penjejakan.
+Kami komited kepada notis pada halaman untuk pelawat laman web. **Ini belum dilaksanakan.** Laman web yang dijana masih tidak memaparkan notis analitis.
 
-**(c) Sokongan untuk Pengepala HTTP Do-Not-Track (DNT)**
+Namun, mudarat privasi yang ingin ditangani olehnya telah dikurangkan dengan ketara melalui (c) di bawah: kini tiada kuki, tiada pengecam peranti, dan tiada alamat IP yang disimpan untuk diberi notis, dan isyarat opt-out pelayar dipatuhi secara automatik.
 
-Pelayan analitis kami akan menghormati pengepala HTTP \`DNT: 1\` yang dihantar oleh pelayar pelawat. Apabila pengepala ini hadir, permintaan analitis akan ditolak tanpa rekod.
+**Komitmen disemak semula:** untuk melancarkan notis pelawat **sebelum atau pada 31 Januari 2027**.
 
-**Status kemas kini:**
+**(c) Sokongan Do-Not-Track — DILAKSANAKAN, DAN MELEBIHI SKOP**
 
-Status pelaksanaan komitmen-komitmen ini akan dikemas kini dalam seksyen Riwayat Perubahan apabila masing-masing dilancarkan. Jika kami menghadapi kelewatan, kami akan mengemas kini Polisi ini untuk menjelaskan status baru.
+Dilaksanakan, malah melebihi skop asal:
+- Pengepala \`DNT: 1\` dipatuhi. Endpoint analitis kami menolak permintaan sebelum sebarang pemprosesan;
+- **Global Privacy Control (\`Sec-GPC: 1\`) dipatuhi atas terma yang sama** — ini tidak dijanjikan;
+- Skrip pada halaman menyemak kedua-dua isyarat dan **tidak membuat sebarang permintaan rangkaian** apabila salah satunya hadir;
+- **Analitik telah dibina semula supaya tanpa kuki** — ini tidak dijanjikan. ID localStorage \`bina_visitor\` telah dibuang, alamat IP dan User-Agent pelawat tidak pernah disimpan atau dilog, dan lawatan unik dikira dengan cincangan bergaram yang berputar setiap hari;
+- Lalu lintas bot dan perangkak dibuang dan bukan dikira.
 
-**Kenapa kami menjadikan ini sebagai komitmen formal:**
+**Akauntabiliti:**
 
-Kami percaya privasi pengguna adalah keutamaan jangka panjang. Daripada melancarkan ciri-ciri ini tanpa kejelasan masa, kami komited secara terbuka kepada tarikh akhir supaya anda dapat memegang kami bertanggungjawab. Jika anda tidak melihat ciri-ciri ini dilancarkan dalam tempoh yang dijanjikan, sila hubungi kami di admin@binaapp.my.`,
+Kami terlepas dua daripada tiga tarikh akhir. Kami merekodkannya secara terus terang di sini dan bukan sekadar mengulang janji secara senyap. Jika tarikh yang disemak semula di atas berlalu tanpa pelaksanaan, sila pegang kami bertanggungjawab di admin@binaapp.my, dan ambil perhatian bahawa anda boleh membuat aduan kepada Jabatan Perlindungan Data Peribadi pada bila-bila masa (lihat seksyen Hubungi Kami / Aduan).`,
     },
 
     {
@@ -1027,13 +1287,34 @@ Jika anda **tidak bersetuju** dengan mana-mana terma dalam Polisi ini, anda mest
 
 Setiap kemas kini versi disenaraikan dengan nombor versi, tarikh, dan ringkasan perubahan material. Perubahan kecil seperti pembetulan tatabahasa atau penjelasan teks tidak disenaraikan secara individu.
 
-**Versi semasa:** v3.0 (21 Mei 2026)
+**Versi semasa:** v3.1 (berkuat kuasa 21 Oktober 2026)
+
+**Versi terdahulu:** v3.0 (21 Mei 2026)
 
 **Versi terdahulu boleh diminta** dengan menghubungi admin@binaapp.my jika anda ingin meninjau versi sebelumnya.`,
     },
   ],
 
   changelog: [
+    {
+      version: '3.1',
+      date: '21 Oktober 2026',
+      changes: [
+        'PEMBETULAN — Model Z.ai (Zhipu AI) / GLM digunakan secara aktif semula. Versi 3.0 menyatakan GLM telah dikeluarkan daripada platform; kenyataan itu tidak tepat pada tarikh versi ini dan digantikan (Seksyen 6);',
+        'PEMBETULAN — Analitik pelawat pada laman web yang dijana kini tanpa kuki. ID localStorage `bina_visitor` yang diterangkan dalam v3.0 tidak lagi dicipta atau dibaca, dan alamat IP serta string User-Agent pelawat tidak pernah disimpan atau dilog; lawatan unik dikira dengan cincangan bergaram yang berputar setiap hari (Seksyen 11, 13, 14);',
+        'Isyarat pelayar Do-Not-Track (`DNT: 1`) dan Global Privacy Control (`Sec-GPC: 1`) kini dipatuhi, pada halaman dan pada pelayan; lalu lintas bot dibuang (Seksyen 11, 20);',
+        'Tujuh baris pembekal AI baharu ditambah kepada jadual pembekal AI: penjanaan laman web melalui Z.ai glm-5.3, kritik reka bentuk automatik melalui Z.ai glm-4.5v dengan sandaran Qwen (yang menghantar tangkapan skrin laman anda yang dijana), semakan keselamatan imej janaan melalui Qwen, penjanaan video hero daripada prompt (Z.ai CogVideoX / HappyHorse), penjanaan video hero daripada foto (Z.ai wan3.0), dan idea prompt video hero melalui DeepSeek (Seksyen 6);',
+        'Seksyen 6A baharu mengenai media janaan — pengehosan Cloudinary bagi setiap imej dan klip video, lejar kerja video hero, analisis setempat gambar merchant, dan fotografi stok;',
+        'Seksyen 6B baharu mengenai rekod kualiti penjanaan (gelung pembelajaran `design_plans`), apa yang disimpan, apa yang ia tidak digunakan, dan cara menarik diri;',
+        'Seksyen 11A baharu mendedahkan bahawa borang tempahan meja / reservasi pada laman web yang dijana adalah deep-link sahaja — butiran tempahan tidak pernah sampai kepada BinaApp dan diserahkan kepada WhatsApp dari pelayar pelawat;',
+        'Seksyen 13A baharu menyenaraikan setiap pihak ketiga yang failnya dimuatkan oleh laman web yang dijana ke dalam pelayar pelawat — Cloudinary, Google Fonts, embed Google Maps, Unsplash dan CDN kod awam — dan mengesahkan bahawa tiada penjejak pengiklanan, media sosial atau analitis pihak ketiga hadir;',
+        'Pendedahan bahawa alamat perniagaan digeokod sekali semasa penerbitan melalui Nominatim OpenStreetMap (Seksyen 13A);',
+        'Pendedahan pemindahan merentas sempadan diperluas kepada Z.ai (Republik Rakyat China), Cloudinary, Google dan Unsplash (Amerika Syarikat), dan OpenStreetMap; amaran nyata bahawa laluan foto-ke-video memindahkan foto pilihan merchant, termasuk sebarang wajah yang boleh dikenal pasti di dalamnya, ke Republik Rakyat China (Seksyen 16);',
+        'Sembilan baris baharu dalam jadual penyimpanan data meliputi media janaan, lejar kerja video hero, rekod kualiti penjanaan, input kerja penjanaan, koordinat geokod, gambar merchant dan entri borang tempahan (Seksyen 14);',
+        'Pendedahan baharu mengenai kawalan automatik yang boleh mengubah atau menyekat kandungan pada laman web merchant sendiri tanpa semakan manusia — kawalan fakta dan dakwaan, sekatan ketidakselarasan lokasi, semakan imej, pintu kritik reka bentuk, lantai kualiti, pengawal penerbitan dan pengawal pautan — dengan hak semakan manual diperluas untuk meliputinya (Seksyen 19);',
+        'Seksyen 20 ditulis semula sebagai laporan status jujur mengenai komitmen 60 hari v3.0: sokongan Do-Not-Track telah dilaksanakan dan melebihi skop (analitik tanpa kuki dan Global Privacy Control tidak dijanjikan), manakala UI persetujuan AI dan banner notis pelawat TIDAK dilaksanakan menjelang tarikh akhir 20 Julai 2026 dan dikomitkan semula kepada 31 Januari 2027.',
+      ],
+    },
     {
       version: '3.0',
       date: '21 Mei 2026',

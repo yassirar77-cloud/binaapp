@@ -1,28 +1,29 @@
 /**
- * BinaApp Privacy Policy v3.0 — English (translation for convenience only)
+ * BinaApp Privacy Policy v3.1 — English (translation for convenience only)
  *
  * The Bahasa Malaysia version (`policy-content-bm.ts`) is the
  * authoritative version. In case of any conflict, BM prevails — see
  * section 23 (`prevailingLanguage`).
  *
- * Effective: 21 May 2026. Supersedes v2.0 (31 January 2025) and v1.0.
+ * Effective: 21 October 2026. Supersedes v3.0 (21 May 2026), v2.0
+ * (31 January 2025) and v1.0.
  *
  * This file reuses the `PrivacyPolicy` type and all sub-types from the
  * BM source-of-truth file rather than redefining them — keeps schema
  * parity strict. Section IDs are intentionally identical to the BM
  * file (cross-document anchor links work in both languages).
  *
- * Word count: 6665 EN words. Estimated reading time: 29 minutes at
+ * Word count: ~9100 EN words. Estimated reading time: 40 minutes at
  * 230 wpm (English reading speed average).
  */
 
 import type { PrivacyPolicy } from './policy-content-bm';
 
 export const privacyPolicyEN: PrivacyPolicy = {
-  version: '3.0',
-  effectiveDate: '21 May 2026',
-  lastUpdated: '21 May 2026',
-  estimatedReadingMinutes: 29,
+  version: '3.1',
+  effectiveDate: '21 October 2026',
+  lastUpdated: '20 September 2026',
+  estimatedReadingMinutes: 40,
 
   executiveSummary: {
     title: '1-Minute Summary',
@@ -31,10 +32,12 @@ export const privacyPolicyEN: PrivacyPolicy = {
 - **Who we are:** BinaApp is an AI website-builder platform for food and beverage (F&B) businesses in Malaysia, owned and operated by **Ezy Work Asia Solution** (SSM No.: 002944700-D).
 - **What data we collect:** Your account data (email, business name, phone number), dashboard usage data, customer order data you input, rider GPS location data during active deliveries, and subscription transaction records.
 - **For what purpose:** To provide your platform services — generating websites, processing orders, supporting deliveries, issuing subscription invoices, and providing customer support.
-- **To whom we disclose:** Infrastructure providers (Supabase, Render), the subscription payment processor (ToyyibPay), and AI providers (Stability AI, DeepSeek, Qwen/Alibaba Cloud, Anthropic Claude). We **do not sell** your data to anyone.
-- **What we do NOT process:** We **do not process customer payments for food orders** (COD = cash directly to the rider; static QR = direct bank transfer to the merchant). We also **do not access your WhatsApp messages** — WhatsApp links are deep-links only.
+- **To whom we disclose:** Infrastructure providers (Supabase, Render, Vercel, Cloudinary), the subscription payment processor (ToyyibPay), and AI providers (Stability AI, DeepSeek, Z.ai/GLM, Qwen/Alibaba Cloud, Anthropic Claude). We **do not sell** your data to anyone.
+- **AI-generated video and images:** Hero video clips and images generated for your website are **synthetic media produced by AI** — they are not real footage or photographs of your premises, your staff, or your actual food unless you supplied that photo yourself. See sections 6 and 6A.
+- **What we do NOT process:** We **do not process customer payments for food orders** (COD = cash directly to the rider; static QR = direct bank transfer to the merchant). We also **do not access your WhatsApp messages** — WhatsApp links and the booking form on your website are deep-links only (sections 10 and 11A).
+- **Visitor analytics are cookieless:** Our analytics on generated websites set **no cookie and no localStorage ID**, never store a visitor's IP address or User-Agent, and honour the **Do-Not-Track** and **Global Privacy Control** browser signals (section 11).
 - **Your rights:** You have rights of access, correction, withdrawal of consent, deletion, portability, and restriction of processing under PDPA 2010. Contact admin@binaapp.my.
-- **Future commitments:** Within 60 days of the effective date, we will launch (a) per-feature explicit consent UI for AI functions handling customer PII, (b) a cookie banner on generated restaurant websites, and (c) support for the HTTP Do-Not-Track header.`,
+- **Outstanding commitments:** The Do-Not-Track / Global Privacy Control support and cookieless analytics promised in v3.0 have shipped. The per-feature explicit AI consent UI and the visitor notice banner have **not** shipped yet — see section 20 for their status and revised dates.`,
   },
 
   introduction: {
@@ -217,6 +220,10 @@ The table below lists each AI feature, the provider used, the processing region,
 
 **Note on Anthropic Claude (support email analysis):** Before the email content is sent to Anthropic, the sender's email address is hashed (one-way hashed) so that the original email address cannot be recovered. In addition, under standard commercial contracts, **Anthropic does not use customer data to train the Claude models**.
 
+**Note on Z.ai (GLM) — reintroduced since v3.0:** Version 3.0 of this Policy stated that GLM had been removed from the platform. That is **no longer accurate.** Z.ai (Zhipu AI) models are now used for website generation (\`glm-5.3\`), generated-image production (\`glm-image\` / CogView, where enabled), the visual design critique (\`glm-4.5v\`), and hero video generation (CogVideoX / wan / HappyHorse video models). Z.ai processes in the People's Republic of China. This section and the Cross-Border Data Transfers section are the operative disclosures; the v3.0 statement is superseded.
+
+**Note on AI-generated video:** A hero video clip is **synthetic footage generated by an AI model** from a text prompt, or from one photo you supplied. It is not a recording of your premises, your staff, your kitchen, or your actual food. You are responsible for reviewing every clip before you publish it and for not presenting it to customers as real footage — see Terms of Service section 11.
+
 **Note on AI providers outside Malaysia:** Use of these AI features involves cross-border data transfers to the United States, the People's Republic of China, and Singapore. See the Cross-Border Data Transfers section for details of the safeguards applied.
 
 If you are uncomfortable with AI processing for any particular feature, you may:
@@ -295,7 +302,125 @@ If you are uncomfortable with AI processing for any particular feature, you may:
           piiNote: 'May contain customer PII in their questions',
           consentStatus: 'Notice only — explicit consent UI to launch within 60 days',
         },
+        {
+          feature: 'Website Generation — Design Plan (Pass 1) and HTML (Pass 2)',
+          vendor: 'Z.ai / Zhipu AI (glm-5.3)',
+          region: "People's Republic of China",
+          dataSent:
+            'Business name, description, address, opening hours, menu or service items and prices, and the merchant\u2019s own written brief',
+          piiRisk: 'warning',
+          piiNote:
+            'Contains the merchant\u2019s own business PII (name, address, phone). Risky if you paste customer PII into the brief',
+          consentStatus: 'Implicit consent when initiating generation',
+        },
+        {
+          feature: 'Design Critique (automated visual review of your generated page)',
+          vendor: 'Z.ai (glm-4.5v), with Qwen (qwen-vl-max) as fallback',
+          region: "People's Republic of China / Singapore",
+          dataSent:
+            'Desktop and mobile screenshots of your generated page, plus the design plan — the screenshots contain everything visible on the page, including your business name, address, phone number and photos',
+          piiRisk: 'warning',
+          piiNote:
+            'Screenshots reproduce all merchant business details rendered on the page; no customer data is present, as the page is not yet serving orders at this stage',
+          consentStatus: 'Implicit consent when initiating generation',
+        },
+        {
+          feature: 'Generated-Image Safety and Category Check',
+          vendor: 'Qwen (Alibaba Cloud International, qwen-vl-max)',
+          region: 'Singapore',
+          dataSent: 'Each AI-generated image, checked for rendered text, faces and category match',
+          piiRisk: 'safe',
+          piiNote: 'Only AI-generated images are checked, not merchant or customer photographs',
+          consentStatus: 'Automatic — part of the image generation pipeline',
+        },
+        {
+          feature: 'Hero Video Generation (text-to-video)',
+          vendor: 'Z.ai video models (CogVideoX / HappyHorse)',
+          region: "People's Republic of China",
+          dataSent:
+            'The text prompt for the clip, built from your business type, cuisine or service and signature items',
+          piiRisk: 'safe',
+          piiNote: 'Prompt text only. No photograph is sent on this path',
+          consentStatus: 'Explicit consent — you initiate each clip and it consumes a credit',
+        },
+        {
+          feature: 'Hero Video Generation (photo-to-video)',
+          vendor: 'Z.ai video models (wan3.0)',
+          region: "People's Republic of China",
+          dataSent: 'One photo you selected, plus the motion prompt for the clip',
+          piiRisk: 'warning',
+          piiNote:
+            'If the photo you select shows staff, customers or bystanders, their faces are sent to the provider and animated. Only select photos you have the right to use',
+          consentStatus: 'Explicit consent — you select the photo and initiate each clip',
+        },
+        {
+          feature: 'Hero Video Prompt Ideas',
+          vendor: 'DeepSeek',
+          region: "People's Republic of China",
+          dataSent: 'Your business type, cuisine or service description, and item names',
+          piiRisk: 'safe',
+          piiNote: 'Business descriptors only',
+          consentStatus: 'Implicit consent when opening the hero video ideas panel',
+        },
       ],
+    },
+
+    {
+      id: 'media-dijana',
+      title: '6A. Generated Media — Hero Video, Images, and Where They Are Hosted',
+      content: `This section covers the media BinaApp generates or serves for your website: AI-generated images, AI-generated hero video clips, and the photographs you upload yourself.
+
+**(a) Where generated media is stored**
+
+AI providers return generated images and video on **temporary links that expire**. To keep your published page working, BinaApp downloads each asset and uploads it to **Cloudinary** (a media hosting and transformation provider, United States / global CDN). Your published page then serves the Cloudinary copy.
+
+This means:
+- Every image and video clip on your generated website — AI-generated or uploaded by you — is stored on Cloudinary and delivered from Cloudinary's global CDN;
+- Cloudinary receives the **IP address of every visitor** who loads your page, as any CDN does;
+- Photographs you upload are transformed by Cloudinary (resizing, cropping, format conversion) before delivery.
+
+**(b) What we record about a hero video job**
+
+When you request a hero video clip, we keep a job record (the \`hero_video_jobs\` ledger) containing: your user ID and website ID, the text prompt used, the source photo reference where you chose photo-to-video, the job status, the provider task ID, the resulting Cloudinary URLs, timestamps, and any failure reason. This record exists so that a clip is not lost and a credit is not wrongly consumed when our servers restart mid-render.
+
+**(c) What we read from the photos you upload**
+
+Before designing your page, BinaApp reads your uploaded photographs **on our own servers** to measure sharpness and resolution and to extract dominant colours for the page palette. This analysis is local — **your photographs are not sent to an AI provider for this step.** They are sent to a provider only where you explicitly choose photo-to-video hero generation (section 6).
+
+**(d) Stock photography**
+
+Where a generated page uses stock photography, it is served from **Unsplash**. Unsplash receives the IP address of visitors who load those images. See section 13A.
+
+**(e) Retention**
+
+Generated media and its job records are retained for the duration of your active account and deleted in accordance with the retention table in section 14. Deleting a website removes its media references; copies on the CDN and in backups clear on the cycles stated in section 14.`,
+    },
+
+    {
+      id: 'pembelajaran-reka-bentuk',
+      title: '6B. Generation Quality Records (Design Learning Loop)',
+      content: `To stop every generated site looking the same and to improve generation quality over time, BinaApp records what it produced for you and how the automated review scored it.
+
+**What is recorded (the \`design_plans\` table):**
+- Your user ID and website ID, and the generation job ID;
+- The business category and the design direction chosen;
+- The **design plan** — the structured brief the AI produced from the business details you entered, which therefore contains your business name, description, address and item information;
+- The critique scores from the automated visual review, and the lint report;
+- A **SHA-256 hash of the generated HTML** (the hash only — not the page content);
+- The number of generation attempts, and what you did next (published, edited, or regenerated).
+
+**What it is used for:**
+- Rotating design directions so two consecutive sites in the same category do not look alike;
+- A **weekly internal statistics job** that aggregates scores by design direction to find which directions perform badly.
+
+**What it is NOT used for:**
+- It is **not** used to train any third-party AI model. The records stay in our own Supabase database;
+- It is **not** shared with other merchants, and no other merchant can see your plan or your scores;
+- The weekly report we read internally is **aggregated by design direction**, not by merchant.
+
+**Opt-out:** If you do not wish your generation records to be retained for this purpose, email admin@binaapp.my and we will exclude your account. Generation itself continues to work; only the retained quality record is suppressed.
+
+**Retention:** See section 14.`,
     },
 
     {
@@ -432,14 +557,24 @@ The deep-link is simply a way to make it easy for customers to contact the merch
       content: `When a visitor browses a restaurant website hosted by BinaApp (for example, \`businessname.binaapp.my\`), we collect first-party analytics data to provide an analytics dashboard to you as the merchant.
 
 **Data collected:**
-- Visitor IP address (truncated for privacy);
-- Browser User-Agent string;
 - Device type (mobile, tablet, desktop);
 - Browser family and operating system;
 - Referrer URL — the website the visitor came from;
 - Page path visited (\`/menu\`, \`/about\`, etc.);
 - Visit date and time;
-- Anonymous visitor ID generated locally (hash of IP + User-Agent, or \`bina_visitor\` localStorage ID).
+- A **daily-rotating, salted one-way hash** derived from the visitor's IP address and User-Agent, used only to count unique visits within a single day.
+
+**How the unique-visit count works — and what we do NOT keep (updated in v3.1):**
+
+Our analytics are now **cookieless**. The generated website sets **no cookie and no localStorage identifier** for analytics purposes. The \`bina_visitor\` localStorage ID described in v3.0 of this Policy is **no longer created**, and where an older published page still sends one, our server **ignores it**.
+
+- The visitor's **IP address and User-Agent are never stored and never written to our logs.** They are held in memory only long enough to compute the daily hash, then discarded;
+- The salt **rotates every day**, so the same visitor produces a different hash tomorrow and cannot be followed across days;
+- The hash is one-way — it cannot be reversed to recover an IP address.
+
+**Browser opt-out signals are honoured (updated in v3.1):**
+
+If the visitor's browser sends **Do-Not-Track (\`DNT: 1\`)** or **Global Privacy Control (\`Sec-GPC: 1\`)**, no analytics request is made at all, and our server independently rejects any such request before doing any work. Requests identified as coming from bots and crawlers are also discarded.
 
 **Purpose of collection:**
 - To provide website traffic statistics to the merchant;
@@ -449,6 +584,8 @@ The deep-link is simply a way to make it easy for customers to contact the merch
 
 **What is NOT collected:**
 - Visitor name, email, or phone number (unless the visitor chooses to enter them via an order form);
+- Stored IP addresses or User-Agent strings (see above);
+- Any analytics cookie or persistent device identifier;
 - Precise GPS location;
 - Browsing activity on other websites;
 - Advertising or marketing profile data.
@@ -458,9 +595,9 @@ The deep-link is simply a way to make it easy for customers to contact the merch
 - Analytics data is displayed to the merchant via their dashboard only;
 - The data is **not sold, shared, or transferred** to advertisers or any other third party.
 
-**Important disclosure — visitors are not given direct notice today:**
+**Important disclosure — visitors are still not given an on-page notice:**
 
-Currently, the generated restaurant websites **do not display a cookie banner or tracking notice** to visitors. Visitors may not be aware that data about their visits is being collected. We are **committed to launching a visitor notice banner and HTTP Do-Not-Track support within 60 days** of the effective date of this Policy (see the 60-Day Commitments section).
+Do-Not-Track and Global Privacy Control support **has shipped**, and analytics are now cookieless as described above. However, generated restaurant websites **still do not display an on-page analytics notice** to visitors. A visitor who does not send an opt-out signal may not be aware that anonymous visit counts are being recorded. This remains an **outstanding commitment** — see section 20 for its revised date.
 
 **Merchant opt-out option:**
 
@@ -471,6 +608,40 @@ As a merchant, you may **disable visitor analytics tracking** for your website a
 - No new visit data will be recorded for your website.
 
 **Retention period:** For the duration of the active merchant account (the data is the merchant's business analytics asset). When the account terminates, the data is deleted in accordance with the account retention policy.`,
+    },
+
+    {
+      id: 'borang-tempahan',
+      title: '11A. Important Disclosure — Booking Forms Are Deep-Links Only',
+      content: `Some generated restaurant websites include a **table booking / reservation form** asking the visitor for their name, phone number, date, time, and party size.
+
+**This form does not submit anything to BinaApp.**
+
+When a visitor presses the submit button:
+
+1. The values they typed are read **inside their own browser**;
+2. The browser builds a pre-filled WhatsApp message from those values;
+3. The browser opens **WhatsApp** at the merchant's number with that message ready to send.
+
+**What this means:**
+
+- **No booking data is transmitted to a BinaApp server.** There is no network request to us on submission;
+- **We do not store bookings.** We hold no booking database, and a booking cannot be retrieved from us;
+- **We cannot see the message.** Once WhatsApp opens, the conversation is between the visitor and the merchant, on WhatsApp's own infrastructure and subject to **WhatsApp's / Meta's privacy policy**, not ours;
+- **The booking only exists once the visitor actually sends the WhatsApp message.** If they close WhatsApp without sending, nothing reaches the merchant.
+
+**Implications for merchants:**
+
+- You are the sole controller of any booking data that reaches you through WhatsApp;
+- Bookings live only in your WhatsApp account. **BinaApp cannot recover them for you**, and they are not part of any BinaApp export or backup;
+- If a customer exercises a PDPA right over their booking data, you must satisfy it from your own WhatsApp records.
+
+**Implications for visitors:**
+
+- Your details are handed to WhatsApp, not to BinaApp. Review the message before you send it;
+- To have your booking details deleted, contact the merchant directly.
+
+The same applies to every other WhatsApp button on a generated page — see section 10.`,
     },
 
     {
@@ -506,7 +677,11 @@ The merchant may have their own privacy policy governing the collection and use 
 
 **Visit analytics:**
 
-Your visit to this website is tracked for the merchant's business analytics purposes. See section 11 for details of the data collected. There is currently no direct notice banner displayed; we will launch a notice banner and Do-Not-Track support within 60 days.`,
+Your visit to this website is counted for the merchant's business analytics purposes. The counting is **cookieless** — nothing is stored on your device, and your IP address and User-Agent are never stored or logged. If your browser sends **Do-Not-Track** or **Global Privacy Control**, nothing is recorded at all. See section 11 for the full detail. An on-page notice banner has not been launched yet; see section 20.
+
+**Forms on the website:**
+
+If the website shows a **table booking or reservation form**, what you type into it (your name, phone number, date, time, party size) **stays in your browser** and is handed to WhatsApp as a pre-filled message when you submit. BinaApp does not receive or store it. See section 11A.`,
     },
 
     {
@@ -529,9 +704,10 @@ These cookies store your preferences for a better experience.
 - **Language preference:** BM / EN;
 - **Dashboard display preferences:** Card layout, table ordering.
 
-**(c) First-Party Analytics Local Storage:**
+**(c) First-Party Analytics Local Storage — discontinued in v3.1:**
 
-- **\`bina_visitor\` (localStorage):** An anonymous visitor ID generated locally on the device of a restaurant website visitor. Used to distinguish returning visitors from new visitors in the merchant's analytics. Can be cleared at any time by clearing the browser cache.
+- **\`bina_visitor\` (localStorage): no longer created.** Version 3.0 of this Policy described an anonymous visitor ID stored in the localStorage of restaurant website visitors. That identifier has been **removed**. Generated websites now set **nothing at all** on a visitor's device for analytics purposes, and where an older published page still sends the old ID, our server discards it. Unique visits are counted server-side using a daily-rotating salted hash that is never stored alongside an IP address — see section 11.
+- Any leftover \`bina_visitor\` value still sitting in a visitor's browser from an older page is unused and can be cleared by clearing the browser cache.
 
 **Important disclosure — NO third-party analytics SDKs:**
 
@@ -556,6 +732,30 @@ All telemetry data is collected and stored solely within our Supabase infrastruc
 You may manage or delete cookies through your browser settings. Please note that disabling essential cookies will affect your ability to log in and use the platform.
 
 For restaurant website visitors: a cookie management banner is currently not shown. We will launch a banner with cookie choices within 60 days (see the 60-Day Commitments section).`,
+    },
+
+    {
+      id: 'sumber-pihak-ketiga-laman',
+      title: '13A. Third-Party Resources Loaded by Generated Websites',
+      content: `A generated restaurant website loads some files from third-party networks rather than from BinaApp. **Any third party that serves a file to a visitor's browser necessarily receives that visitor's IP address, User-Agent, and the page they were on.** BinaApp does not control what those providers do with that information.
+
+This applies to visitors of the merchant's site. It is disclosed here so that both merchants and visitors know it is happening.
+
+**Resources loaded from third parties:**
+
+- **Cloudinary** — serves all images and hero video clips on the page. United States / global CDN;
+- **Google Fonts** (\`fonts.googleapis.com\`, \`fonts.gstatic.com\`) — serves the web fonts used by the page design. United States / global;
+- **Google Maps** (\`maps.google.com\` embed) — serves the map frame on the contact section, where the page has one. United States / global;
+- **Unsplash** (\`images.unsplash.com\`) — serves stock photography, where the page uses it. United States / global;
+- **Public JavaScript and CSS CDNs** (\`cdn.tailwindcss.com\`, \`unpkg.com\`, \`cdnjs.cloudflare.com\`, \`cdn.jsdelivr.net\`) — serve stylesheets, icon fonts and small scripts the page needs in order to render. Global.
+
+**About the Google Maps embed:** the map frame is loaded by the visitor's browser directly from Google. **Google may set its own cookies** in that frame and applies its own privacy policy to it. BinaApp has no control over, and receives nothing from, that frame. A merchant who does not want a Google-served map on their page can remove the map section in the Design Studio.
+
+**Address geocoding (merchant data, not visitor data):** to make the map point at the right place, BinaApp sends the **business address you entered** once at publish time to **OpenStreetMap's Nominatim** geocoding service to convert it into coordinates. The coordinates are then stored on your website record. No customer data is involved.
+
+**What is NOT loaded:** generated websites carry **no third-party advertising network, no social media tracking pixel, and no third-party analytics SDK** (no Google Analytics, no Meta Pixel, no PostHog, no TikTok pixel). The only analytics is our own cookieless first-party counter described in section 11.
+
+**Provider privacy policies:** Cloudinary (\`cloudinary.com/privacy\`), Google (\`policies.google.com/privacy\`), Unsplash (\`unsplash.com/privacy\`), OpenStreetMap Foundation (\`osmfoundation.org/wiki/Privacy_Policy\`).`,
     },
 
     {
@@ -621,8 +821,40 @@ The table below summarizes the retention periods for various data types:
           period: '7 years',
         },
         {
-          dataType: 'Visitor localStorage ID (`bina_visitor`)',
-          period: 'Until the visitor clears their browser cache',
+          dataType: 'Daily visitor hash (cookieless unique-visit counting)',
+          period: 'Rotated and discarded every 24 hours; the IP and User-Agent it derives from are never stored',
+        },
+        {
+          dataType: 'Legacy visitor localStorage ID (`bina_visitor`)',
+          period: 'No longer created or read. Any leftover value on a visitor device is unused',
+        },
+        {
+          dataType: 'AI-generated images and hero video clips (Cloudinary)',
+          period: 'For the duration of the active account; deleted with the website',
+        },
+        {
+          dataType: 'Hero video job ledger (`hero_video_jobs` — prompts, status, provider task IDs)',
+          period: '12 months from job completion (retained for credit and refund disputes)',
+        },
+        {
+          dataType: 'Generation quality records (`design_plans` — plan, scores, HTML hash)',
+          period: '24 months from generation, or on request to admin@binaapp.my',
+        },
+        {
+          dataType: 'Generation job inputs (the brief and business details you submitted)',
+          period: '90 days',
+        },
+        {
+          dataType: 'Geocoded coordinates of the business address',
+          period: 'For the duration of the active website record',
+        },
+        {
+          dataType: 'Merchant-uploaded photographs',
+          period: 'For the duration of the active account; deleted with the website',
+        },
+        {
+          dataType: 'Table booking / reservation form entries',
+          period: 'Not retained — never transmitted to BinaApp (see section 11A)',
         },
       ],
     },
@@ -697,13 +929,23 @@ If you are not satisfied with our response, you may file a complaint with the Pe
 - Render (backend application server) — Southeast Asia region;
 - Qwen (Alibaba Cloud International) — AI delivery photo verification.
 
+**(b) Singapore (continued):**
+- Qwen (Alibaba Cloud International) — generated-image safety and category checks, and fallback for the design critique.
+
 **(c) United States:**
 - Stability AI — AI image generation;
 - Anthropic Claude — support email analysis;
-- Vercel / Render (if used for global frontend hosting).
+- Vercel / Render (if used for global frontend hosting);
+- **Cloudinary** — hosting, transformation and CDN delivery of every image and hero video clip on your website, and therefore the IP addresses of your website's visitors;
+- **Google** — Google Fonts and the Google Maps embed loaded by your website's visitors;
+- **Unsplash** — stock photography loaded by your website's visitors.
 
 **(d) People's Republic of China:**
-- DeepSeek — AI website generation, complaint analysis, AI chat replies, BinaBot.
+- DeepSeek — AI website generation, complaint analysis, AI chat replies, BinaBot, hero video prompt ideas;
+- **Z.ai / Zhipu AI** — website generation (\`glm-5.3\`), generated-image production (\`glm-image\` / CogView where enabled), the visual design critique (\`glm-4.5v\`), and hero video generation (CogVideoX / wan / HappyHorse). Where you choose photo-to-video hero generation, **a photograph you selected is transferred to this provider.**
+
+**(e) European Union / global:**
+- **OpenStreetMap Foundation (Nominatim)** — one-time geocoding of your business address at publish time.
 
 **Safeguards applied:**
 
@@ -719,7 +961,8 @@ For each cross-border transfer, we ensure that at least one of the following app
 You should be aware that data protection laws in the recipient region may differ from PDPA 2010. For example:
 
 - Data processed in the United States is subject to US law, including potential access by US enforcement agencies;
-- Data processed in the People's Republic of China is subject to Chinese cyber laws, including the Cybersecurity Law and the Personal Information Protection Law (PIPL).
+- Data processed in the People's Republic of China is subject to Chinese cyber laws, including the Cybersecurity Law and the Personal Information Protection Law (PIPL);
+- **Data processed by Z.ai on the photo-to-video path includes a photograph you selected.** If that photograph shows identifiable people, their images are transferred to the People's Republic of China. Only select photographs you have the right to use and, where the photograph shows staff, customers or other identifiable individuals, obtain their consent first.
 
 By using the BinaApp AI features that involve these third-party providers, you acknowledge and consent to these cross-border transfers.
 
@@ -805,12 +1048,25 @@ Upon termination of your merchant account, we will delete all customer data and 
 - AI (Qwen) analyzes delivery proof photos to verify certain elements (e.g., visible package, front door);
 - Verification failure does not prevent a delivery being marked complete — it only flags it for merchant review.
 
+**(d) Automated controls over what your generated website may contain (new in v3.1):**
+
+The generation pipeline applies automated checks that can **change or block content on your own website without a human reviewing the decision.** You should know these exist and what they do:
+
+- **Fact and claim controls:** a section stating a fact you never supplied may be **removed automatically**, and unsupported promotional claims may be **rewritten or stripped**. This exists so that your page does not advertise something untrue about your business;
+- **Location consistency block:** if the address you entered names a different town than your business description, generation is **blocked** and you are asked to correct the conflict, rather than a wrong address being published;
+- **Image checks:** every AI-generated image is checked by a vision model for rendered text, faces, and category match. A failing image is regenerated once and then **dropped** — the section renders a text tile instead;
+- **Design critique gate and quality floor:** a vision model scores the rendered page; a page below the threshold is **regenerated rather than served**, and a page failing the quality floor is **not published**;
+- **Publish guard:** a publish that would overwrite a live site is **refused** until you confirm;
+- **Link guard:** links that cannot be verified are **removed or neutralised** rather than published broken.
+
+**These are automated decisions, and they can be wrong.** They are not a warranty that your published page is accurate — you remain responsible for reviewing it (see Terms of Service sections 11 and 13A). If an automated control removed something that was in fact correct, or blocked a generation it should not have, your right to manual review below applies.
+
 **Your right to manual review:**
 
-You have the right to request a manual human review of any decision influenced by our AI systems. To request manual review:
+You have the right to request a manual human review of any decision influenced by our AI systems, **including the automated generation controls in (d)**. To request manual review:
 
 - Send an email to **admin@binaapp.my** with the subject \`AI Decision Review - [Brief Detail]\`;
-- Include specific details of the decision you want reviewed and the reasons for your request.
+- Include specific details of the decision you want reviewed and the reasons for your request — for a generation control, include the website address and what was removed or blocked.
 
 **Response time:**
 
@@ -826,35 +1082,39 @@ Please be aware that AI systems are not perfect and can make mistakes. We encour
 
     {
       id: 'komitmen-60-hari',
-      title: '20. 60-Day Commitments',
-      content: `We are committed to continuously improving our privacy practices. Within **60 days** of the effective date of this Policy (i.e., on or before **20 July 2026**), we will launch the following changes:
+      title: '20. Privacy Commitments — Status and Revised Dates',
+      content: `Version 3.0 of this Policy made three commitments due **on or before 20 July 2026**. We said we would report honestly on their status. Two shipped; one did not, and one shipped in a stronger form than promised. This section records where each stands as at **20 September 2026**.
 
-**(a) Explicit Consent UI for AI Features Handling PII**
+**(a) Explicit Consent UI for AI Features Handling PII — NOT DELIVERED**
 
-Several AI features currently operate on a notice-only basis (you are informed via this Policy that data is sent to AI providers). We will launch a per-feature explicit consent dialog for:
+We committed to a per-feature explicit consent dialog for complaint analysis (DeepSeek), AI chat replies (DeepSeek), delivery photo verification (Qwen), and the merchant chatbot served to customers (DeepSeek).
 
-- Complaint / dispute analysis (DeepSeek);
-- AI replies in customer-merchant chat (DeepSeek);
-- Delivery photo verification (Qwen);
-- Merchant chatbot served to customers (DeepSeek).
+**This has not been built.** Those features still operate on a notice-only basis, and the deadline was missed. We have not met this commitment.
 
-You will be asked to provide explicit consent once per feature, with the option to withdraw consent at any time through dashboard settings.
+**Revised commitment:** to launch the per-feature consent UI **on or before 31 January 2027**. In the meantime, your existing remedies stand and are not theoretical:
+- You may decline any of these features and operate manually — complaints can be handled without AI analysis, and AI chat replies can be left off in chat settings;
+- You may email admin@binaapp.my to have AI processing disabled for your account on a per-feature basis, and we will action it.
 
-**(b) Cookie Notice Banner on Generated Restaurant Websites**
+**(b) Visitor Notice Banner on Generated Restaurant Websites — NOT DELIVERED**
 
-Visitors of restaurant websites hosted by BinaApp will be given a clear notice of first-party analytics tracking (\`bina_visitor\`), with the option to accept or reject tracking.
+We committed to an on-page notice for website visitors. **This has not shipped.** Generated websites still display no analytics notice.
 
-**(c) Support for the HTTP Do-Not-Track (DNT) Header**
+The privacy harm it was meant to address has, however, been substantially reduced by (c) below: there is now no cookie, no device identifier, and no stored IP address to give notice about, and browser opt-out signals are honoured automatically.
 
-Our analytics server will honour the \`DNT: 1\` HTTP header sent by visitor browsers. When this header is present, analytics requests will be rejected without recording.
+**Revised commitment:** to launch the visitor notice **on or before 31 January 2027**.
 
-**Status updates:**
+**(c) Do-Not-Track Support — DELIVERED, AND GONE FURTHER**
 
-The implementation status of these commitments will be updated in the Version History section as each is launched. If we encounter delays, we will update this Policy to clarify the new status.
+Delivered, and beyond the original scope:
+- The \`DNT: 1\` header is honoured. Our analytics endpoint rejects the request before any processing;
+- **Global Privacy Control (\`Sec-GPC: 1\`) is honoured on the same terms** — this was not promised;
+- The page-side script checks both signals and makes **no network request at all** when either is present;
+- **Analytics were re-engineered to be cookieless** — this was not promised. The \`bina_visitor\` localStorage ID has been removed, visitor IP addresses and User-Agents are never stored or logged, and unique visits are counted with a daily-rotating salted hash;
+- Bot and crawler traffic is discarded rather than counted.
 
-**Why we are making this a formal commitment:**
+**Accountability:**
 
-We believe user privacy is a long-term priority. Rather than launching these features without time clarity, we are publicly committing to a deadline so that you can hold us accountable. If you do not see these features launch within the promised period, please contact us at admin@binaapp.my.`,
+We missed two of three deadlines. We are recording that plainly here rather than quietly restating the promise. If the revised dates above pass without delivery, please hold us to it at admin@binaapp.my, and note that you may complain to the Personal Data Protection Department at any time (see the Contact Us / Complaints section).`,
     },
 
     {
@@ -976,13 +1236,34 @@ If you **do not agree** with any term in this Policy, you must:
 
 Each version update is listed with version number, date, and a summary of material changes. Minor changes such as grammar fixes or text clarifications are not listed individually.
 
-**Current version:** v3.0 (21 May 2026)
+**Current version:** v3.1 (effective 21 October 2026)
+
+**Previous version:** v3.0 (21 May 2026)
 
 **Previous versions can be requested** by contacting admin@binaapp.my if you wish to review earlier versions.`,
     },
   ],
 
   changelog: [
+    {
+      version: '3.1',
+      date: '21 October 2026',
+      changes: [
+        'CORRECTION — Z.ai (Zhipu AI) / GLM models are in active use again. Version 3.0 stated that GLM had been removed from the platform; that statement was inaccurate as at the date of this version and is superseded (Section 6);',
+        'CORRECTION — visitor analytics on generated websites are now cookieless. The `bina_visitor` localStorage ID described in v3.0 is no longer created or read, and visitor IP addresses and User-Agent strings are never stored or logged; unique visits are counted with a daily-rotating salted hash (Sections 11, 13, 14);',
+        'Do-Not-Track (`DNT: 1`) and Global Privacy Control (`Sec-GPC: 1`) browser signals are now honoured, both page-side and server-side; bot traffic is discarded (Sections 11, 20);',
+        'Seven new AI provider rows added to the AI provider table: website generation via Z.ai glm-5.3, the automated design critique via Z.ai glm-4.5v with Qwen fallback (which sends screenshots of your generated page), generated-image safety checks via Qwen, hero video generation from a prompt (Z.ai CogVideoX / HappyHorse), hero video generation from a photo (Z.ai wan3.0), and hero video prompt ideas via DeepSeek (Section 6);',
+        'New Section 6A on generated media — Cloudinary hosting of every image and video clip, the hero video job ledger, local analysis of merchant photographs, and stock photography;',
+        'New Section 6B on generation quality records (the `design_plans` learning loop), what is retained, what it is not used for, and how to opt out;',
+        'New Section 11A disclosing that table booking / reservation forms on generated websites are deep-links only — booking details never reach BinaApp and are handed to WhatsApp from the visitor\u2019s browser;',
+        'New Section 13A listing every third party whose files a generated website loads into a visitor\u2019s browser — Cloudinary, Google Fonts, the Google Maps embed, Unsplash and public code CDNs — and confirming that no advertising, social or third-party analytics tracker is present;',
+        'Disclosure that the business address is geocoded once at publish time via OpenStreetMap Nominatim (Section 13A);',
+        'Cross-border transfer disclosures extended to Z.ai (People\u2019s Republic of China), Cloudinary, Google and Unsplash (United States), and OpenStreetMap; express warning that the photo-to-video path transfers a merchant-selected photograph, including any identifiable faces in it, to the People\u2019s Republic of China (Section 16);',
+        'Nine new rows in the data retention table covering generated media, the hero video job ledger, generation quality records, generation job inputs, geocoded coordinates, merchant photographs and booking form entries (Section 14);',
+        'New disclosure of automated controls that can alter or block content on a merchant\u2019s own website without human review — fact and claim controls, the location consistency block, image checks, the design critique gate, the quality floor, the publish guard and the link guard — with the right to manual review extended to cover them (Section 19);',
+        'Section 20 rewritten as an honest status report on the v3.0 60-day commitments: Do-Not-Track support was delivered and exceeded (cookieless analytics and Global Privacy Control were not promised), while the AI consent UI and the visitor notice banner were NOT delivered by the 20 July 2026 deadline and are recommitted to 31 January 2027.',
+      ],
+    },
     {
       version: '3.0',
       date: '21 May 2026',
