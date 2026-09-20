@@ -11,6 +11,7 @@ import { UpgradeModal } from '@/components/UpgradeModal'
 import LandingNav from '@/components/landing/LandingNav'
 import LandingHero from '@/components/landing/LandingHero'
 import LandingFeatures from '@/components/landing/LandingFeatures'
+import LandingShowcase from '@/components/landing/LandingShowcase'
 import LandingPricing from '@/components/landing/LandingPricing'
 import LandingFooter from '@/components/landing/LandingFooter'
 import DownloadAppCard from '@/components/pwa/DownloadAppCard'
@@ -86,6 +87,7 @@ function LandingPageContent() {
       <LandingNav user={user} loading={loading} onLogout={handleLogout} />
       <LandingHero />
       <LandingFeatures />
+      <LandingShowcase />
       <LandingPricing onSelectPlan={handleSelectPlan} />
       <DownloadAppCard
         appName="BinaApp"
