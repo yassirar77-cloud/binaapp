@@ -63,12 +63,16 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install ffmpeg and httpx
+      - name: Install ffmpeg, Pillow and httpx
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg
+          # fonts-dejavu-core is already on ubuntu-latest, but the step names
+          # it so a future runner image cannot quietly take the captions away.
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
           python -m pip install --upgrade pip
-          pip install httpx
+          # Pillow draws the backdrop and the step captions: this ffmpeg has no
+          # drawtext filter, so the type is rendered to PNG and overlaid.
+          pip install httpx pillow
 
       - name: Check the API key is present
         # Skipped when nothing will be generated. Tests only that the secret is
