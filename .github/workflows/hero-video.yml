@@ -1,0 +1,230 @@
+# Build the clip that plays behind the landing hero, then commit it back.
+#
+# Manual only — this spends money. Each shot is roughly USD 0.70 on wan3.0, so
+# a full three-shot run is around USD 2. Use the dry_run checkbox to see the
+# plan and every prompt first, and `only` to judge one shot before paying for
+# the rest.
+#
+# A shot whose master is already on the runner is re-cut rather than
+# re-generated — but each run starts from a clean checkout, so in practice
+# every run of a given shot is a new one. To re-roll a shot you did not like,
+# just run it again with `only` set to that shot.
+
+name: Hero video
+
+on:
+  workflow_dispatch:
+    inputs:
+      only:
+        description: 'One shot to build (01-merchant, 02-create, 03-website). Empty = all three.'
+        required: false
+        type: string
+      dry_run:
+        description: 'Dry run — print the plan and prompts, spend nothing'
+        required: false
+        type: boolean
+        default: false
+
+# The branch the clip is committed back to (PR #803). The workflow itself has
+# to live on the default branch for GitHub to offer the "Run workflow" button
+# at all, so the branch being built is named here rather than taken from the
+# run's ref.
+env:
+  TARGET_BRANCH: claude/binaapp-hero-video-2qm80n
+
+permissions:
+  contents: write
+
+# Two runs committing to the same branch would race. Never cancel one in
+# flight — the shots it has already paid for would be lost.
+concurrency:
+  group: hero-video
+  cancel-in-progress: false
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    # Three shots at a minute or two each, plus polling, plus a frontend build.
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out the hero branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install ffmpeg, httpx and playwright
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          python -m pip install --upgrade pip
+          pip install httpx playwright
+          # --with-deps pulls the shared libraries headless Chromium needs on
+          # a bare runner; without them the browser launches and dies.
+          python -m playwright install --with-deps chromium
+
+      - name: Check the API key is present
+        # Tests only that the secret is non-empty. The value is never echoed,
+        # and GitHub masks it in the log even if something else tried to.
+        if: ${{ !inputs.dry_run }}
+        env:
+          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+        run: |
+          if [ -z "$DASHSCOPE_API_KEY" ]; then
+            echo "::error::DASHSCOPE_API_KEY is not set. Add it under" \
+                 "Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          echo "DASHSCOPE_API_KEY is set (${#DASHSCOPE_API_KEY} characters)."
+
+      # Shot 02-create is captured from the real /create page, so the page has
+      # to be being served. Skipped entirely for a dry run and for a run that
+      # does not include that shot.
+      - name: Start the frontend
+        if: ${{ !inputs.dry_run && inputs.only != '01-merchant' && inputs.only != '03-website' }}
+        working-directory: ./frontend
+        env:
+          ONLY: ${{ inputs.only }}
+        run: |
+          set -euo pipefail
+          npm ci
+          nohup npm run dev > /tmp/frontend-dev.log 2>&1 &
+
+          # Wait for the server itself, then for /create specifically: `next
+          # dev` compiles a route the first time it is asked for, and the
+          # capture would otherwise photograph a spinner.
+          for i in $(seq 1 60); do
+            curl -sf -o /dev/null http://localhost:3000/ && break
+            sleep 2
+          done
+          for i in $(seq 1 60); do
+            curl -sf -o /dev/null http://localhost:3000/create && break
+            sleep 2
+          done
+
+          if ! curl -sf -o /dev/null http://localhost:3000/create; then
+            echo "::error::/create never came up. Dev server log:"
+            tail -40 /tmp/frontend-dev.log
+            exit 1
+          fi
+          echo "/create is being served."
+
+      - name: Build the clip
+        env:
+          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+          # Through the environment, never interpolated into the script body:
+          # `only` is free text from whoever pressed the button, and
+          # ${{ }} inside a run block would make it executable shell.
+          ONLY: ${{ inputs.only }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          args=()
+          if [ -n "$ONLY" ]; then
+            args+=(--only "$ONLY")
+          fi
+          if [ "$DRY_RUN" = "true" ]; then
+            args+=(--dry-run)
+          fi
+          echo "Running: scripts/generate_landing_hero_video.py ${args[*]-}"
+          python3 scripts/generate_landing_hero_video.py ${args[@]+"${args[@]}"}
+
+      - name: Report what was produced
+        # Never the step that fails the run: the clips are already paid for by
+        # here, and a summary table is not worth losing them over. Runs even if
+        # the build step failed, so a partial result still gets reported.
+        if: ${{ !cancelled() && !inputs.dry_run }}
+        continue-on-error: true
+        run: |
+          {
+            echo '### Hero clip'
+            echo ''
+            echo '| File | Size | Length |'
+            echo '|---|---|---|'
+            for f in frontend/public/hero/binaapp-hero.mp4 scripts/hero_raw/*.mp4; do
+              [ -e "$f" ] || continue
+              len=$(ffprobe -v error -show_entries format=duration \
+                    -of default=nw=1:nk=1 "$f" 2>/dev/null || true)
+              # printf %f on a non-number exits 1, and `run:` blocks are
+              # bash -e — so the duration is checked before it is formatted.
+              case "$len" in
+                ''|*[!0-9.]*) len='?' ;;
+                *)            len="$(printf '%.1fs' "$len")" ;;
+              esac
+              printf '| %s | %s | %s |\n' "$f" "$(du -h "$f" | cut -f1)" "$len"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Uploaded before the commit, so the clip survives even if the push
+      # fails (a protected branch, someone else pushing mid-run). The raw
+      # per-shot masters go up too: judging one shot means watching that shot,
+      # not the cut-together loop.
+      - name: Upload the clip as an artifact
+        # !cancelled() rather than success(): if anything after generation
+        # fails, whatever was rendered still leaves the runner.
+        if: ${{ !cancelled() && !inputs.dry_run }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: hero-video-${{ github.run_number }}
+          path: |
+            frontend/public/hero/binaapp-hero.mp4
+            frontend/public/hero/binaapp-hero.jpg
+            scripts/hero_raw/*.mp4
+            scripts/hero_frames/*.png
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Commit the clip back to the branch
+        if: ${{ !inputs.dry_run }}
+        env:
+          ONLY: ${{ inputs.only }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          git add -- frontend/public/hero
+
+          if git diff --cached --quiet; then
+            echo "Nothing new to commit."
+            exit 0
+          fi
+
+          git diff --cached --name-only
+
+          if [ -n "$ONLY" ]; then
+            subject="Add hero clip shot: $ONLY"
+          else
+            subject="Add the landing hero clip"
+          fi
+
+          git commit -m "$subject" \
+            -m "Generated by the Hero video workflow (run ${{ github.run_number }})." \
+            -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+
+          # Someone may have pushed to the branch while the shots rendered.
+          # Rebase onto whatever is there rather than failing the run after
+          # paying for the footage.
+          for attempt in 1 2 3; do
+            if git push origin "HEAD:${TARGET_BRANCH}"; then
+              echo "Pushed to ${TARGET_BRANCH}."
+              exit 0
+            fi
+            echo "Push rejected (attempt ${attempt}) — rebasing onto the branch."
+            git fetch origin "${TARGET_BRANCH}"
+            git rebase "origin/${TARGET_BRANCH}"
+          done
+
+          echo "::error::Could not push to ${TARGET_BRANCH} after 3 attempts." \
+               "The clip is still available as the run's artifact."
+          exit 1
