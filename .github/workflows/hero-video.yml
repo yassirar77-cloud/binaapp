@@ -1,8 +1,8 @@
 # Build the clip that plays behind the landing hero, then commit it back.
 #
-# Manual only — this spends money: one wan3.0 clip at roughly USD 0.70, plus a
-# few cents for the text-to-image first frame. Use the dry_run checkbox to see
-# the prompts first.
+# Manual only — this spends money: one text-to-video clip at roughly USD 0.70.
+# There is no separate first-frame step any more. Use the dry_run checkbox to
+# see the prompts first.
 #
 # A shot whose master is already on the runner is re-cut rather than
 # re-generated — but each run starts from a clean checkout, so in practice
@@ -23,6 +23,10 @@ on:
         required: false
         type: boolean
         default: false
+      model:
+        description: 'Pin one video model, e.g. happyhorse-1.1-t2v. Empty tries wan3.0-video then happyhorse-1.1-t2v.'
+        required: false
+        type: string
 
 # The branch the clip is committed back to (PR #803). The workflow itself has
 # to live on the default branch for GitHub to offer the "Run workflow" button
@@ -86,6 +90,11 @@ jobs:
           # ${{ }} inside a run block would make it executable shell.
           ONLY: ${{ inputs.only }}
           DRY_RUN: ${{ inputs.dry_run }}
+          # Empty means "use the built-in chain" — the script walks
+          # wan3.0-video then happyhorse-1.1-t2v when this is unset or blank.
+          # This is the escape hatch for an account whose available models
+          # change, without needing a code change to find out.
+          DASHSCOPE_VIDEO_MODEL: ${{ inputs.model }}
         run: |
           set -euo pipefail
           args=()
