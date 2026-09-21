@@ -29,7 +29,9 @@ The encode does three things the raw clip does not:
   * scales it so its long edge is at most 1280 and strips the audio,
   * grades it down — less brightness, a touch more contrast — and lays a
     black gradient over the upper left, where the headline and CTA sit, so
-    white copy keeps its contrast over any frame,
+    white copy keeps its contrast over any frame. The gradient is spent
+    before the middle of the frame, because a phone crops a 16:9 hero to its
+    middle band and the merchant has to stay lit there,
   * fades the first and last half second, so the loop point reads as
     deliberate rather than as a jump cut. wan3.0 does not produce a genuinely
     seamless loop and no prompt makes it.
@@ -94,15 +96,17 @@ DEFAULT_API_URL = "https://dashscope-intl.aliyuncs.com/api/v1"
 RUNNING_STATES = ("PENDING", "RUNNING", "SUSPENDED")
 FAILED_STATES = ("FAILED", "CANCELED", "CANCELLED", "UNKNOWN")
 
-#: Vertical. The hero is full-bleed, and a portrait frame keeps the subject
-#: whole on a phone — which is where most Malaysian merchants will see it.
+#: Landscape. The hero is a full-bleed band on every screen, so a 16:9 frame
+#: fills it without cropping on desktop. A phone shows roughly the middle
+#: third of it, which is why the shot is framed with the subject near centre
+#: rather than at an edge.
 RESOLUTION = "1080P"
-RATIO = "9:16"
+RATIO = "16:9"
 DURATION_SECONDS = 10
 
-#: Size asked of the text-to-image model for the first frame. Portrait, to
+#: Size asked of the text-to-image model for the first frame. Landscape, to
 #: match the video's own aspect so nothing is cropped on the way in.
-IMAGE_SIZE = "720*1280"
+IMAGE_SIZE = "1280*720"
 
 SUBMIT_TIMEOUT = 90
 POLL_TIMEOUT = 60
@@ -119,13 +123,17 @@ SIZE_BUDGET_BYTES = 2_500_000
 
 #: The grade. `eq` pulls the whole frame down; the gradient is a black overlay
 #: strongest at the top-left, where the headline and the CTA sit, falling away
-#: toward the lower right, where the subject is. Measured on a bright test
-#: pattern: -60% luminance under the copy, -31% over the subject.
+#: toward the right and the bottom, where the subject is.
+#:
+#: The left reach is short on purpose. A phone crops this 16:9 frame to the
+#: source's middle band — x 37% to 63% — so a gradient still going at 40%
+#: would darken the merchant herself on the screen most merchants use. It is
+#: spent by 48%, which covers the desktop headline and stops short of her.
 GRADE_EQ = "eq=brightness=-0.10:contrast=1.06:saturation=0.92"
-GRADE_LEFT_STRENGTH = 0.72     # how black the left edge goes
-GRADE_LEFT_REACH = 0.85        # ... fading out by this fraction of the width
-GRADE_TOP_STRENGTH = 0.60      # how black the top edge goes
-GRADE_TOP_REACH = 0.45         # ... fading out by this fraction of the height
+GRADE_LEFT_STRENGTH = 0.80     # how black the left edge goes
+GRADE_LEFT_REACH = 0.48        # ... fading out by this fraction of the width
+GRADE_TOP_STRENGTH = 0.50      # how black the top edge goes
+GRADE_TOP_REACH = 0.50         # ... fading out by this fraction of the height
 
 #: wan3.0 does not loop seamlessly and no prompt makes it. Fading the ends
 #: into the dark grade makes the loop point read as deliberate.
