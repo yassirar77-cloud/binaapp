@@ -445,7 +445,7 @@ export default function LiveBuildStudio({ progress, jobId, staleWarning, busines
       )}
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14, marginTop: 14, flexWrap: 'wrap' }}>
-        <p style={{ fontSize: 12, color: '#5A5A6E', margin: 0 }}>This usually takes 45-90 seconds. Progress updates every 3 seconds.</p>
+        <p style={{ fontSize: 12, color: '#5A5A6E', margin: 0 }}>A full build usually takes 5–10 minutes. Progress updates every 3 seconds.</p>
         {jobId && <p className="num" style={{ fontSize: 11, color: '#3A3A4A', margin: 0 }}>Job: {jobId.slice(0, 8)}…</p>}
       </div>
     </div>
