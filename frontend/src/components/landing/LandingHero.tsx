@@ -1,9 +1,14 @@
 import Link from 'next/link'
 import Image from 'next/image'
+import LandingHeroVideo from './LandingHeroVideo'
 
 export default function LandingHero() {
   return (
     <section className="relative overflow-hidden bg-gradient-to-b from-ink-900 via-brand-900 to-brand-800 text-white pt-20 pb-10 px-8">
+
+      {/* Behind everything. Renders nothing until the clip exists, so the
+          gradient above stays the hero's look until then. */}
+      <LandingHeroVideo />
 
       {/* Background dot grid */}
       <div
