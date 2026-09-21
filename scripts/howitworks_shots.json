@@ -1,12 +1,10 @@
 {
-  "_note": "The 'how it works' film under the landing hero: four generated shots of five seconds, joined with zoom transitions and held one second on the last frame. Shots 1 and 4 are text-to-video and share the `woman` description below verbatim — that is the only way the same person appears at both ends. Shots 2 and 3 are image-to-video from a first frame this script draws: the merchant's own screenshot, pin-sharp, on a phone standing in the warm blur of her kedai. Their prompts forbid redrawing the interface about as loudly as a prompt can; the model is under no obligation to listen, and the first frame is the only part guaranteed sharp.",
-
+  "_note": "The 'how it works' film under the landing hero: four generated shots of five seconds, joined with zoom transitions and held one second on the last frame. Shots 1 and 4 are text-to-video and share the `woman` description below verbatim — that is the only way the same person appears at both ends. Shots 2 and 3 are image-to-video from a first frame this script draws: the merchant's own capture, pin-sharp, on a 9:19.5 phone standing in the warm blur of her kedai. Browser chrome is cropped off both captures and her login is painted out of the app header; the captures are 0.63 wide-to-tall and have no side margin to spare, so the tall screen comes from padding them with the colour of their own edges, not from cropping. Their prompts forbid redrawing the interface about as loudly as a prompt can; the model is under no obligation to listen, and the first frame is the only part guaranteed sharp.",
   "merchant": {
     "name": "Dapur Western Kak Mira",
     "site_url": "https://dapurwesternkakmira.binaapp.my",
     "site_url_note": "Read off the address bar in her own screen recording, where the first character is clipped by Chrome's fade: '...apurwesternkakmira.binaapp.my'. Worth confirming before it is linked anywhere public."
   },
-
   "timing": {
     "shot_seconds": 5,
     "transition": "zoomin",
@@ -14,9 +12,7 @@
     "tail_hold_seconds": 1.0,
     "length_note": "4x5s minus 3 overlapping transitions plus the hold = 19.5s."
   },
-
   "woman": "a young Malaysian Malay woman in her late twenties with a round face, warm brown eyes, clear skin and a soft natural smile, wearing a bright turquoise tudung (hijab) printed with small coral flowers and pinned neatly under her chin, a mustard-yellow long-sleeved blouse and a plain dark apron",
-
   "shots": {
     "1-idea": {
       "kind": "text_to_video",
@@ -24,43 +20,73 @@
       "tail_push": {
         "zoom": 1.55,
         "seconds": 1.3,
-        "center": [0.52, 0.58],
+        "center": [
+          0.52,
+          0.58
+        ],
         "note": "The frame is already diving toward her phone when the transition starts, so the cut into shot 2 finishes a move this shot began."
       },
       "prompt": "{woman}. She is standing in her own small, bright, lively kedai makan in the middle of the afternoon. Warm colourful daylight pours in through the shopfront behind her; red and yellow plastic chairs, a colourful drinks fridge and two or three customers eating at tables are all thrown far out of focus behind her. She holds her smartphone in one hand and looks down at it, thoughtful, her brow slightly furrowed — and then her face lights up, her eyes widening into a delighted smile, as if she has just had an idea. Her phone screen is dark and switched off; nothing on it is legible. Cinematic, photorealistic, vibrant saturated colour, warm afternoon light, shallow depth of field, slow steady push-in toward her. STRICTLY FORBIDDEN: no text, no letters, no numbers, no words, no signage, no menu boards, no writing on walls, no labels, no logos, no watermark, no captions and no subtitles anywhere in frame at any point. Landscape 16:9."
     },
-
     "2-create": {
       "kind": "image_to_video",
       "title": "Her brief, in the app",
       "first_frame": {
         "source": "Screenshot_20260921_152005_Chrome.jpg",
-        "source_note": "Her own designer brief, typed in her own words. The crop keeps Chrome's address bar — 'binaapp.my/create' is worth seeing — and loses only the OS status bar and the navigation bar.",
-        "top_crop": 0.052,
+        "source_note": "Her own designer brief, typed in her own words. top_crop clears the OS status bar and the whole Chrome bar — measured, not guessed: the blue chrome runs to y=0.1318 and the white navigation bar starts at 0.9361. What is left is app only, ending on a complete 'Apa jenis kedai anda?'.",
+        "top_crop": 0.137,
         "bottom_crop": 0.066,
-        "screen_height": 840,
+        "redact": [
+          {
+            "box": [
+              0.32,
+              0.004,
+              1.0,
+              0.088
+            ],
+            "sample": [
+              0.02,
+              0.045
+            ],
+            "feather": 10,
+            "note": "The app header's right: the BM session badge, Log Keluar, and the avatar and username. The BinaApp logo sits left of 0.26 and is kept."
+          }
+        ],
+        "pad_split": [
+          0.28,
+          0.72
+        ],
+        "screen_height": 980,
         "tilt": -4.0,
-        "offset": [0.02, 0.0]
+        "offset": [
+          0.02,
+          0.0
+        ]
       },
       "prompt": "Camera move only. Hold the supplied image exactly as it is and do not redraw any part of it. The camera pushes slowly and smoothly in toward the phone screen while the out-of-focus kedai behind it drifts with a slight parallax, and the screen's backlight lifts very slightly, as if the phone has just woken. The phone, the app on it, its layout, its colours, its logo, and every word, button, icon and edge of the interface must remain pixel-identical to the supplied frame for the whole clip. STRICTLY FORBIDDEN: redrawing, restyling, retyping, translating, adding, removing or re-rendering any text or any part of the interface; changing the app's colours, spacing, icons or logo; adding any new text, caption, watermark or logo anywhere in frame; introducing any new object, hand or person. Photorealistic, warm, colourful, shallow depth of field, steady. Landscape 16:9."
     },
-
     "3-site": {
       "kind": "image_to_video",
       "title": "Her finished site, on the same phone",
       "first_frame": {
         "source_video": "Screen_Recording_20260921_172317_Chrome.mp4",
         "at_seconds": 0.4,
-        "source_note": "Her live site at the top of the page. Taken at 0.4s because Chrome's 'No internet connection' banner appears about three seconds in; this early the address bar is clean and shows her own domain.",
-        "top_crop": 0.052,
+        "source_note": "Her live site at the top of the page, taken at 0.4s: Chrome's 'No internet connection' banner appears about three seconds in. Her Chrome is in dark mode, so the browser chrome is found by colour temperature rather than by blue — it runs cool to y=0.131 and her warm header starts at 0.1335. Her navigation bar is transparent over the dark page, so it does not show up as a bright band the way the /create one does; its icons sit at 0.960-0.980, and the crop at 0.934 clears them.",
+        "top_crop": 0.133,
         "bottom_crop": 0.066,
-        "screen_height": 840,
+        "pad_split": [
+          0.35,
+          0.65
+        ],
+        "screen_height": 980,
         "tilt": -4.0,
-        "offset": [0.02, 0.0]
+        "offset": [
+          0.02,
+          0.0
+        ]
       },
       "prompt": "Camera move only. Hold the supplied image exactly as it is and do not redraw any part of it. The phone screen glows a little brighter and the whole phone rises and grows toward the camera, filling more of the frame, while the out-of-focus kedai behind it falls away with a slight parallax — as though the website were being offered up to the viewer. The website on the screen, its layout, its photography, its colours and every word on it must remain pixel-identical to the supplied frame for the whole clip. STRICTLY FORBIDDEN: redrawing, restyling, retyping, translating, adding, removing or re-rendering any text or any part of the website; changing its colours, spacing, photographs or layout; adding any new text, caption, watermark or logo anywhere in frame; introducing any new object, hand or person. Photorealistic, warm, colourful, shallow depth of field, steady. Landscape 16:9."
     },
-
     "4-handover": {
       "kind": "text_to_video",
       "title": "She shows it to a customer",

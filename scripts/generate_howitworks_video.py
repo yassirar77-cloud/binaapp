@@ -118,16 +118,29 @@ INTERMEDIATE_ARGS = [
 ]
 
 #: The first frame, drawn rather than photographed.
-FRAME_PHONE_HEIGHT = 840      # the screen itself, before the bezel
+FRAME_PHONE_HEIGHT = 980      # the screen itself, before the bezel
 FRAME_PHONE_BEZEL = 15
-FRAME_SCREEN_RADIUS = 40
-FRAME_BODY_RADIUS = 54
+FRAME_SCREEN_RADIUS = 44
+FRAME_BODY_RADIUS = 58
 FRAME_PHONE_TILT = -4.0       # degrees; negative leans the top to the right
 FRAME_SHADOW_OFFSET = (18, 34)
 FRAME_SHADOW_BLUR = 34
 FRAME_SHADOW_ALPHA = 205
 BACKDROP_SEED = 11
 BACKDROP_BOKEH = 40
+
+#: A modern phone screen, 9:19.5. The captures are nothing like it — 1248x1972
+#: and 1080x1708 are 0.63 and 0.63, and cropping the browser chrome off the top
+#: makes them squarer still, not slimmer. The content also runs to within 4% of
+#: each edge, so there is no side margin to take. The only way to a tall screen
+#: is therefore to add screen, not remove it: the capture is padded above and
+#: below with the colour of its own outermost rows. On these captures both
+#: edges are the app's flat near-black background, so the join is invisible and
+#: the result reads as a page that does not fill its screen — which is what it
+#: is. `pad_blend` feathers the join for the cases where an edge is not flat.
+FRAME_SCREEN_RATIO = 9 / 19.5
+FRAME_PAD_SAMPLE_ROWS = 14
+FRAME_PAD_BLEND = 72
 
 
 # ---------------------------------------------------------------------------
@@ -320,6 +333,96 @@ def screen_image(spec: Dict):
     return Image.open(grab).convert("RGB")
 
 
+def redact(screen, box: Dict) -> None:
+    """Paint out part of the capture, in place, with its own background colour.
+
+    The /create page carries the merchant's login: a session badge, a log-out
+    button and her username sit along the right of the app header. Cropping the
+    header would take the BinaApp logo with it, so the right of the strip is
+    filled with the page background sampled from beside the logo instead. The
+    fill is feathered, because a hard-edged rectangle over a UI reads as a
+    rectangle over a UI.
+    """
+    from PIL import Image, ImageDraw, ImageFilter
+
+    left, top, right, bottom = box["box"]
+    x0, y0 = int(screen.width * left), int(screen.height * top)
+    x1, y1 = int(screen.width * right), int(screen.height * bottom)
+    if x1 <= x0 or y1 <= y0:
+        return
+
+    sample_x, sample_y = box.get("sample", [0.02, 0.5])
+    colour = screen.getpixel(
+        (min(int(screen.width * sample_x), screen.width - 1),
+         min(int(screen.height * sample_y), screen.height - 1))
+    )
+
+    feather = int(box.get("feather", 10))
+    patch = Image.new("RGBA", screen.size, colour + (0,))
+    mask = Image.new("L", screen.size, 0)
+    ImageDraw.Draw(mask).rectangle([x0, y0, x1, y1], fill=255)
+    patch.putalpha(mask.filter(ImageFilter.GaussianBlur(feather)))
+    screen.paste(patch, (0, 0), patch)
+
+
+def pad_to_screen_ratio(screen, split: List[float]):
+    """Grow the capture to FRAME_SCREEN_RATIO by extending its own edges.
+
+    Padding rather than cropping is not a preference. The captures are 0.63
+    wide-to-tall and the content reaches within 4% of both side edges, so there
+    is neither the shape nor the margin to cut a 0.46 screen out of them.
+    Extending them with the colour of their own outermost rows costs nothing
+    and, on a flat dark background, cannot be seen.
+    """
+    from PIL import Image
+
+    target_height = round(screen.width / FRAME_SCREEN_RATIO)
+    extra = target_height - screen.height
+    if extra <= 0:
+        return screen
+
+    weight = (split[0] + split[1]) or 1
+    above = round(extra * split[0] / weight)
+    below = extra - above
+
+    def edge_colour(from_top: bool):
+        rows = min(FRAME_PAD_SAMPLE_ROWS, screen.height)
+        strip = screen.crop(
+            (0, 0, screen.width, rows) if from_top
+            else (0, screen.height - rows, screen.width, screen.height)
+        )
+        return strip.resize((1, 1), Image.BOX).getpixel((0, 0))
+
+    padded = Image.new("RGB", (screen.width, target_height), edge_colour(True))
+    if below:
+        padded.paste(
+            Image.new("RGB", (screen.width, below), edge_colour(False)),
+            (0, target_height - below),
+        )
+    padded.paste(screen, (0, above))
+
+    # Feather both joins. On these captures the edges are flat and there is
+    # nothing to hide; on one whose edge lands mid-photograph, this is what
+    # keeps the seam from being a line.
+    blend = min(FRAME_PAD_BLEND, screen.height // 4)
+    for edge_top, colour, start in (
+        (True, edge_colour(True), above),
+        (False, edge_colour(False), above + screen.height - blend),
+    ):
+        if (edge_top and not above) or (not edge_top and not below):
+            continue
+        for step in range(blend):
+            alpha = 1 - step / blend if edge_top else step / blend
+            y = start + step
+            line = Image.new("RGB", (screen.width, 1), colour)
+            padded.paste(
+                Image.blend(padded.crop((0, y, screen.width, y + 1)), line, alpha),
+                (0, y),
+            )
+
+    return padded
+
+
 def build_first_frame(spec: Dict, out: Path) -> Path:
     """Draw the frame shots 2 and 3 start from, and save it as a PNG.
 
@@ -337,6 +440,9 @@ def build_first_frame(spec: Dict, out: Path) -> Path:
     screen = screen.crop(
         (0, int(screen.height * top), screen.width, int(screen.height * (1 - bottom)))
     )
+    for box in spec.get("redact", []):
+        redact(screen, box)
+    screen = pad_to_screen_ratio(screen, spec.get("pad_split", [0.3, 0.7]))
 
     height = int(spec.get("screen_height", FRAME_PHONE_HEIGHT))
     width = int(screen.width * height / screen.height)
