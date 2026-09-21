@@ -10,6 +10,7 @@ import { signOut, getCurrentUser, getStoredToken } from '@/lib/supabase'
 import { UpgradeModal } from '@/components/UpgradeModal'
 import LandingNav from '@/components/landing/LandingNav'
 import LandingHero from '@/components/landing/LandingHero'
+import LandingHowItWorks from '@/components/landing/LandingHowItWorks'
 import LandingFeatures from '@/components/landing/LandingFeatures'
 import LandingShowcase from '@/components/landing/LandingShowcase'
 import LandingPricing from '@/components/landing/LandingPricing'
@@ -86,6 +87,7 @@ function LandingPageContent() {
     <div className="min-h-screen">
       <LandingNav user={user} loading={loading} onLogout={handleLogout} />
       <LandingHero />
+      <LandingHowItWorks />
       <LandingFeatures />
       <LandingShowcase />
       <LandingPricing onSelectPlan={handleSelectPlan} />

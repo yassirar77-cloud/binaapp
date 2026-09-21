@@ -134,3 +134,7 @@ tests/fixtures/*.html
 # clips can be re-encoded for free, never committed — only the compressed
 # MP4s and posters in frontend/public/showcase/ belong in the repo.
 scripts/showcase_raw/
+
+# Intermediate beats for the "how it works" film. Regenerable from the
+# merchant's assets in scripts/howitworks_assets/, which ARE committed.
+scripts/howitworks_raw/

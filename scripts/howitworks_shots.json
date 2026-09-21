@@ -1,0 +1,52 @@
+{
+  "_note": "The 20-second 'how it works' film under the hero. Four beats: she sits down with her phone, the real /create flow, her real finished site, and her showing it to a customer. The two AI beats are generated; the two middle beats are built in ffmpeg from the merchant's own screenshots and screen recording and are NEVER sent to a video model — a model that redraws every frame destroys UI text, and the whole point of those beats is that the text is real.",
+  "merchant": {
+    "name": "Dapur Western Kak Mira",
+    "site_url": "https://dapurwesternkakmira.binaapp.my",
+    "site_url_note": "Read off the address bar in her own screen recording, where the first character is clipped by Chrome's fade: '...apurwesternkakmira.binaapp.my'. Worth confirming before it is linked anywhere public."
+  },
+  "timing": {
+    "target_total_seconds": 20.0,
+    "crossfade_seconds": 0.6
+  },
+  "shots": {
+    "1-ai-open": {
+      "kind": "ai",
+      "title": "She sits down with her phone after closing",
+      "prompt": "A Malaysian Malay woman wearing a soft dark tudung (hijab) in her small western-food kedai makan after closing time. The chairs are up on the tables behind her. She lowers herself onto a stool by the counter, tired but calm, and picks up her smartphone in one hand, looking down at it. The phone screen is dark and switched off — nothing on it is readable. Warm tungsten bulbs above the counter, deep shadow beyond, the shot framed with her just right of centre and the left third empty and dark. STRICTLY FORBIDDEN: no text, no letters, no numbers, no words, no signage, no menu boards, no writing on walls, no labels, no logos, no watermark, no captions or subtitles. Nothing readable may appear anywhere in frame at any point. Cinematic, photorealistic, warm tungsten light, very dark background, shallow depth of field, unhurried, handheld but steady. Landscape 16:9."
+    },
+    "2-create-flow": {
+      "kind": "phone_stills",
+      "title": "The real /create flow, in a phone",
+      "stills": [
+        "Screenshot_20260921_152005_Chrome.jpg",
+        "Screenshot_20260921_152013_Chrome.jpg",
+        "Screenshot_20260921_152046_Chrome.jpg",
+        "Screenshot_20260921_152227_Chrome.jpg",
+        "Screenshot_20260921_160047_Chrome.jpg"
+      ],
+      "wide_stills": [
+        "Screenshot_20260921_160344_Chrome.jpg"
+      ]
+    },
+    "3-site-scroll": {
+      "kind": "phone_recording",
+      "title": "Her finished site, in the same phone",
+      "recording": "Screen_Recording_20260921_172317_Chrome.mp4",
+      "speed": 3.0,
+      "speed_note": "a ceiling; the builder computes the speed that fills the slot"
+    },
+    "4-ai-handover": {
+      "kind": "ai",
+      "title": "She turns the phone toward a customer",
+      "prompt": "The same Malaysian Malay woman in a tudung behind the counter of her small western-food kedai makan. She smiles and turns her smartphone around to show it to a customer standing across the counter from her, seen from behind and out of focus. The phone screen is dark and switched off — nothing on it is readable. Warm tungsten light, deep shadow behind, she is just right of centre. STRICTLY FORBIDDEN: no text, no letters, no numbers, no words, no signage, no menu boards, no writing on walls, no labels, no logos, no watermark, no captions or subtitles. Nothing readable may appear anywhere in frame at any point. Cinematic, photorealistic, warm tungsten light, very dark background, shallow depth of field, unhurried, handheld but steady. Landscape 16:9."
+    },
+    "5-site-hero": {
+      "kind": "site_fullframe",
+      "title": "Her site, full frame, held",
+      "recording": "Screen_Recording_20260921_172317_Chrome.mp4",
+      "seconds": 2.0,
+      "from_seconds": 0.4
+    }
+  }
+}
