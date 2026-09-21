@@ -1,5 +1,5 @@
 {
-  "_note": "The 20-second 'how it works' film under the hero. Four beats: she sits down with her phone, the real /create flow, her real finished site, and her showing it to a customer. The two AI beats are generated; the two middle beats are built in ffmpeg from the merchant's own screenshots and screen recording and are NEVER sent to a video model — a model that redraws every frame destroys UI text, and the whole point of those beats is that the text is real.",
+  "_note": "The 20-second 'how it works' film under the hero. Her screenshots and her screen recording are composited in ffmpeg and never sent to a video model; only the two beats with a person in them are generated. Each still names a focus point — the beat opens on the whole phone, eases in there, and holds long enough to read on a phone — and three of the beats carry a step caption. Only three of the six screenshots are used: with two 5s generated beats and a 2s closing hold, the /create flow has about 6.2s, which is three punch-ins at a readable pace or five that flick past unread.",
   "merchant": {
     "name": "Dapur Western Kak Mira",
     "site_url": "https://dapurwesternkakmira.binaapp.my",
@@ -19,22 +19,50 @@
       "kind": "phone_stills",
       "title": "The real /create flow, in a phone",
       "stills": [
-        "Screenshot_20260921_152005_Chrome.jpg",
-        "Screenshot_20260921_152013_Chrome.jpg",
-        "Screenshot_20260921_152046_Chrome.jpg",
-        "Screenshot_20260921_152227_Chrome.jpg",
-        "Screenshot_20260921_160047_Chrome.jpg"
+        {
+          "file": "Screenshot_20260921_152013_Chrome.jpg",
+          "note": "Her own name and her own words. The heading on screen is the caption.",
+          "focus": [
+            0.5,
+            0.627,
+            2.2
+          ],
+          "caption": "1. Cerita pasal kedai anda"
+        },
+        {
+          "file": "Screenshot_20260921_152227_Chrome.jpg",
+          "note": "Menu items, with her Chicken Chop Grill and its price.",
+          "focus": [
+            0.5,
+            0.433,
+            2.2
+          ]
+        },
+        {
+          "file": "Screenshot_20260921_160047_Chrome.jpg",
+          "note": "The build running: the canvas initialising and the code typing itself.",
+          "focus": [
+            0.5,
+            0.75,
+            2.2
+          ],
+          "caption": "2. AI bina website anda"
+        }
       ],
-      "wide_stills": [
-        "Screenshot_20260921_160344_Chrome.jpg"
-      ]
+      "unused_stills": [
+        "Screenshot_20260921_152005_Chrome.jpg",
+        "Screenshot_20260921_152046_Chrome.jpg"
+      ],
+      "unused_note": "Kept in scripts/howitworks_assets/ but not in the cut: the designer brief and the hero-image/hero-video step. Move one into 'stills' and drop another if the order should change — the beat has room for three."
     },
     "3-site-scroll": {
       "kind": "phone_recording",
       "title": "Her finished site, in the same phone",
       "recording": "Screen_Recording_20260921_172317_Chrome.mp4",
       "speed": 3.0,
-      "speed_note": "a ceiling; the builder computes the speed that fills the slot"
+      "speed_note": "a ceiling; the builder computes the speed that fills the slot",
+      "caption": "3. Siap. Terus terima order.",
+      "top_crop": 0.135
     },
     "4-ai-handover": {
       "kind": "ai",

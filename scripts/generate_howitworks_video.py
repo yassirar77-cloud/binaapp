@@ -104,32 +104,80 @@ FPS = 30
 ENCODE_CRF = 26
 SIZE_BUDGET_BYTES = 6_000_000
 
-#: The phone. Height in canvas pixels, and the bezel it sits in.
-PHONE_HEIGHT = 976
-BEZEL_WIDTH, BEZEL_HEIGHT = 520, 1000
-PHONE_RADIUS, BEZEL_RADIUS = 44, 52
+#: The phone. Tall in frame — the merchant's screen is the subject, not a
+#: postage stamp floating on a background.
+PHONE_HEIGHT = 930
+PHONE_RADIUS = 44
 
-#: Fractions trimmed off a phone capture: the OS status bar at the top and the
-#: navigation bar at the bottom. Measured against these screenshots rather than
-#: assumed — a different phone would need different numbers.
+#: Fractions trimmed off a phone capture. The screenshots lose the OS status
+#: bar and the navigation bar. The recording loses more from the top: from
+#: about three seconds in, Chrome shows a "No internet connection" banner
+#: between the status bar and the URL bar, and cropping past all three is the
+#: only way to lose it without the crop changing halfway through.
 STATUS_BAR_FRACTION = 0.052
 NAV_BAR_FRACTION = 0.066
+RECORDING_TOP_FRACTION = 0.135
 
-#: The background behind the phone: a brand-dark diagonal gradient.
-GRADIENT = (
-    f"gradients=s={WIDTH}x{HEIGHT}:c0=0x141033:c1=0x07070F"
-    f":x0=300:y0=0:x1=1700:y1={HEIGHT}:d=1:r={FPS}"
+#: A few degrees of turn, as if the phone were held rather than pasted on.
+#: `perspective` pulls the far edge in; the numbers are pixels of inset at the
+#: top-left and bottom-left corners.
+TILT_INSET = 22
+PHONE_TILT = (
+    f"perspective=x0=0:y0={TILT_INSET}:x1=W:y1=0"
+    f":x2=0:y2=H-{TILT_INSET}:x3=W:y3=H:sense=destination"
 )
-BEZEL_COLOUR = "0x2E2E44"
 
-#: A flat colour source at the film's rate. lavfi sources default to 25fps,
-#: and an overlay takes its rate from them — which is how a 30fps beat came
-#: out at 25 and xfade then refused to cut it against the others.
-def colour_source(colour: str, width: int = WIDTH, height: int = HEIGHT) -> str:
-    return f"color=c={colour}:s={width}x{height}:r={FPS}"
+#: The shadow the phone casts: its own silhouette, blackened, blurred, offset.
+SHADOW_ALPHA = 0.75
+SHADOW_BLUR = 26
+SHADOW_OFFSET = (14, 26)
 
-#: How far the eased push-in travels over a beat.
-PUSH_IN_ZOOM = 1.09
+#: Backdrop: a warm kedai-at-night wash with out-of-focus bulbs, so the
+#: composited beats sit in the same room as the generated ones rather than on
+#: a flat navy card. Drawn once with PIL and reused.
+BACKDROP_SEED = 7
+BACKDROP_BOKEH = 26
+
+#: Step captions: bottom-left, bold, fading in and out.
+CAPTION_FONTS = (
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+)
+CAPTION_SIZE = 62
+CAPTION_MARGIN = (96, 84)     # from the left, and up from the bottom
+CAPTION_FADE = 0.45
+CAPTION_BAND_HEIGHT = 300     # the scrim under the type, measured from the bottom
+CAPTION_SCRIM_ALPHA = 0.72
+
+#: The shape of a still beat: a moment at rest so the phone reads as a phone,
+#: then the push in, then the hold. Without the rest at the front the zoom has
+#: already cropped past the phone's edges within four frames and the mockup —
+#: the tilt, the shadow, the whole point of it — is never actually seen.
+PRE_HOLD_SECONDS = 0.35
+PUNCH_IN_SECONDS = 0.55
+MIN_HOLD_SECONDS = 1.4
+
+#: Transitions. Any blend between two screenshots shows both at once and both
+#: are full of text — which is what made the first cut look amateur. smoothleft
+#: was no better: its ramp is wide enough to be a dissolve. A slide carries the
+#: old frame off and the new one on with no overlap anywhere, so exactly one
+#: screen is ever readable. Between whole beats, where the two sides are
+#: different places rather than two documents, a dissolve is still right.
+TRANSITION_SECONDS = 0.35
+STILL_TRANSITION = "slideleft"
+BEAT_TRANSITION = "fade"
+
+#: The closing shot. 0 would sit at the top of the page, 1 at the bottom of
+#: what the crop keeps; 0.30 frames her Halal badge, her headline and the rule
+#: under it. The side trim loses Chrome's scrollbar sliver.
+SITE_CROP_Y = 0.30
+SITE_SIDE_TRIM = 0.015
+
+#: Bounds on the speed-up applied to her screen recording: never slowed below
+#: real time, never so fast the page becomes a blur.
+MIN_SPEED = 1.0
+MAX_SPEED = 3.0
 
 #: Every intermediate is written with these exact settings. The timescale is
 #: pinned because xfade refuses inputs whose timebases differ — two clips
@@ -148,22 +196,6 @@ def rounded_alpha(radius: int) -> str:
         f"*gt(abs(Y-(H/2)),(H/2)-{radius}),"
         f"if(lte(pow(abs(X-(W/2))-((W/2)-{radius}),2)"
         f"+pow(abs(Y-(H/2))-((H/2)-{radius}),2),pow({radius},2)),255,0),255)'"
-    )
-
-
-def eased_push_in(seconds: float) -> str:
-    """A zoompan that eases in and out rather than ramping linearly.
-
-    `on` is the output frame index; the smoothstep 3p²-2p³ is what stops the
-    move from starting and stopping with a visible jerk.
-    """
-    frames = max(2, int(round(seconds * FPS)))
-    progress = f"(on/{frames})"
-    smooth = f"({progress}*{progress}*(3-2*{progress}))"
-    return (
-        f"zoompan=z='1+{PUSH_IN_ZOOM - 1:.4f}*{smooth}':d={frames}"
-        f":x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
-        f":s={WIDTH}x{HEIGHT}:fps={FPS}"
     )
 
 
@@ -374,149 +406,315 @@ def build_ai_shot(client: httpx.Client, prompt: str, seconds: int, out: Path) ->
 # ---------------------------------------------------------------------------
 
 
-def phone_layer(label_in: str, label_out: str, crop: bool, sweep_seconds: float) -> str:
-    """Filter chain: a capture becomes the lit, rounded phone screen.
+def backdrop_path() -> Path:
+    """Draw the warm kedai-at-night backdrop once, and reuse it.
 
-    The light sweep is applied to the screen BEFORE the corners are rounded, so
-    it is clipped to the glass for free instead of needing a second mask.
+    PIL rather than ffmpeg: a radial wash with two dozen out-of-focus bulbs is
+    a handful of lines here and an unreadable geq expression there. It also
+    means the look does not depend on which filters a given ffmpeg was built
+    with — this one has no drawtext at all.
     """
-    trim = (
-        f"crop=iw:ih*{1 - STATUS_BAR_FRACTION - NAV_BAR_FRACTION}:0:ih*{STATUS_BAR_FRACTION},"
-        if crop else ""
+    destination = RAW_DIR / "backdrop.png"
+    if destination.is_file():
+        return destination
+
+    from PIL import Image, ImageDraw, ImageFilter
+    import random
+
+    base = Image.new("RGB", (WIDTH, HEIGHT), (8, 6, 5))
+    draw = ImageDraw.Draw(base)
+    # A broad warm pool falling in from the upper right, like a lamp over a
+    # counter, drawn as nested ellipses and then blurred smooth.
+    for step in range(70, 0, -1):
+        radius = int(step / 70 * 1400)
+        weight = 1 - step / 70
+        draw.ellipse(
+            [1350 - radius, 120 - radius, 1350 + radius, 120 + radius],
+            fill=(int(46 * weight + 8), int(26 * weight + 6), int(12 * weight + 5)),
+        )
+    base = base.filter(ImageFilter.GaussianBlur(90))
+
+    random.seed(BACKDROP_SEED)
+    bulbs = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
+    bulb_draw = ImageDraw.Draw(bulbs)
+    for _ in range(26):
+        x, y = random.randint(0, WIDTH), random.randint(0, int(HEIGHT * 0.8))
+        radius = random.randint(18, 70)
+        warmth = random.randint(150, 255)
+        bulb_draw.ellipse(
+            [x - radius, y - radius, x + radius, y + radius],
+            fill=(warmth, int(warmth * 0.62), int(warmth * 0.28), random.randint(26, 74)),
+        )
+    bulbs = bulbs.filter(ImageFilter.GaussianBlur(BACKDROP_BOKEH))
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    Image.alpha_composite(base.convert("RGBA"), bulbs).convert("RGB").save(destination)
+    return destination
+
+
+def caption_path(text: str) -> Path:
+    """Render one step caption, on its scrim, to a full-width transparent PNG.
+
+    Drawn rather than drawn-on: this ffmpeg has no `drawtext` filter at all
+    (no libfreetype in the build), and a caption that only renders on some
+    machines is worse than none.
+
+    The band is the whole frame width so the gradient under the type has room
+    to reach nothing at its top edge. Without it the caption lands on top of
+    her own copy — white type on white type, which no drop shadow saves.
+    """
+    safe = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:48]
+    destination = RAW_DIR / f"caption-{safe}.png"
+    if destination.is_file():
+        return destination
+
+    from PIL import Image, ImageDraw, ImageFont
+
+    font = None
+    for candidate in CAPTION_FONTS:
+        if Path(candidate).is_file():
+            font = ImageFont.truetype(candidate, CAPTION_SIZE)
+            break
+    if font is None:
+        raise RuntimeError(
+            "no bold font found for the captions. Tried:\n        "
+            + "\n        ".join(CAPTION_FONTS)
+        )
+
+    scratch = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    left, top, right, bottom = scratch.textbbox((0, 0), text, font=font)
+    text_height = bottom - top
+
+    band = Image.new("RGBA", (WIDTH, CAPTION_BAND_HEIGHT), (0, 0, 0, 0))
+
+    # The scrim: opaque at the bottom of the frame, gone by the top of the
+    # band, squared so it falls away quickly rather than greying half the shot.
+    scrim = Image.new("L", (1, CAPTION_BAND_HEIGHT))
+    for y in range(CAPTION_BAND_HEIGHT):
+        down = y / (CAPTION_BAND_HEIGHT - 1)
+        scrim.putpixel((0, y), int(CAPTION_SCRIM_ALPHA * 255 * down * down))
+    band.paste(
+        Image.new("RGBA", (WIDTH, CAPTION_BAND_HEIGHT), (0, 0, 0, 255)),
+        (0, 0),
+        scrim.resize((WIDTH, CAPTION_BAND_HEIGHT)),
     )
+
+    draw = ImageDraw.Draw(band)
+    baseline = CAPTION_BAND_HEIGHT - CAPTION_MARGIN[1] - text_height
+    origin = (CAPTION_MARGIN[0] - left, baseline - top)
+    # Still a shadow under the type: the scrim darkens, it does not flatten.
+    draw.text((origin[0] + 3, origin[1] + 3), text, font=font, fill=(0, 0, 0, 200))
+    draw.text(origin, text, font=font, fill=(255, 255, 255, 255))
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    band.save(destination)
+    return destination
+
+
+def smoothstep(progress: str) -> str:
+    """3p²-2p³ — the ease that stops a move starting and stopping with a jerk."""
+    return f"({progress}*{progress}*(3-2*{progress}))"
+
+
+def punch_in(seconds: float, focus: List[float]) -> str:
+    """A zoompan that eases into a point and then holds there.
+
+    `focus` is (x, y, zoom) in fractions of the phone screen. It is converted
+    to the composed frame here, because the phone's size and position on that
+    frame are known only to this module.
+
+    The move is over in PUNCH_IN_SECONDS; the rest of the beat is the hold,
+    which is the part that has to stay still long enough to read on a phone.
+    """
+    frames = max(2, int(round(seconds * FPS)))
+    move_frames = max(1, int(round(min(PUNCH_IN_SECONDS, seconds * 0.35) * FPS)))
+    rest_frames = max(0, int(round(min(PRE_HOLD_SECONDS, seconds * 0.25) * FPS)))
+    # Clamped at both ends: flat through the rest at the front, flat again
+    # through the hold at the back, eased only in between.
+    progress = f"min(max((on-{rest_frames})/{move_frames},0),1)"
+    eased = smoothstep(progress)
+
+    focus_x, focus_y, zoom = focus
+    # The phone is centred, PHONE_HEIGHT tall. A point on its screen maps onto
+    # the frame through where the phone actually sits.
+    phone_top = (HEIGHT - PHONE_HEIGHT) / 2
+    target_x = 0.5                                   # the phone is horizontally centred
+    target_y = (phone_top + focus_y * PHONE_HEIGHT) / HEIGHT
+    # A touch of horizontal drift toward the focus, so the move is not purely
+    # a dolly — it reads as a camera finding the thing.
+    target_x = 0.5 + (focus_x - 0.5) * 0.35
+
+    zoom_expr = f"1+{zoom - 1:.4f}*{eased}"
+    # zoompan's x/y are the top-left of the crop, in input pixels.
+    x_expr = f"(iw*({0.5:.4f}+({target_x:.4f}-0.5)*{eased}))-(iw/zoom/2)"
+    y_expr = f"(ih*({0.5:.4f}+({target_y:.4f}-0.5)*{eased}))-(ih/zoom/2)"
     return (
-        f"[{label_in}]{trim}scale=-2:{PHONE_HEIGHT},format=rgba[{label_out}_lit];"
-        f"[{label_out}_lit]{rounded_alpha(PHONE_RADIUS)}[{label_out}]"
-    ) if sweep_seconds <= 0 else (
-        f"[{label_in}]{trim}scale=-2:{PHONE_HEIGHT},format=rgba[{label_out}_scr];"
-        f"[{label_out}_scr]{rounded_alpha(PHONE_RADIUS)}[{label_out}]"
+        f"zoompan=z='{zoom_expr}':d={frames}"
+        f":x='{x_expr}':y='{y_expr}'"
+        f":s={WIDTH}x{HEIGHT}:fps={FPS}"
     )
 
 
-def build_phone_stills(stills: List[Path], wide: List[Path], seconds: float, out: Path) -> None:
-    """Beat 2: her /create screenshots, each in the phone, cross-dissolving.
+def caption_overlay(caption_png: Path, seconds: float) -> Tuple[List[str], str]:
+    """Extra ffmpeg input and filter for a caption that fades in and out."""
+    hold_out = max(seconds - CAPTION_FADE, CAPTION_FADE)
+    inputs = ["-loop", "1", "-t", f"{seconds:.3f}", "-i", str(caption_png)]
+    chain = (
+        f"format=rgba,"
+        f"fade=t=in:st=0:d={CAPTION_FADE}:alpha=1,"
+        f"fade=t=out:st={hold_out:.3f}:d={CAPTION_FADE}:alpha=1"
+    )
+    return inputs, chain
 
-    Built one still at a time and concatenated, rather than as one enormous
-    filter graph — a graph with six zoompans and five xfades in it is both
+
+def phone_on_backdrop(screen_label: str, out_label: str) -> str:
+    """Filter chain: a screen becomes a tilted, shadowed phone on the backdrop.
+
+    The shadow is the phone's own silhouette — split, blackened, blurred and
+    offset — rather than a drawn rectangle, so it follows the tilt for free.
+    """
+    return (
+        f"[{screen_label}]format=rgba,{rounded_alpha(PHONE_RADIUS)},{PHONE_TILT}[phone];"
+        f"[phone]split=2[ph][shadowsrc];"
+        f"[shadowsrc]format=rgba,colorchannelmixer=rr=0:gg=0:bb=0:aa={SHADOW_ALPHA},"
+        f"gblur=sigma={SHADOW_BLUR}[shadow];"
+        f"[bg][shadow]overlay=(W-w)/2+{SHADOW_OFFSET[0]}:(H-h)/2+{SHADOW_OFFSET[1]}[shaded];"
+        f"[shaded][ph]overlay=(W-w)/2:(H-h)/2[{out_label}]"
+    )
+
+
+def build_still_beat(still: Dict, seconds: float, out: Path) -> None:
+    """One /create screenshot: phone on the backdrop, punched into its focus."""
+    source = ASSETS_DIR / still["file"]
+    focus = still.get("focus") or [0.5, 0.5, 1.6]
+    caption = still.get("caption")
+
+    inputs = [
+        "-loop", "1", "-t", f"{seconds:.3f}", "-i", str(source),
+        "-loop", "1", "-t", f"{seconds:.3f}", "-i", str(backdrop_path()),
+    ]
+    graph = (
+        f"[1:v]format=rgba[bg];"
+        f"[0:v]crop=iw:ih*{1 - STATUS_BAR_FRACTION - NAV_BAR_FRACTION}"
+        f":0:ih*{STATUS_BAR_FRACTION},scale=-2:{PHONE_HEIGHT}[screen];"
+        + phone_on_backdrop("screen", "composed") + ";"
+        f"[composed]{punch_in(seconds, focus)}[moved]"
+    )
+
+    if caption:
+        caption_inputs, caption_chain = caption_overlay(caption_path(caption), seconds)
+        inputs += caption_inputs
+        graph += (
+            f";[2:v]{caption_chain}[cap];"
+            f"[moved][cap]overlay=0:H-h[withcap];"
+            f"[withcap]format=yuv420p[out]"
+        )
+    else:
+        graph += ";[moved]format=yuv420p[out]"
+
+    run_quiet(
+        ["ffmpeg", "-y", "-loglevel", "error"] + inputs
+        + ["-filter_complex", graph, "-map", "[out]", "-an", "-t", f"{seconds:.3f}"]
+        + INTERMEDIATE_ARGS + [str(out)]
+    )
+
+
+def build_phone_stills(stills: List[Dict], seconds: float, out: Path) -> None:
+    """Beat 2: her /create screenshots, each punched into and held.
+
+    Built one still at a time and joined, rather than as one enormous filter
+    graph: a graph with five zoompans and four transitions in it is both
     unreadable and, on some ffmpeg builds, unrunnable.
     """
-    pieces: List[Path] = []
-    everything = [(s, True) for s in stills] + [(w, False) for w in wide]
-    if not everything:
+    if not stills:
         raise RuntimeError("no stills to build beat 2 from")
 
-    # A cross-dissolve eats time from both neighbours, so each piece is a
-    # little longer than its share.
-    dissolve = 0.5
-    each = (seconds + dissolve * (len(everything) - 1)) / len(everything)
+    # The transition eats time from both neighbours, so each piece runs longer
+    # than its share of the beat.
+    transition = TRANSITION_SECONDS
+    each = (seconds + transition * (len(stills) - 1)) / len(stills)
+    hold = each - PRE_HOLD_SECONDS - PUNCH_IN_SECONDS
+    if hold < MIN_HOLD_SECONDS:
+        print(f"      note: {hold:.1f}s hold per still, under the {MIN_HOLD_SECONDS}s "
+              f"that reads comfortably on a phone")
 
-    for index, (still, as_phone) in enumerate(everything):
+    pieces: List[Path] = []
+    for index, still in enumerate(stills):
         piece = out.with_name(f"{out.stem}-{index}.mp4")
-        sweep_at = each * 0.45
-
-        if as_phone:
-            graph = (
-                f"[1:v]format=rgba[bg];"
-                f"[2:v]scale={BEZEL_WIDTH}:{BEZEL_HEIGHT},format=rgba,"
-                f"{rounded_alpha(BEZEL_RADIUS)}[bezel];"
-                f"[0:v]crop=iw:ih*{1 - STATUS_BAR_FRACTION - NAV_BAR_FRACTION}"
-                f":0:ih*{STATUS_BAR_FRACTION},scale=-2:{PHONE_HEIGHT},format=rgba[screen];"
-                f"[3:v]scale=260:{int(PHONE_HEIGHT * 2)},rotate=0.35"
-                f":c=none:ow=rotw(0.35):oh=roth(0.35),format=rgba,"
-                f"colorchannelmixer=aa=0.10[sweep];"
-                f"[screen][sweep]overlay=x='-w+(t/{max(each, 0.1):.3f})*(W+w*2)'"
-                f":y=(H-h)/2:eval=frame[screenlit];"
-                f"[screenlit]{rounded_alpha(PHONE_RADIUS)}[phone];"
-                f"[bg][bezel]overlay=(W-w)/2:(H-h)/2[framed];"
-                f"[framed][phone]overlay=(W-w)/2:(H-h)/2,{eased_push_in(each)},"
-                f"format=yuv420p[out]"
-            )
-            inputs = [
-                "-loop", "1", "-t", f"{each:.3f}", "-i", str(still),
-                "-f", "lavfi", "-t", f"{each:.3f}", "-i", GRADIENT,
-                "-f", "lavfi", "-t", f"{each:.3f}", "-i", colour_source(BEZEL_COLOUR),
-                "-f", "lavfi", "-t", f"{each:.3f}", "-i",
-                colour_source("white", 260, int(PHONE_HEIGHT * 2)),
-            ]
-        else:
-            # The landscape capture gets a wide card instead of a phone.
-            card_w = int(WIDTH * 0.74)
-            graph = (
-                f"[1:v]format=rgba[bg];"
-                f"[0:v]scale={card_w}:-2,format=rgba,{rounded_alpha(24)}[card];"
-                f"[bg][card]overlay=(W-w)/2:(H-h)/2,{eased_push_in(each)},"
-                f"format=yuv420p[out]"
-            )
-            inputs = [
-                "-loop", "1", "-t", f"{each:.3f}", "-i", str(still),
-                "-f", "lavfi", "-t", f"{each:.3f}", "-i", GRADIENT,
-            ]
-            _ = sweep_at
-
-        run_quiet(
-            ["ffmpeg", "-y", "-loglevel", "error"] + inputs
-            + ["-filter_complex", graph, "-map", "[out]", "-an",
-               "-t", f"{each:.3f}"] + INTERMEDIATE_ARGS + [str(piece)]
-        )
+        build_still_beat(still, each, piece)
         pieces.append(piece)
 
-    crossfade_concat(pieces, out, dissolve)
+    crossfade_concat(pieces, out, transition, transition_name=STILL_TRANSITION)
     for piece in pieces:
         piece.unlink(missing_ok=True)
 
 
-#: How fast the site recording may be pushed. Below 1.0 would be slow motion;
-#: above about 3x a page scroll stops reading as browsing and starts reading as
-#: a glitch.
-MIN_SPEED, MAX_SPEED = 1.0, 3.0
-
-
-def build_phone_recording(recording: Path, max_speed: float, seconds: float, out: Path) -> None:
+def build_phone_recording(recording: Path, max_speed: float, seconds: float, out: Path,
+                          top_crop: float = RECORDING_TOP_FRACTION,
+                          caption: str = "") -> None:
     """Beat 3: her site recording, in the same phone, fitted to its slot.
 
     The speed-up is computed from the slot rather than fixed, so the beat
     always fills its share instead of running out and freezing on the last
     frame — which is what a hard-coded 1.8x did the first time this ran.
-    `max_speed` from the shot plan is a ceiling, not the value.
     """
     source_length = duration_of(recording)
     wanted = source_length / max(seconds, 0.1)
     speed = min(max(wanted, MIN_SPEED), min(max_speed, MAX_SPEED))
     take = min(seconds, source_length / speed)
     print(f"      {source_length:.1f}s recording at {speed:.2f}x → {take:.1f}s")
-    if take < seconds - 0.05:
-        print(f"      (short of the {seconds:.1f}s slot even at {speed:.2f}x)")
 
+    inputs = [
+        "-i", str(recording),
+        "-loop", "1", "-t", f"{take:.3f}", "-i", str(backdrop_path()),
+    ]
     graph = (
         f"[1:v]format=rgba[bg];"
-        f"[2:v]scale={BEZEL_WIDTH}:{BEZEL_HEIGHT},format=rgba,"
-        f"{rounded_alpha(BEZEL_RADIUS)}[bezel];"
         f"[0:v]setpts=PTS/{speed},fps={FPS},"
-        f"crop=iw:ih*{1 - STATUS_BAR_FRACTION - NAV_BAR_FRACTION}:0:ih*{STATUS_BAR_FRACTION},"
-        f"scale=-2:{PHONE_HEIGHT},format=rgba,{rounded_alpha(PHONE_RADIUS)}[phone];"
-        f"[bg][bezel]overlay=(W-w)/2:(H-h)/2[framed];"
-        f"[framed][phone]overlay=(W-w)/2:(H-h)/2:shortest=1,format=yuv420p[out]"
+        f"crop=iw:ih*{1 - top_crop - NAV_BAR_FRACTION}:0:ih*{top_crop},"
+        f"scale=-2:{PHONE_HEIGHT}[screen];"
+        + phone_on_backdrop("screen", "composed")
     )
-    run_quiet([
-        "ffmpeg", "-y", "-loglevel", "error",
-        "-i", str(recording),
-        "-f", "lavfi", "-t", f"{take:.3f}", "-i", GRADIENT,
-        "-f", "lavfi", "-t", f"{take:.3f}", "-i", colour_source(BEZEL_COLOUR),
-        "-filter_complex", graph, "-map", "[out]", "-an",
-        "-t", f"{take:.3f}",
-    ] + INTERMEDIATE_ARGS + [str(out)])
+
+    if caption:
+        caption_inputs, caption_chain = caption_overlay(caption_path(caption), take)
+        inputs += caption_inputs
+        graph += (
+            f";[2:v]{caption_chain}[cap];"
+            f"[composed][cap]overlay=0:H-h:shortest=1[withcap];"
+            f"[withcap]format=yuv420p[out]"
+        )
+    else:
+        graph += ";[composed]format=yuv420p[out]"
+
+    run_quiet(
+        ["ffmpeg", "-y", "-loglevel", "error"] + inputs
+        + ["-filter_complex", graph, "-map", "[out]", "-an", "-t", f"{take:.3f}"]
+        + INTERMEDIATE_ARGS + [str(out)]
+    )
 
 
-def build_site_fullframe(recording: Path, start: float, seconds: float, out: Path) -> None:
-    """The closing beat: her site filling the frame, sharp, barely moving."""
+def build_site_fullframe(recording: Path, start: float, seconds: float, out: Path,
+                         crop_y: float = SITE_CROP_Y) -> None:
+    """The closing beat: her site filling the frame, sharp, barely moving.
+
+    A portrait capture keeps under half its height in a 16:9 frame, so where
+    that band sits is the whole composition. Centred it lands mid-headline and
+    loses both the Halal badge above and the rule below; `crop_y` pulls it up
+    to the top of her hero, which is the shot worth ending on.
+    """
     run_quiet([
         "ffmpeg", "-y", "-loglevel", "error",
         "-ss", f"{start:.3f}", "-i", str(recording),
         "-an", "-t", f"{seconds:.3f}",
         "-vf",
-        f"crop=iw:ih*{1 - STATUS_BAR_FRACTION - NAV_BAR_FRACTION}:0:ih*{STATUS_BAR_FRACTION},"
-        f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase,"
-        f"crop={WIDTH}:{HEIGHT},fps={FPS},unsharp=5:5:0.8,format=yuv420p",
+        # The right edge of the capture carries a sliver of scrollbar; it
+        # reads as a white line down the side of an otherwise full-bleed shot.
+        f"crop=iw*{1 - SITE_SIDE_TRIM}:ih*{1 - RECORDING_TOP_FRACTION - NAV_BAR_FRACTION}"
+        f":0:ih*{RECORDING_TOP_FRACTION},"
+        f"scale={WIDTH}:-2,"
+        f"crop={WIDTH}:{HEIGHT}:0:(ih-{HEIGHT})*{crop_y},"
+        f"fps={FPS},unsharp=5:5:0.8,format=yuv420p",
     ] + INTERMEDIATE_ARGS + [str(out)])
 
 
@@ -526,7 +724,8 @@ def build_site_fullframe(recording: Path, start: float, seconds: float, out: Pat
 
 
 def crossfade_concat(clips: List[Path], out: Path, crossfade: float,
-                     crf: int = ENCODE_CRF, faststart: bool = False) -> None:
+                     crf: int = ENCODE_CRF, faststart: bool = False,
+                     transition_name: str = BEAT_TRANSITION) -> None:
     """Cross-fade a list of clips into one.
 
     Nothing may sit between an input and its xfade: putting scale, fps or even
@@ -549,7 +748,7 @@ def crossfade_concat(clips: List[Path], out: Path, crossfade: float,
     for index in range(1, len(clips)):
         label = f"x{index}"
         steps.append(
-            f"[{previous}][{index}:v]xfade=transition=fade:duration={crossfade}"
+            f"[{previous}][{index}:v]xfade=transition={transition_name}:duration={crossfade}"
             f":offset={running - crossfade:.3f}[{label}]"
         )
         running = running + duration_of(clips[index]) - crossfade
@@ -664,11 +863,20 @@ def main() -> int:
     RAW_DIR.mkdir(parents=True, exist_ok=True)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
+    # plan_durations is always given the whole film's beat list, even when only
+    # some of them are rendered: cutting the AI beats out of the arithmetic too
+    # would stretch her footage across their slots, and the preview would be
+    # paced nothing like the film that gets paid for.
+    all_names = list(names)
     ai_names = [n for n in names if shots[n]["kind"] == "ai"]
+    reserved: Dict[str, float] = {}
     if args.stills_only:
+        reserved = {name: float(args.ai_seconds) for name in ai_names}
         names = [n for n in names if n not in ai_names]
         ai_names = []
-        print("\n--stills-only: the AI beats are skipped, nothing will be spent.")
+        print(f"\n--stills-only: the AI beats are skipped, nothing will be spent.\n"
+              f"  Their slots are still reserved at {args.ai_seconds}s each, so every "
+              f"beat below runs\n  exactly as long as it will in the finished film.")
     else:
         api_key()  # fail now, not after the first beat renders
 
@@ -689,11 +897,12 @@ def main() -> int:
 
     fixed = {
         name: float(shots[name]["seconds"])
-        for name in names
+        for name in all_names
         if shots[name]["kind"] == "site_fullframe"
     }
     try:
-        lengths = plan_durations(ai_lengths, target, crossfade, names, fixed)
+        lengths = plan_durations({**ai_lengths, **reserved}, target, crossfade,
+                                 all_names, fixed)
     except RuntimeError as exc:
         print(f"\n{exc}\n")
         return 1
@@ -708,18 +917,17 @@ def main() -> int:
         print(f"\n[{name}] {shot['title']} — {seconds:.1f}s")
 
         if shot["kind"] == "phone_stills":
-            build_phone_stills(
-                [ASSETS_DIR / s for s in shot["stills"]],
-                [ASSETS_DIR / s for s in shot.get("wide_stills", [])],
-                seconds, clip,
-            )
+            build_phone_stills(shot["stills"], seconds, clip)
         elif shot["kind"] == "phone_recording":
             build_phone_recording(
-                ASSETS_DIR / shot["recording"], float(shot["speed"]), seconds, clip
+                ASSETS_DIR / shot["recording"], float(shot["speed"]), seconds, clip,
+                top_crop=float(shot.get("top_crop", RECORDING_TOP_FRACTION)),
+                caption=shot.get("caption", ""),
             )
         elif shot["kind"] == "site_fullframe":
             build_site_fullframe(
-                ASSETS_DIR / shot["recording"], float(shot["from_seconds"]), seconds, clip
+                ASSETS_DIR / shot["recording"], float(shot["from_seconds"]), seconds, clip,
+                crop_y=float(shot.get("crop_y", SITE_CROP_Y)),
             )
         else:
             raise RuntimeError(f"unknown shot kind: {shot['kind']}")
@@ -739,7 +947,10 @@ def main() -> int:
 
     print(f"      → {OUT_VIDEO.relative_to(REPO_ROOT)}  {length:.2f}s  {size / 1e6:.2f} MB")
     print(f"      → {OUT_POSTER.relative_to(REPO_ROOT)}")
-    if abs(length - target) > 0.3 and not args.stills_only:
+    if args.stills_only:
+        print(f"      note: {length:.2f}s — the two AI beats are missing; with them "
+              f"this is a {target:.0f}s film")
+    elif abs(length - target) > 0.3:
         print(f"      note: {length:.2f}s against a {target:.0f}s target")
     if size > SIZE_BUDGET_BYTES:
         print(f"      note: over the {SIZE_BUDGET_BYTES / 1e6:.0f} MB budget")
