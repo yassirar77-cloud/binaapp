@@ -1,5 +1,5 @@
 {
-  "_note": "Three shots, played in this order, for the clip behind the landing hero. Shot 1's first frame is generated; shots 2 and 3 are captured from the real pages so their text is real before wan3.0 ever sees it.",
+  "_note": "Three shots, played in this order, for the clip behind the landing hero. Shot 1's first frame is generated and it is the only shot with motion in the scene; shots 2 and 3 are captured from the real pages and are camera motion only, so their interfaces stay exactly as the screenshot has them.",
   "_style": "Cinematic, photorealistic, warm amber and deep indigo palette, dark moody background, shallow depth of field, gentle handheld camera, 16:9, no on-screen captions, no logos, no watermark.",
   "shots": {
     "01-merchant": {
@@ -13,13 +13,13 @@
       "frame_from": "capture",
       "capture_url": "http://localhost:3000/create",
       "capture_brief": "Kedai western buchher di Jalan Manjalara, Kuala Lumpur. Hidangan barat dengan sentuhan mewah ala hotel butik. Menu: chicken chop RM10, lamb grill RM25, chicken wings RM8. Buka 5pm sampai 12am setiap hari. Saya nak website gelap, mewah, gambar besar, boleh terima pesanan WhatsApp.",
-      "video_prompt": "An extremely slow, steady push-in on a laptop screen showing a dark website builder with Malay text already typed into it. A soft lime glow breathes around the input panel and faint dust drifts through the light. The interface and every word of text stay completely static, sharp and unchanged for the whole shot. Do not redraw, warp, translate, add or remove any text. Only the camera moves. Cinematic, photorealistic, warm amber and deep indigo palette, dark moody background, shallow depth of field, gentle handheld camera, 16:9, no on-screen captions, no logos, no watermark."
+      "video_prompt": "A dark website builder interface with Malay text already typed into it. Camera motion only. A slow, steady push-in toward the centre of the frame with a slight parallax shift, as if a camera on a slider creeping forward a few centimetres. Nothing inside the image moves, changes or animates — only the camera. STRICTLY FORBIDDEN: do not redraw, re-render, alter, replace, translate, reword, correct, add, remove, blur, warp or restyle ANY text, letter, word, number, label, button, icon, cursor, panel, card, border, colour or layout element. Every element of the interface must stay exactly as it is in the source image, pixel for pixel, reframed by the camera and nothing more. No new UI elements. No typing, no scrolling, no clicking, no hover states, no loading spinners. No captions, no subtitles, no watermark."
     },
     "03-website": {
       "title": "The finished website, its hero moving",
       "frame_from": "capture",
       "capture_url": "https://wesddd.binaapp.my/",
-      "video_prompt": "An extremely slow push-in on a finished dark, premium restaurant website. The large photograph behind the restaurant name comes alive — grilled meat glistening, steam rising, embers glowing, light drifting across it — as if a video were playing behind the page. The page layout, the navigation and every word of text stay perfectly still and sharp on top of it. The interface and every word of text stay completely static, sharp and unchanged for the whole shot. Do not redraw, warp, translate, add or remove any text. Only the camera moves. Cinematic, photorealistic, warm amber and deep indigo palette, dark moody background, shallow depth of field, gentle handheld camera, 16:9, no on-screen captions, no logos, no watermark."
+      "video_prompt": "A finished dark, premium restaurant website. Camera motion only. A slow, steady push-in toward the centre of the frame with a slight parallax shift, as if a camera on a slider creeping forward a few centimetres. Nothing inside the image moves, changes or animates — only the camera. STRICTLY FORBIDDEN: do not redraw, re-render, alter, replace, translate, reword, correct, add, remove, blur, warp or restyle ANY text, letter, word, number, label, button, icon, cursor, panel, card, border, colour or layout element. Every element of the interface must stay exactly as it is in the source image, pixel for pixel, reframed by the camera and nothing more. No new UI elements. No typing, no scrolling, no clicking, no hover states, no loading spinners. No captions, no subtitles, no watermark."
     }
   }
 }

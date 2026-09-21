@@ -5,14 +5,18 @@ Three shots, cut together into one silent loop:
 
     1. a merchant in a tudung using BinaApp on her phone, shot from behind
     2. the real /create page with her brief typed into it
-    3. the site that brief produced — wesddd.binaapp.my — its hero alive
+    3. the site that brief produced — wesddd.binaapp.my
 
 Shots 2 and 3 start from a REAL screenshot of the real page, so the Malay copy
 and the layout are genuine pixels before the video model ever sees them. That
-matters: wan3.0 redraws every frame, and text is the first thing it loses. The
-prompts ask for a very slow push-in and nothing else, which is the motion that
-survives best; even so, expect some softening of small type. Shot 1 has no
-photograph to start from, so its first frame is generated too.
+matters: wan3.0 redraws every frame, and text is the first thing it loses.
+Their prompts are camera motion only — a slow push-in with slight parallax —
+and spell out, element by element, that no text, button, icon, border or
+layout may be redrawn. Shot 1 is the only one with motion in the scene, and
+the only one whose first frame is generated rather than captured.
+
+A prompt cannot make a redraw-every-frame model preserve typography, only bias
+it. Judge shot 2 on its own (``--only 02-create``) before paying for the rest.
 
 Provider, endpoint and key are the ones the product already uses for merchant
 hero videos — DashScope (Alibaba Model Studio), read exactly as
