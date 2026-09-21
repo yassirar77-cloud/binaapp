@@ -32,6 +32,7 @@ import {
 } from '@/lib/heroVideo'
 import { checkCreateWebsiteAllowed } from '@/lib/quota'
 import { initialLiveness, observePoll, pollGiveUpMessage, pollVerdict } from '@/lib/generationPoll'
+import { normalizePriceInput } from '@/lib/priceInput'
 import {
   BRIEF_EXAMPLES,
   DESIGN_BRIEF_MAX,
@@ -1107,7 +1108,7 @@ export default function CreatePage() {
       const galleryWithMetadata = uploadedImages.gallery.map(g => ({
         url: g.url,
         name: g.name || '',  // Ensure name is always a string
-        price: g.price || ''  // Include price
+        price: normalizePriceInput(g.price)  // "24." → "24", "." → ""
       }));
 
       // Only rows that actually carry a URL are images. A row with a name
@@ -1130,7 +1131,7 @@ export default function CreatePage() {
       // needs only a NAME — an item with no photo and no price is still the
       // merchant telling us what they sell.
       const menuItemsForGeneration = uploadedImages.gallery
-        .map(g => ({ name: (g.name || '').trim(), price: (g.price || '').trim() }))
+        .map(g => ({ name: (g.name || '').trim(), price: normalizePriceInput(g.price) }))
         .filter(it => it.name.length > 0);
 
       // STRICT IMAGE CONTROL: Determine final image choice
@@ -1250,7 +1251,10 @@ export default function CreatePage() {
         if (errorData.blocked || errorData.detail?.includes('tidak dibenarkan') || errorData.detail?.includes('mencurigakan')) {
           throw new Error(errorData.detail || '⚠️ Maaf, kandungan ini tidak dibenarkan. Sorry, this content is not allowed.');
         }
-        throw new Error(errorData.error || errorData.detail || 'Failed to start generation');
+        // `message` is the sentence written for the merchant ("Harga '24.'
+        // untuk 'Lamb Chop' tidak sah…"); `error` is the code ("invalid_price").
+        // The modal used to show the code.
+        throw new Error(errorData.message || errorData.detail || errorData.error || 'Failed to start generation');
       }
 
       const startData = await startResponse.json();
