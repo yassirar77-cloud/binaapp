@@ -31,6 +31,7 @@ import {
   type PublishHeroVideoOutcome,
 } from '@/lib/heroVideo'
 import { checkCreateWebsiteAllowed } from '@/lib/quota'
+import { initialLiveness, observePoll, pollGiveUpMessage, pollVerdict } from '@/lib/generationPoll'
 import {
   BRIEF_EXAMPLES,
   DESIGN_BRIEF_MAX,
@@ -872,19 +873,25 @@ export default function CreatePage() {
   // Polls a generation job until it completes or fails. Shared by the
   // create flow and by a multi-style pick being refined into the full page.
   const startPolling = (jobId: string) => {
-    const maxAttempts = 200; // 200 attempts x 3 seconds = 10 minutes max (increased from 5 min for complex sites)
-    let attempt = 0;
+    // Give up on liveness, not on a fixed clock. A full pipeline run is
+    // longer than the 10-minute cap this used to have, and the job that
+    // hit it was still progressing when the page declared it dead — the
+    // backend finished a minute later and the merchant never saw the
+    // site. Now the page keeps polling while the job row keeps changing
+    // (progress steps, or the backend heartbeat touching updated_at) and
+    // stops only when the row has been silent for GENERATION_STALL_MS or
+    // GENERATION_HARD_CAP_MS has passed. See lib/generationPoll.ts.
+    const startedAt = Date.now();
+    let liveness = initialLiveness(startedAt);
 
     // CRITICAL: Store interval in ref so it can be cleared on retry
     pollIntervalRef.current = setInterval(async () => {
-      attempt++;
-
-      if (attempt > maxAttempts) {
+      const verdict = pollVerdict(liveness, startedAt, Date.now());
+      if (verdict !== 'continue') {
         if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
         pollIntervalRef.current = null;
-        const stuckInfo = progress > 0 ? ` (stuck at ${progress}%)` : '';
-        setError(`Generation timed out after 10 minutes${stuckInfo}. Job: ${jobId.slice(0, 8)}. Please try again.`);
-        console.error(`❌ Generation timeout - Job: ${jobId}, Progress: ${progress}%`);
+        setError(pollGiveUpMessage(verdict, liveness, jobId));
+        console.error(`❌ Generation ${verdict} - Job: ${jobId}, Progress: ${liveness.progress}%, elapsed: ${Math.round((Date.now() - startedAt) / 1000)}s`);
         // Keep loading=true so the modal stays open with retry button
         return;
       }
@@ -899,6 +906,7 @@ export default function CreatePage() {
         }
 
         const statusData = await statusResponse.json();
+        liveness = observePoll(liveness, statusData, Date.now());
 
         // DEBUG: Log full response details
         console.log('=== POLL RESPONSE ===');
@@ -914,10 +922,12 @@ export default function CreatePage() {
         const newProgress = statusData.progress || 0;
         setProgress(newProgress);
 
-        // STALE PROGRESS DETECTION: Warn if progress hasn't changed for 10+ polls (30+ seconds)
+        // STALE PROGRESS DETECTION: warn if progress has not changed for 40 polls
+        // (2 minutes). One AI image takes ~80s, so 30s of the same number is
+        // normal; giving up is the liveness check above, not this banner.
         if (newProgress === lastProgress && newProgress > 0 && newProgress < 100) {
           staleCheckRef.current += 1;
-          if (staleCheckRef.current >= 10 && !staleWarning) {
+          if (staleCheckRef.current >= 40 && !staleWarning) {
             console.warn(`⚠️ Progress stuck at ${newProgress}% for ${staleCheckRef.current * 3} seconds`);
             setStaleWarning(true);
           }

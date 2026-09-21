@@ -582,6 +582,33 @@ async def get_job_from_supabase(job_id: str) -> Optional[dict]:
         return None
 
 
+# How often a running generation touches its row. The page treats a row
+# that has not changed for several minutes as a dead worker, so this must
+# stay well under that window (frontend/src/lib/generationPoll.ts).
+JOB_HEARTBEAT_SECONDS = float(os.getenv("JOB_HEARTBEAT_SECONDS", "30"))
+
+
+async def _job_heartbeat(job_id: str) -> None:
+    """Touch generation_jobs.updated_at every JOB_HEARTBEAT_SECONDS.
+
+    Runs as a task beside run_generation_task and is cancelled when the task
+    ends. Only a row still `processing` is touched: a completed or failed
+    row keeps the timestamp of the write that finished it. A failed write is
+    logged and the next beat tries again — the heartbeat must never take a
+    generation down with it.
+    """
+    if not supabase:
+        return
+    while True:
+        await asyncio.sleep(JOB_HEARTBEAT_SECONDS)
+        try:
+            supabase.table("generation_jobs").update({
+                "updated_at": datetime.now().isoformat()
+            }).eq("job_id", job_id).eq("status", "processing").execute()
+        except Exception as e:
+            logger.warning(f"💓 Heartbeat for job {job_id[:8]} failed: {e}")
+
+
 # ---------------------------------------------------------------------------
 # Generated-site attribution footer
 # ---------------------------------------------------------------------------
@@ -1923,6 +1950,15 @@ async def run_generation_task(
 
     logger.info(f"🚀 TASK START: {job_id}")
 
+    # Liveness for the status poll. Progress only moves at step boundaries,
+    # and one step (five AI images, the HTML model) can run for five minutes
+    # with nothing written to the row, so the page could not tell that
+    # silence from a worker that died in a redeploy — and gave up on a
+    # clock instead (job 44294844: declared dead at 10 minutes, completed
+    # at 15). The heartbeat touches updated_at while the task is alive; a
+    # row that stops moving now means the task is gone.
+    heartbeat = asyncio.create_task(_job_heartbeat(job_id))
+
     try:
         # Step 1: Update to 20%
         logger.info("📊 Updating progress to 20%")
@@ -2652,6 +2688,8 @@ async def run_generation_task(
                 logger.info("❌ Job marked FAILED in Supabase")
             except Exception as e2:
                 logger.error(f"❌ Could not save failure: {e2}")
+    finally:
+        heartbeat.cancel()
 
     logger.info(f"🏁 TASK END: {job_id}")
 

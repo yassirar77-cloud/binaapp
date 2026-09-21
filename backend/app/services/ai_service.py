@@ -351,6 +351,11 @@ CONCEPT_SYSTEM_PROMPT = (
 # slow polish pass can never delay (or fail) an otherwise-working generation —
 # on timeout we ship the un-refined DeepSeek HTML.
 AI_QWEN_REFINE_TIMEOUT_SECONDS = float(os.getenv("AI_QWEN_REFINE_TIMEOUT_SECONDS", "60"))
+# The copy-refine pass can be switched off like the CSS pass below. Default ON
+# (the behaviour before this flag existed). Every run in the week to 21 Sep
+# hit the 60s timeout and shipped un-refined, so the pass was costing a
+# minute of wall-clock per generation and changing nothing.
+AI_QWEN_REFINE_ENABLED = os.getenv("AI_QWEN_REFINE_ENABLED", "true").strip().lower() in ("1", "true", "yes", "on")
 
 # Optional second Qwen pass that refines ONLY the CSS/visual styling of the
 # finished page (spacing, type scale, colour restraint, shadows, hierarchy)
@@ -8642,8 +8647,13 @@ IMPORTANT RULES:
         max_ai_images: Optional[int] = None,
         zai_phase: Optional[Dict] = None,
         hero_cue: Optional[str] = None,
+        progress_callback: Optional[Callable[[int, int], Awaitable[None]]] = None,
     ) -> int:
         """Auto-fill hero/gallery slots that uploads didn't cover (free-by-default).
+
+        ``progress_callback(done, total)`` is awaited after each image
+        finishes (generated or failed) so the caller can report progress
+        during the longest step of the pipeline. Its errors are swallowed.
 
         Mutates image_urls in place: the hero slot and any empty gallery1..4
         slots get AI-generated images via _generate_image (so IMAGE_PROVIDER
@@ -8809,11 +8819,24 @@ IMPORTANT RULES:
         # the dispatcher's lock serializes the Z.ai requests (concurrency 1
         # with spacing) — only Stability calls actually run in parallel.
         _gen_started = time.monotonic()
+        _done = 0
+
+        async def _generate_and_report(_p):
+            nonlocal _done
+            try:
+                return await self._generate_image(
+                    _p, food=is_food, zai_phase=zai_phase, doodle=is_doodle
+                )
+            finally:
+                _done += 1
+                if progress_callback:
+                    try:
+                        await progress_callback(_done, len(work))
+                    except Exception as _cb_err:
+                        logger.warning(f"⚠️ Auto-fill progress callback failed: {_cb_err}")
+
         results = await asyncio.gather(
-            *[
-                self._generate_image(_p, food=is_food, zai_phase=zai_phase, doodle=is_doodle)
-                for _, _, _p in work
-            ],
+            *[_generate_and_report(_p) for _, _, _p in work],
             return_exceptions=True,
         )
         _gen_elapsed = time.monotonic() - _gen_started
@@ -8905,6 +8928,15 @@ IMPORTANT RULES:
 
         await update_progress(25, "Starting website generation")
 
+        # Image auto-fill is the longest step (Z.ai runs one image at a time,
+        # ~80s each) and used to sit on one percentage for five minutes.
+        # Reports each finished image on the way from `base` to 45%.
+        def _image_progress_from(base: int):
+            async def _report(done: int, total: int) -> None:
+                pct = base + int((45 - base) * done / max(total, 1))
+                await update_progress(min(pct, 44), f"AI image {done}/{total} ready")
+            return _report
+
         logger.info("=" * 80)
         logger.info("🌐 WEBSITE GENERATION - FULL AI PIPELINE")
         logger.info(f"   Business: {request.business_name}")
@@ -8984,7 +9016,7 @@ IMPORTANT RULES:
             with _timed_step("stability_images", step_timings):
                 ai_images_generated = await self._autofill_missing_images(
                     request, image_urls, max_ai_images, zai_phase=_zai_image_phase,
-                    hero_cue=_hero_cue,
+                    hero_cue=_hero_cue, progress_callback=_image_progress_from(35),
                 )
             if ai_images_generated:
                 await update_progress(45, "AI images generated")
@@ -9004,7 +9036,7 @@ IMPORTANT RULES:
             with _timed_step("stability_images", step_timings):
                 ai_images_generated = await self._autofill_missing_images(
                     request, image_urls, max_ai_images, zai_phase=_zai_image_phase,
-                    hero_cue=_hero_cue,
+                    hero_cue=_hero_cue, progress_callback=_image_progress_from(25),
                 )
 
             await update_progress(45, "AI images generated")
@@ -9626,7 +9658,11 @@ IMPORTANT INSTRUCTIONS:
         # in try/except. If it's slow, errors, returns nothing, or returns a
         # truncated / materially-shorter result, we ship the un-refined DeepSeek
         # HTML. A polish pass must NEVER fail or delay a working generation.
-        if html:
+        if html and not AI_QWEN_REFINE_ENABLED:
+            logger.info("✨ Qwen refine: disabled (AI_QWEN_REFINE_ENABLED=false)")
+            step_outcomes["qwen_refine"] = "skipped (disabled)"
+        if AI_QWEN_REFINE_ENABLED and html:
+            await update_progress(78, "Polishing the copy")
             with _timed_step("qwen_refine", step_timings, step_outcomes):
                 original_html = html
                 refine_status = "skipped"
@@ -9679,6 +9715,7 @@ IMPORTANT INSTRUCTIONS:
         # version and keep the prior HTML — the safety net against the
         # "unstyled section" failure mode. Ships dark (flag default OFF).
         if AI_QWEN_CSS_REFINE_ENABLED and html:
+            await update_progress(80, "Polishing the styling")
             with _timed_step("qwen_css_refine", step_timings, step_outcomes):
                 original_html = html
                 css_status = "skipped"
@@ -9833,6 +9870,7 @@ IMPORTANT INSTRUCTIONS:
         # POST-GENERATION VALIDATION — compares the OUTPUT against the merchant's
         # INPUT. Errors get exactly one repair attempt before being surfaced;
         # callers fail closed on a result that still has errors.
+        await update_progress(85, "Checking the page against your brief")
         with _timed_step("validation", step_timings):
             html, validation = await self._validate_and_repair(
                 html, request, prompt=prompt, model=_html_model
