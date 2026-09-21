@@ -118,7 +118,6 @@ INTERMEDIATE_ARGS = [
 ]
 
 #: The first frame, drawn rather than photographed.
-FRAME_PHONE_HEIGHT = 980      # the screen itself, before the bezel
 FRAME_PHONE_BEZEL = 15
 FRAME_SCREEN_RADIUS = 44
 FRAME_BODY_RADIUS = 58
@@ -129,18 +128,21 @@ FRAME_SHADOW_ALPHA = 205
 BACKDROP_SEED = 11
 BACKDROP_BOKEH = 40
 
-#: A modern phone screen, 9:19.5. The captures are nothing like it — 1248x1972
-#: and 1080x1708 are 0.63 and 0.63, and cropping the browser chrome off the top
-#: makes them squarer still, not slimmer. The content also runs to within 4% of
-#: each edge, so there is no side margin to take. The only way to a tall screen
-#: is therefore to add screen, not remove it: the capture is padded above and
-#: below with the colour of its own outermost rows. On these captures both
-#: edges are the app's flat near-black background, so the join is invisible and
-#: the result reads as a page that does not fill its screen — which is what it
-#: is. `pad_blend` feathers the join for the cases where an edge is not flat.
+#: A modern phone screen, 9:19.5. No single capture is that shape — hers are
+#: about 0.63 wide-to-tall, and cropping the browser chrome off the top makes
+#: them squarer still, not slimmer. Their content also runs to within 4% of
+#: each side edge, so there is no margin to cut a 0.46 screen out of. The glass
+#: is therefore filled by stacking more than one of her captures (see
+#: `compose_screen`) and trimming the stack to shape. Padding remains only as
+#: the fallback for a stack that still comes up short, and `pad_blend` feathers
+#: its joins for an edge that is not flat.
 FRAME_SCREEN_RATIO = 9 / 19.5
 FRAME_PAD_SAMPLE_ROWS = 14
 FRAME_PAD_BLEND = 72
+
+#: How much of the frame's height the phone takes up, measured after the tilt.
+#: Below 1.0 so the phone sits in the shot rather than running off both edges.
+FRAME_PHONE_FRACTION = 0.85
 
 
 # ---------------------------------------------------------------------------
@@ -423,6 +425,81 @@ def pad_to_screen_ratio(screen, split: List[float]):
     return padded
 
 
+def layer_image(layer: Dict):
+    """One capture, cropped to the part of it that belongs on screen."""
+    screen = screen_image(layer)
+    top = float(layer.get("top_crop", 0.0))
+    bottom = float(layer.get("bottom_crop", 0.0))
+    screen = screen.crop(
+        (0, int(screen.height * top), screen.width, int(screen.height * (1 - bottom)))
+    )
+    for box in layer.get("redact", []):
+        redact(screen, box)
+    return screen
+
+
+def compose_screen(spec: Dict):
+    """Stack the merchant's captures into one full 9:19.5 screen.
+
+    A single capture cannot fill a phone-shaped screen: they are about 0.63
+    wide-to-tall and a screen is 0.46, so one of them leaves 40% of the glass
+    empty. Padding that gap was honest but it looked like what it was. So the
+    screen is built from more than one of her captures instead — the brief and
+    then the page below it, her hero and then her menu — each cropped below its
+    own header so the app's chrome is not repeated, and the stack trimmed to
+    the screen's shape.
+
+    Nothing here is drawn: every pixel on the glass is hers.
+    """
+    from PIL import Image
+
+    layers = spec.get("layers") or [spec]
+    parts = [layer_image(layer) for layer in layers]
+
+    width = parts[0].width
+    if any(part.width != width for part in parts):
+        parts = [
+            part if part.width == width
+            else part.resize((width, round(part.height * width / part.width)), Image.LANCZOS)
+            for part in parts
+        ]
+
+    if len(parts) == 1:
+        stack = parts[0]
+    else:
+        stack = Image.new("RGB", (width, sum(p.height for p in parts)))
+        y = 0
+        for part in parts:
+            stack.paste(part, (0, y))
+            y += part.height
+
+    target = round(width / FRAME_SCREEN_RATIO)
+    if stack.height < target:
+        # Not enough of her own page to fill the glass. Extend the edges rather
+        # than invent UI; on a flat dark background the join cannot be seen.
+        return pad_to_screen_ratio(stack, spec.get("pad_split", [0.3, 0.7]))
+
+    focus = float(spec.get("stack_focus", 0.0))
+    y0 = round((stack.height - target) * min(max(focus, 0.0), 1.0))
+    return stack.crop((0, y0, width, y0 + target))
+
+
+def phone_body(screen, height: int, tilt: float):
+    """The screen, given a bezel, rounded, and turned by `tilt` degrees."""
+    from PIL import Image
+
+    width = max(2, round(screen.width * height / screen.height))
+    glass = _rounded(screen.resize((width, height), Image.LANCZOS), FRAME_SCREEN_RADIUS)
+
+    bezel = FRAME_PHONE_BEZEL
+    body = _rounded(
+        Image.new("RGBA", (width + bezel * 2, height + bezel * 2), (16, 16, 19, 255)),
+        FRAME_BODY_RADIUS,
+    )
+    body.paste(glass, (bezel, bezel), glass)
+    return body.rotate(tilt, resample=Image.BICUBIC, expand=True)
+
+
 def build_first_frame(spec: Dict, out: Path) -> Path:
     """Draw the frame shots 2 and 3 start from, and save it as a PNG.
 
@@ -434,30 +511,22 @@ def build_first_frame(spec: Dict, out: Path) -> Path:
     """
     from PIL import Image, ImageFilter
 
-    screen = screen_image(spec)
-    top = float(spec.get("top_crop", 0.052))
-    bottom = float(spec.get("bottom_crop", 0.066))
-    screen = screen.crop(
-        (0, int(screen.height * top), screen.width, int(screen.height * (1 - bottom)))
-    )
-    for box in spec.get("redact", []):
-        redact(screen, box)
-    screen = pad_to_screen_ratio(screen, spec.get("pad_split", [0.3, 0.7]))
+    screen = compose_screen(spec)
+    tilt = float(spec.get("tilt", FRAME_PHONE_TILT))
 
-    height = int(spec.get("screen_height", FRAME_PHONE_HEIGHT))
-    width = int(screen.width * height / screen.height)
-    screen = screen.resize((width, height), Image.LANCZOS)
-
-    bezel = FRAME_PHONE_BEZEL
-    body = _rounded(
-        Image.new("RGBA", (width + bezel * 2, height + bezel * 2), (16, 16, 19, 255)),
-        FRAME_BODY_RADIUS,
-    )
-    glass = _rounded(screen, FRAME_SCREEN_RADIUS)
-    body.paste(glass, (bezel, bezel), glass)
-    body = body.rotate(
-        float(spec.get("tilt", FRAME_PHONE_TILT)), resample=Image.BICUBIC, expand=True
-    )
+    # The phone is sized by what it measures once it has been turned, not by
+    # what it measured before. A rotation with expand=True grows the box by
+    # both the height and the width of what is inside it, so a body built to
+    # 85% of the frame comes out taller than 85% — which is how the last pass
+    # ended up touching the top and bottom edges. Build once, measure, scale
+    # the screen by what was actually wrong, build again.
+    want = FRAME_PHONE_FRACTION * HEIGHT
+    height = int(spec.get("screen_height", round(want)))
+    for _ in range(2):
+        body = phone_body(screen, height, tilt)
+        if abs(body.height - want) <= 1:
+            break
+        height = max(64, round(height * want / body.height))
 
     offset_x, offset_y = spec.get("offset", [0.02, 0.0])
     x = int(WIDTH * (0.5 + float(offset_x)) - body.width / 2)

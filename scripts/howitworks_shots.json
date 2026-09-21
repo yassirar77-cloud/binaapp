@@ -1,5 +1,5 @@
 {
-  "_note": "The 'how it works' film under the landing hero: four generated shots of five seconds, joined with zoom transitions and held one second on the last frame. Shots 1 and 4 are text-to-video and share the `woman` description below verbatim — that is the only way the same person appears at both ends. Shots 2 and 3 are image-to-video from a first frame this script draws: the merchant's own capture, pin-sharp, on a 9:19.5 phone standing in the warm blur of her kedai. Browser chrome is cropped off both captures and her login is painted out of the app header; the captures are 0.63 wide-to-tall and have no side margin to spare, so the tall screen comes from padding them with the colour of their own edges, not from cropping. Their prompts forbid redrawing the interface about as loudly as a prompt can; the model is under no obligation to listen, and the first frame is the only part guaranteed sharp.",
+  "_note": "The 'how it works' film under the landing hero: four generated shots of five seconds, joined with zoom transitions and held one second on the last frame. Shots 1 and 4 are text-to-video and share the `woman` description below verbatim — that is the only way the same person appears at both ends. Shots 2 and 3 are image-to-video from a first frame this script draws: a 9:19.5 phone standing in the warm blur of her kedai, its screen filled edge to edge by stacking two of her own captures. Browser chrome is cropped off every layer and her login is painted out of the app header. Nothing on the glass is invented. Their prompts forbid redrawing the interface about as loudly as a prompt can; the model is under no obligation to listen, and the first frame is the only part guaranteed sharp.",
   "merchant": {
     "name": "Dapur Western Kak Mira",
     "site_url": "https://dapurwesternkakmira.binaapp.my",
@@ -32,31 +32,36 @@
       "kind": "image_to_video",
       "title": "Her brief, in the app",
       "first_frame": {
-        "source": "Screenshot_20260921_152005_Chrome.jpg",
-        "source_note": "Her own designer brief, typed in her own words. top_crop clears the OS status bar and the whole Chrome bar — measured, not guessed: the blue chrome runs to y=0.1318 and the white navigation bar starts at 0.9361. What is left is app only, ending on a complete 'Apa jenis kedai anda?'.",
-        "top_crop": 0.137,
-        "bottom_crop": 0.066,
-        "redact": [
+        "layers_note": "Two of her /create captures, stacked, so the glass is full of her own page rather than 40% padding. The first keeps the BinaApp header and ends after the example chips, before the orphan '03' heading; the second starts below its own header so the app chrome is not repeated, and carries her shop name and the story she typed. Measured: the blue Chrome bar runs to y=0.1318, the app header's ink to 0.199, the white navigation bar starts at 0.9361.",
+        "layers": [
           {
-            "box": [
-              0.32,
-              0.004,
-              1.0,
-              0.088
-            ],
-            "sample": [
-              0.02,
-              0.045
-            ],
-            "feather": 10,
-            "note": "The app header's right: the BM session badge, Log Keluar, and the avatar and username. The BinaApp logo sits left of 0.26 and is kept."
+            "source": "Screenshot_20260921_152005_Chrome.jpg",
+            "top_crop": 0.137,
+            "bottom_crop": 0.17,
+            "redact": [
+              {
+                "box": [
+                  0.32,
+                  0.005,
+                  1.0,
+                  0.108
+                ],
+                "sample": [
+                  0.02,
+                  0.055
+                ],
+                "feather": 10,
+                "note": "The app header's right: the BM session badge, Log Keluar, and the avatar and username. The BinaApp logo sits left of 0.26 and is kept."
+              }
+            ]
+          },
+          {
+            "source": "Screenshot_20260921_152013_Chrome.jpg",
+            "top_crop": 0.203,
+            "bottom_crop": 0.066
           }
         ],
-        "pad_split": [
-          0.28,
-          0.72
-        ],
-        "screen_height": 980,
+        "stack_focus": 0.0,
         "tilt": -4.0,
         "offset": [
           0.02,
@@ -69,16 +74,40 @@
       "kind": "image_to_video",
       "title": "Her finished site, on the same phone",
       "first_frame": {
-        "source_video": "Screen_Recording_20260921_172317_Chrome.mp4",
-        "at_seconds": 0.4,
-        "source_note": "Her live site at the top of the page, taken at 0.4s: Chrome's 'No internet connection' banner appears about three seconds in. Her Chrome is in dark mode, so the browser chrome is found by colour temperature rather than by blue — it runs cool to y=0.131 and her warm header starts at 0.1335. Her navigation bar is transparent over the dark page, so it does not show up as a bright band the way the /create one does; its icons sit at 0.960-0.980, and the crop at 0.934 clears them.",
-        "top_crop": 0.133,
-        "bottom_crop": 0.066,
-        "pad_split": [
-          0.35,
-          0.65
+        "layers_note": "Her hero and then her menu, from two points in her own recording, so the glass is full of her site. Both are taken before or around the point where Chrome's 'No internet connection' banner appears, and each is cropped past whatever chrome that frame happens to have — at 0.4s a URL bar, at 5s the banner and no URL bar, because it had scrolled away.",
+        "layers": [
+          {
+            "source_video": "Screen_Recording_20260921_172317_Chrome.mp4",
+            "at_seconds": 0.4,
+            "top_crop": 0.133,
+            "bottom_crop": 0.1,
+            "crop_note": "Ends 80px below her 'Lihat menu' button (the orange block runs y=0.789-0.853), not at the navigation bar. The dead space under the buttons was 138px the menu card needed.",
+            "redact": [
+              {
+                "box": [
+                  0.8,
+                  0.895,
+                  1.0,
+                  1.0
+                ],
+                "sample": [
+                  0.55,
+                  0.96
+                ],
+                "feather": 14,
+                "note": "Her floating chat widget. It is fixed to the viewport, so it appears in every frame of the recording — stacking two of them put two bubbles on one screen. The lower one is kept, where a floating widget belongs."
+              }
+            ]
+          },
+          {
+            "source_video": "Screen_Recording_20260921_172317_Chrome.mp4",
+            "at_seconds": 5.0,
+            "top_crop": 0.31,
+            "bottom_crop": 0.066,
+            "crop_note": "Starts part-way into her Chicken Chop Grill photo rather than at her sticky header. Measured at t=5: the photo runs y=0.278-0.755 and RM14.90 sits at 0.876. Starting higher pushed the price off the bottom of the screen — and the price is the point of showing the menu at all."
+          }
         ],
-        "screen_height": 980,
+        "stack_focus": 0.0,
         "tilt": -4.0,
         "offset": [
           0.02,
