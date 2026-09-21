@@ -49,6 +49,13 @@ Usage
     # redo one shot you did not like
     python3 scripts/generate_landing_hero_video.py --only 03-website
 
+wan3.0 fetches the first frame by URL, so a captured PNG has to be hosted
+before the job is submitted. Three routes are tried in order — DashScope's own
+upload endpoint, then Cloudinary (BinaApp's own storage, used when its
+credentials are in the environment), then a generic file host — each retried
+through transient 5xx. All of it happens before anything billable, so a
+hosting outage costs nothing.
+
 Requires ``ffmpeg``/``ffprobe``, ``httpx``, and ``playwright`` for --capture.
 Shot 2 is captured from a LOCAL dev server (``npm run dev`` in frontend/), so
 start that first or pass --frames-dir with your own PNGs.
@@ -57,6 +64,7 @@ start that first or pass --frames-dir with your own PNGs.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -263,32 +271,225 @@ def generate_first_frame(client: httpx.Client, prompt: str, destination: Path) -
     download(client, url, destination)
 
 
-def upload_frame(client: httpx.Client, frame: Path) -> str:
-    """wan3.0 wants a URL for the first frame, not bytes.
+# ---------------------------------------------------------------------------
+# Getting the first frame somewhere wan3.0 can fetch it
+# ---------------------------------------------------------------------------
+#
+# wan3.0 wants a URL for the first frame, not bytes, so a local PNG has to be
+# hosted before the video job is submitted. The first version of this used a
+# free anonymous paste host and run #1 died on its 503 — a single unowned
+# dependency between a working capture and a billable call.
+#
+# Three ways to host it are tried in order, all of them before a single
+# billable call is made, and each retried through transient 5xx:
+#
+#   1. DashScope's own upload endpoint. First-party, needs no credential
+#      beyond the key already in hand, and the resulting oss:// reference is
+#      what the provider's own SDK passes for a local file.
+#   2. Cloudinary — BinaApp's own storage, the bucket the merchant sites and
+#      the existing hero clips already live in (see zai_video_service.py).
+#      Used automatically when its credentials are in the environment.
+#   3. A generic file host, last and never by default.
 
-    A local PNG is put somewhere the API can fetch it. 0x0.st is a plain
-    anonymous file host with no account: it is used because the frames here are
-    screenshots of public marketing pages and a generated stock image, nothing
-    private. Set HERO_FRAME_UPLOAD_URL to point at your own host if you would
-    rather not use it, or put the frames on Cloudinary and pass --frame-urls.
+FRAME_UPLOAD_ATTEMPTS = 4
+FRAME_UPLOAD_BACKOFF_SECONDS = 2
+
+#: Worth trying again: an overloaded gateway, a rate limit, a dropped
+#: connection. A 4xx that is not one of these is a real rejection.
+TRANSIENT_STATUSES = (408, 425, 429, 500, 502, 503, 504)
+
+
+def request_with_retry(
+    client: httpx.Client,
+    method: str,
+    url: str,
+    *,
+    attempts: int = FRAME_UPLOAD_ATTEMPTS,
+    **kwargs,
+) -> httpx.Response:
+    """One request, retried through transient failures with backoff.
+
+    ``files=`` is not reusable across attempts — the handle is consumed by the
+    first one — so callers hand over bytes and this rebuilds the form each
+    time.
+    """
+    delay = FRAME_UPLOAD_BACKOFF_SECONDS
+    last = ""
+
+    for attempt in range(1, attempts + 1):
+        try:
+            response = client.request(method, url, **kwargs)
+        except httpx.HTTPError as exc:
+            last = f"{type(exc).__name__}: {exc}"
+        else:
+            if response.status_code not in TRANSIENT_STATUSES:
+                return response
+            last = f"HTTP {response.status_code}"
+
+        if attempt < attempts:
+            print(f"      {last} — retrying in {delay}s ({attempt}/{attempts - 1})")
+            time.sleep(delay)
+            delay *= 2
+
+    raise RuntimeError(f"{last} after {attempts} attempts")
+
+
+def upload_via_dashscope(client: httpx.Client, frame: Path) -> str:
+    """Upload through DashScope's own endpoint. Returns an ``oss://`` ref.
+
+    The endpoint hands back a short-lived OSS policy, the file is POSTed to the
+    bucket it names, and the resulting reference is passed back to the video
+    API with ``X-DashScope-OssResourceResolve: enable``.
+    """
+    policy = request_with_retry(
+        client,
+        "GET",
+        f"{api_url()}/uploads",
+        params={"action": "getPolicy", "model": video_model()},
+        headers={"Authorization": f"Bearer {api_key()}"},
+        timeout=SUBMIT_TIMEOUT,
+    )
+    if policy.status_code != 200:
+        raise RuntimeError(f"policy request returned {policy.status_code}: {policy.text[:200]}")
+
+    data = (policy.json() or {}).get("data") or {}
+    missing = [k for k in ("upload_host", "upload_dir", "oss_access_key_id",
+                           "policy", "signature") if not data.get(k)]
+    if missing:
+        raise RuntimeError(f"policy response is missing {', '.join(missing)}")
+
+    key = f"{data['upload_dir']}/{frame.name}"
+    form = {
+        "OSSAccessKeyId": data["oss_access_key_id"],
+        "policy": data["policy"],
+        "Signature": data["signature"],
+        "key": key,
+        "success_action_status": "200",
+    }
+    for optional, field in (("x_oss_object_acl", "x-oss-object-acl"),
+                            ("x_oss_forbid_overwrite", "x-oss-forbid-overwrite")):
+        if data.get(optional):
+            form[field] = data[optional]
+
+    payload = frame.read_bytes()
+    upload = request_with_retry(
+        client,
+        "POST",
+        data["upload_host"],
+        data=form,
+        files={"file": (frame.name, payload, "image/png")},
+        timeout=DOWNLOAD_TIMEOUT,
+    )
+    if upload.status_code not in (200, 201, 204):
+        raise RuntimeError(f"bucket returned {upload.status_code}: {upload.text[:200]}")
+
+    return f"oss://{key}"
+
+
+def cloudinary_credentials() -> Tuple[str, str, str]:
+    """(cloud name, key, secret) from either the split vars or CLOUDINARY_URL."""
+    cloud = (os.getenv("CLOUDINARY_CLOUD_NAME") or "").strip()
+    key = (os.getenv("CLOUDINARY_API_KEY") or "").strip()
+    secret = (os.getenv("CLOUDINARY_API_SECRET") or "").strip()
+    if cloud and key and secret:
+        return cloud, key, secret
+
+    # cloudinary://<key>:<secret>@<cloud>
+    match = re.match(r"cloudinary://([^:]+):([^@]+)@(.+)", (os.getenv("CLOUDINARY_URL") or "").strip())
+    if match:
+        return match.group(3), match.group(1), match.group(2)
+    return "", "", ""
+
+
+def upload_via_cloudinary(client: httpx.Client, frame: Path) -> str:
+    """Upload to BinaApp's own Cloudinary, the way the backend does."""
+    cloud, key, secret = cloudinary_credentials()
+    if not (cloud and key and secret):
+        raise RuntimeError("no Cloudinary credentials in the environment")
+
+    folder = os.getenv("HERO_FRAME_CLOUDINARY_FOLDER", "binaapp/hero-frames")
+    timestamp = str(int(time.time()))
+
+    # Cloudinary signs the upload params: every signed field except file,
+    # api_key and the signature itself, sorted by name, joined as a query
+    # string, with the secret appended, then SHA-1.
+    signed = {"folder": folder, "timestamp": timestamp}
+    to_sign = "&".join(f"{k}={signed[k]}" for k in sorted(signed)) + secret
+    signature = hashlib.sha1(to_sign.encode("utf-8")).hexdigest()
+
+    payload = frame.read_bytes()
+    response = request_with_retry(
+        client,
+        "POST",
+        f"https://api.cloudinary.com/v1_1/{cloud}/image/upload",
+        data={**signed, "api_key": key, "signature": signature},
+        files={"file": (frame.name, payload, "image/png")},
+        timeout=DOWNLOAD_TIMEOUT,
+    )
+    if response.status_code not in (200, 201):
+        raise RuntimeError(f"Cloudinary returned {response.status_code}: {response.text[:200]}")
+
+    url = (response.json() or {}).get("secure_url")
+    if not url:
+        raise RuntimeError(f"Cloudinary returned no secure_url: {response.text[:200]}")
+    return url
+
+
+def upload_via_generic_host(client: httpx.Client, frame: Path) -> str:
+    """Last resort: a plain file host. Never reached unless the two above fail.
+
+    The frames are screenshots of public marketing pages and a generated stock
+    image, so there is nothing private in them — but an unowned host is still
+    an unowned host, which is why it is last.
     """
     endpoint = os.getenv("HERO_FRAME_UPLOAD_URL", "https://0x0.st")
-    with frame.open("rb") as handle:
-        response = client.post(
-            endpoint,
-            files={"file": (frame.name, handle, "image/png")},
-            timeout=DOWNLOAD_TIMEOUT,
-            headers={"User-Agent": "binaapp-hero-builder/1.0"},
-        )
+    payload = frame.read_bytes()
+    response = request_with_retry(
+        client,
+        "POST",
+        endpoint,
+        files={"file": (frame.name, payload, "image/png")},
+        timeout=DOWNLOAD_TIMEOUT,
+        headers={"User-Agent": "binaapp-hero-builder/1.0"},
+    )
     if response.status_code not in (200, 201):
-        raise RuntimeError(
-            f"could not upload the first frame ({response.status_code}). "
-            f"Host the PNGs yourself and pass --frame-urls instead."
-        )
+        raise RuntimeError(f"{endpoint} returned {response.status_code}")
+
     url = response.text.strip()
     if not url.startswith("http"):
-        raise RuntimeError(f"upload host returned something odd: {url[:200]}")
+        raise RuntimeError(f"{endpoint} returned something odd: {url[:200]}")
     return url
+
+
+def upload_frame(client: httpx.Client, frame: Path) -> str:
+    """Host the first frame and return the reference to pass to wan3.0.
+
+    Every route is attempted before the job is submitted, so a hosting problem
+    still costs nothing — which is how run #1 failed, and should stay that way.
+    """
+    routes = [
+        ("DashScope", upload_via_dashscope),
+        ("Cloudinary", upload_via_cloudinary),
+        ("file host", upload_via_generic_host),
+    ]
+
+    reasons: List[str] = []
+    for name, route in routes:
+        try:
+            url = route(client, frame)
+        except Exception as exc:
+            print(f"      {name} upload failed: {exc}")
+            reasons.append(f"{name}: {exc}")
+            continue
+        print(f"      hosted via {name}")
+        return url
+
+    raise RuntimeError(
+        "could not host the first frame anywhere.\n        "
+        + "\n        ".join(reasons)
+        + "\n      Host the PNG yourself and pass --frame-urls "
+          '\'{"02-create": "https://..."}\' to skip this step.'
+    )
 
 
 def submit_video(client: httpx.Client, prompt: str, frame_url: str, seconds: int) -> str:
@@ -308,9 +509,15 @@ def submit_video(client: httpx.Client, prompt: str, frame_url: str, seconds: int
             "audio": False,
         },
     }
+    headers = auth_headers()
+    if frame_url.startswith("oss://"):
+        # A reference into DashScope's own bucket is only resolved when the
+        # request says so; without this header the API sees an unusable URL.
+        headers["X-DashScope-OssResourceResolve"] = "enable"
+
     response = client.post(
         f"{api_url()}/services/aigc/video-generation/video-synthesis",
-        headers=auth_headers(),
+        headers=headers,
         json=payload,
         timeout=SUBMIT_TIMEOUT,
     )
