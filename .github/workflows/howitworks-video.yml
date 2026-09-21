@@ -1,0 +1,188 @@
+# Build the 20-second "how it works" film, then commit it back.
+#
+# Manual only — this spends money: two text-to-video clips at roughly USD 0.70
+# each. The other three beats are built from the merchant's own screenshots and
+# screen recording and cost nothing, which is what `stills_only` builds on its
+# own. Use dry_run to read the prompts first.
+
+name: How it works video
+
+on:
+  workflow_dispatch:
+    inputs:
+      stills_only:
+        description: 'Build only the beats from her own footage — free, no API calls'
+        required: false
+        type: boolean
+        default: false
+      ai_seconds:
+        description: 'Seconds per AI beat. 5 is the only value that leaves room for her footage in 20s.'
+        required: false
+        type: choice
+        options: ['5', '10']
+        default: '5'
+      model:
+        description: 'Pin one video model, e.g. happyhorse-1.1-t2v. Empty tries wan3.0-video then happyhorse-1.1-t2v.'
+        required: false
+        type: string
+      dry_run:
+        description: 'Dry run — print the plan and prompts, spend nothing'
+        required: false
+        type: boolean
+        default: false
+
+# The branch the film is committed back to. The workflow itself has to live on
+# the default branch for GitHub to offer the "Run workflow" button at all, so
+# the branch being built is named here rather than taken from the run's ref.
+env:
+  TARGET_BRANCH: claude/howitworks-video
+
+permissions:
+  contents: write
+
+# Two runs committing to the same branch would race. Never cancel one in
+# flight — the clips it has already paid for would be lost.
+concurrency:
+  group: howitworks-video
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # Two clips plus polling, plus several ffmpeg passes over a 7 MB recording.
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out the film's branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install ffmpeg and httpx
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          python -m pip install --upgrade pip
+          pip install httpx
+
+      - name: Check the API key is present
+        # Skipped when nothing will be generated. Tests only that the secret is
+        # non-empty; the value is never echoed, and GitHub masks it regardless.
+        if: ${{ !inputs.dry_run && !inputs.stills_only }}
+        env:
+          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+        run: |
+          if [ -z "$DASHSCOPE_API_KEY" ]; then
+            echo "::error::DASHSCOPE_API_KEY is not set. Add it under" \
+                 "Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          echo "DASHSCOPE_API_KEY is set (${#DASHSCOPE_API_KEY} characters)."
+
+      - name: Build the film
+        env:
+          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+          # Through the environment, never interpolated into the script body:
+          # these are free text from whoever pressed the button, and ${{ }}
+          # inside a run block would make them executable shell.
+          STILLS_ONLY: ${{ inputs.stills_only }}
+          AI_SECONDS: ${{ inputs.ai_seconds }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          # Empty means "use the built-in chain" — wan3.0-video, then
+          # happyhorse-1.1-t2v.
+          DASHSCOPE_VIDEO_MODEL: ${{ inputs.model }}
+        run: |
+          set -euo pipefail
+          args=()
+          if [ "$STILLS_ONLY" = "true" ]; then
+            args+=(--stills-only)
+          fi
+          if [ "$DRY_RUN" = "true" ]; then
+            args+=(--dry-run)
+          fi
+          if [ -n "$AI_SECONDS" ]; then
+            args+=(--ai-seconds "$AI_SECONDS")
+          fi
+          echo "Running: scripts/generate_howitworks_video.py ${args[*]-}"
+          python3 scripts/generate_howitworks_video.py ${args[@]+"${args[@]}"}
+
+      - name: Report what was produced
+        # Never the step that fails the run: the clips are already paid for by
+        # here, and a summary table is not worth losing them over.
+        if: ${{ !cancelled() && !inputs.dry_run }}
+        continue-on-error: true
+        run: |
+          {
+            echo '### How it works film'
+            echo ''
+            echo '| File | Size | Length |'
+            echo '|---|---|---|'
+            for f in frontend/public/hero/binaapp-howitworks.mp4 scripts/howitworks_raw/*.mp4; do
+              [ -e "$f" ] || continue
+              len=$(ffprobe -v error -show_entries format=duration \
+                    -of default=nw=1:nk=1 "$f" 2>/dev/null || true)
+              # printf %f on a non-number exits 1, and `run:` blocks are
+              # bash -e — so the duration is checked before it is formatted.
+              case "$len" in
+                ''|*[!0-9.]*) len='?' ;;
+                *)            len="$(printf '%.1fs' "$len")" ;;
+              esac
+              printf '| %s | %s | %s |\n' "$f" "$(du -h "$f" | cut -f1)" "$len"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Uploaded before the commit, so the film survives even if the push
+      # fails. The per-beat intermediates go up too: judging one beat means
+      # watching that beat, not the whole cut.
+      - name: Upload the film as an artifact
+        if: ${{ !cancelled() && !inputs.dry_run }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: howitworks-video-${{ github.run_number }}
+          path: |
+            frontend/public/hero/binaapp-howitworks.mp4
+            frontend/public/hero/binaapp-howitworks.jpg
+            scripts/howitworks_raw/*.mp4
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Commit the film back to the branch
+        if: ${{ !inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          git add -- frontend/public/hero
+
+          if git diff --cached --quiet; then
+            echo "Nothing new to commit."
+            exit 0
+          fi
+
+          git diff --cached --name-only
+
+          git commit -m "Add the how it works film" \
+            -m "Generated by the How it works video workflow (run ${{ github.run_number }})." \
+            -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+
+          # Someone may have pushed while the clips rendered. Rebase onto
+          # whatever is there rather than failing after paying for the footage.
+          for attempt in 1 2 3; do
+            if git push origin "HEAD:${TARGET_BRANCH}"; then
+              echo "Pushed to ${TARGET_BRANCH}."
+              exit 0
+            fi
+            echo "Push rejected (attempt ${attempt}) — rebasing onto the branch."
+            git fetch origin "${TARGET_BRANCH}"
+            git rebase "origin/${TARGET_BRANCH}"
+          done
+
+          echo "::error::Could not push to ${TARGET_BRANCH} after 3 attempts." \
+               "The film is still available as the run's artifact."
+          exit 1
