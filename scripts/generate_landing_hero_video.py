@@ -10,19 +10,28 @@ this clip, and text behind text makes both unreadable. So both prompts here
 forbid anything legible — no signage, no menu boards, no writing, no labels —
 and the encode grades the frame down hardest where the copy sits.
 
-There is no photograph to start from, so the first frame is generated with
-text-to-image and then animated with wan3.0 image-to-video.
+Text-to-video: there is no photograph to start from, so nothing needs a first
+frame. An earlier version generated one with a text-to-image model and handed
+it straight back to the video model — a step that bought nothing and failed on
+an account without that image model. The product itself routes prompt-only
+jobs the same way, to text-to-video on the same endpoint.
 
 Provider, endpoint and key are the ones the product already uses for merchant
 hero videos — DashScope (Alibaba Model Studio), read exactly as
 ``backend/app/services/zai_video_service.py`` reads them. The key comes from
 the environment or a ``.env`` git already ignores; nothing is hardcoded.
 
-wan3.0 fetches the first frame by URL, so the generated PNG has to be hosted
-before the job is submitted. Three routes are tried in order — DashScope's own
-upload endpoint, then Cloudinary (BinaApp's own storage, used when its
-credentials are in the environment), then a generic file host — each retried
-through transient 5xx. All of it happens before anything billable.
+Models are tried in order until one accepts: wan3.0-video, then
+happyhorse-1.1-t2v. A model the account does not have is rejected at submit
+and a rejected submit is not billed, so the list costs nothing to walk;
+whichever accepts is charged exactly once. DASHSCOPE_VIDEO_MODEL pins a single
+name instead.
+
+A first frame is still used if one is actually supplied — drop a PNG in
+``scripts/hero_frames/01-merchant.png``, or pass --frame-urls. Then it is
+hosted first (DashScope's own upload endpoint, then Cloudinary, then a generic
+host, each retried through transient 5xx, all before anything billable) and
+the job runs as image-to-video on wan3.0.
 
 The encode does three things the raw clip does not:
 
@@ -33,8 +42,8 @@ The encode does three things the raw clip does not:
     before the middle of the frame, because a phone crops a 16:9 hero to its
     middle band and the merchant has to stay lit there,
   * fades the first and last half second, so the loop point reads as
-    deliberate rather than as a jump cut. wan3.0 does not produce a genuinely
-    seamless loop and no prompt makes it.
+    deliberate rather than as a jump cut. These models do not produce a
+    genuinely seamless loop and no prompt makes them.
 
 Usage
 -----
@@ -83,13 +92,16 @@ OUT_POSTER = OUT_DIR / "binaapp-hero.jpg"
 # Provider settings — mirrored from backend/app/services/zai_video_service.py
 # ---------------------------------------------------------------------------
 
-#: The unified model: the only DashScope one that can animate a supplied first
-#: frame. happyhorse is text-to-video and would silently drop the screenshots.
-DEFAULT_VIDEO_MODEL = "wan3.0-video"
-
-#: Text-to-image, for shot 1's first frame only. Overridable because Model
-#: Studio renames these more often than it renames the video models.
-DEFAULT_IMAGE_MODEL = "wanx2.1-t2i-turbo"
+#: Models to try, in order, until one is accepted. A model an account does not
+#: have is rejected at submit with 400 InvalidParameter "Model not exist." —
+#: and a rejected submit is not billed, so walking the list costs nothing.
+#:
+#: wan3.0-video first: it is the unified model, it looks better, and it is the
+#: one that can animate a supplied first frame. happyhorse-1.1-t2v second: it
+#: is text-to-video only, it costs less, and it is the model that generated
+#: all sixteen showcase clips on this account, so it is known to work.
+#: DASHSCOPE_VIDEO_MODEL overrides the list with a single name.
+VIDEO_MODEL_CHAIN = ("wan3.0-video", "happyhorse-1.1-t2v")
 
 DEFAULT_API_URL = "https://dashscope-intl.aliyuncs.com/api/v1"
 
@@ -103,10 +115,6 @@ FAILED_STATES = ("FAILED", "CANCELED", "CANCELLED", "UNKNOWN")
 RESOLUTION = "1080P"
 RATIO = "16:9"
 DURATION_SECONDS = 10
-
-#: Size asked of the text-to-image model for the first frame. Landscape, to
-#: match the video's own aspect so nothing is cropped on the way in.
-IMAGE_SIZE = "1280*720"
 
 SUBMIT_TIMEOUT = 90
 POLL_TIMEOUT = 60
@@ -172,12 +180,25 @@ def api_url() -> str:
     return (os.getenv("DASHSCOPE_API_URL") or DEFAULT_API_URL).rstrip("/")
 
 
+def video_models() -> Tuple[str, ...]:
+    """The models to try, in order. A single name in DASHSCOPE_VIDEO_MODEL
+    replaces the list entirely — an operator who pins one wants that one."""
+    pinned = (os.getenv("DASHSCOPE_VIDEO_MODEL") or "").strip()
+    return (pinned,) if pinned else VIDEO_MODEL_CHAIN
+
+
 def video_model() -> str:
-    return (os.getenv("DASHSCOPE_VIDEO_MODEL") or DEFAULT_VIDEO_MODEL).strip() or DEFAULT_VIDEO_MODEL
+    """The first model that will be tried. Only for display and for the
+    DashScope upload policy, which wants a model name up front."""
+    return video_models()[0]
 
 
-def image_model() -> str:
-    return (os.getenv("DASHSCOPE_T2I_MODEL") or DEFAULT_IMAGE_MODEL).strip() or DEFAULT_IMAGE_MODEL
+def is_unified(model: str) -> bool:
+    """wan3.x takes the unified request shape: `input.media` for a supplied
+    first frame, and an `audio` parameter. The older `-t2v` models have
+    neither, and sending `audio` to one risks a rejected request — so the
+    shape follows the model, exactly as the backend does it."""
+    return (model or "").strip().lower().startswith("wan3")
 
 
 def auth_headers(asynchronous: bool = True) -> Dict[str, str]:
@@ -248,37 +269,6 @@ def describe_usage(body: Dict) -> str:
     none. The authoritative figure is the Model Studio billing console."""
     usage = body.get("usage") or {}
     return " ".join(f"{k}={v}" for k, v in sorted(usage.items())) if usage else ""
-
-
-def generate_first_frame(client: httpx.Client, prompt: str, destination: Path) -> None:
-    """Text-to-image for the one shot with no photograph to start from."""
-    payload = {
-        "model": image_model(),
-        "input": {"prompt": prompt},
-        "parameters": {"size": os.getenv("HERO_IMAGE_SIZE", IMAGE_SIZE), "n": 1},
-    }
-    response = client.post(
-        f"{api_url()}/services/aigc/text2image/image-synthesis",
-        headers=auth_headers(),
-        json=payload,
-        timeout=SUBMIT_TIMEOUT,
-    )
-    if response.status_code != 200:
-        raise RuntimeError(
-            f"image submit failed ({response.status_code}): {response.text[:300]}\n"
-            f"      If the model name is wrong, set DASHSCOPE_T2I_MODEL to a text-to-image\n"
-            f"      model your account has, or pass --frames-dir with your own PNG."
-        )
-    task_id = ((response.json() or {}).get("output") or {}).get("task_id")
-    if not task_id:
-        raise RuntimeError(f"image submit returned no task id: {response.text[:300]}")
-    print(f"      image task {task_id}")
-
-    url, body = poll_task(client, str(task_id), want="image")
-    usage = describe_usage(body)
-    if usage:
-        print(f"      usage: {usage}")
-    download(client, url, destination)
 
 
 # ---------------------------------------------------------------------------
@@ -502,23 +492,44 @@ def upload_frame(client: httpx.Client, frame: Path) -> str:
     )
 
 
-def submit_video(client: httpx.Client, prompt: str, frame_url: str, seconds: int) -> str:
-    """Image-to-video on the unified model, with the frame as the first frame."""
-    payload = {
-        "model": video_model(),
-        "input": {
-            "prompt": prompt,
-            "media": [{"type": "first_frame", "url": frame_url}],
-        },
-        "parameters": {
-            "resolution": RESOLUTION,
-            "ratio": RATIO,
-            "duration": seconds,
-            # wan3.x generates a soundtrack unless told not to. The hero is
-            # always muted, so it would only cost money and bytes.
-            "audio": False,
-        },
+#: A model the account does not have comes back like this. Anything else that
+#: is rejected at submit is worth showing rather than silently walking past.
+MODEL_MISSING_MARKERS = ("model not exist", "model does not exist", "invalidparameter")
+
+
+def submit_on(client: httpx.Client, model: str, prompt: str, seconds: int,
+              frame_url: str = "") -> str:
+    """Submit one video job on one model. Returns the task id.
+
+    Text-to-video when there is no first frame, which is the normal case now:
+    nothing here starts from a photograph, so asking an image model for one
+    just to hand it straight back was a step that could only add failures.
+    A first frame is still used when one has been supplied.
+    """
+    unified = is_unified(model)
+    input_block: Dict = {"prompt": prompt}
+    parameters: Dict = {
+        "resolution": RESOLUTION,
+        "ratio": RATIO,
+        "duration": seconds,
     }
+
+    if frame_url:
+        if not unified:
+            raise RuntimeError(
+                f"{model} is text-to-video only and cannot animate a first frame"
+            )
+        input_block["media"] = [{"type": "first_frame", "url": frame_url}]
+
+    if unified:
+        # wan3.x generates a soundtrack unless told not to. The hero is always
+        # muted, so it would only cost money and bytes.
+        parameters["audio"] = False
+    else:
+        # The older models have no `audio`; they do stamp a provider mark
+        # unless told not to.
+        parameters["watermark"] = False
+
     headers = auth_headers()
     if frame_url.startswith("oss://"):
         # A reference into DashScope's own bucket is only resolved when the
@@ -528,7 +539,7 @@ def submit_video(client: httpx.Client, prompt: str, frame_url: str, seconds: int
     response = client.post(
         f"{api_url()}/services/aigc/video-generation/video-synthesis",
         headers=headers,
-        json=payload,
+        json={"model": model, "input": input_block, "parameters": parameters},
         timeout=SUBMIT_TIMEOUT,
     )
     if response.status_code == 429:
@@ -539,15 +550,53 @@ def submit_video(client: httpx.Client, prompt: str, frame_url: str, seconds: int
             f"this region — an international key only works on dashscope-intl."
         )
     if response.status_code != 200:
-        raise RuntimeError(f"video submit failed ({response.status_code}): {response.text[:300]}")
+        raise RuntimeError(f"{response.status_code}: {response.text[:300]}")
 
     output = ((response.json() or {}).get("output") or {})
     task_id = output.get("task_id")
     if not task_id:
-        raise RuntimeError(f"video submit returned no task id: {response.text[:300]}")
+        raise RuntimeError(f"accepted but returned no task id: {response.text[:300]}")
     if str(output.get("task_status", "")).upper() in FAILED_STATES:
         raise RuntimeError(f"rejected at submit ({output.get('message')})")
     return str(task_id)
+
+
+def submit_video(client: httpx.Client, prompt: str, seconds: int,
+                 frame_url: str = "") -> Tuple[str, str]:
+    """Try each model until one accepts the job. Returns (task id, model).
+
+    A model the account does not have is rejected at submit, and a rejected
+    submit is not billed — so walking the list costs nothing, and the run
+    survives an account that has one of these models but not the other.
+    Whichever model accepts is the one that is charged, exactly once.
+    """
+    models = video_models()
+    reasons: List[str] = []
+
+    for model in models:
+        if frame_url and not is_unified(model):
+            print(f"      {model}: skipped (cannot animate a supplied first frame)")
+            reasons.append(f"{model}: text-to-video only, but a first frame was given")
+            continue
+        try:
+            task_id = submit_on(client, model, prompt, seconds, frame_url)
+        except RuntimeError as exc:
+            message = str(exc).lower()
+            if any(marker in message for marker in MODEL_MISSING_MARKERS):
+                print(f"      {model}: not available on this account")
+            else:
+                print(f"      {model}: {exc}")
+            reasons.append(f"{model}: {exc}")
+            continue
+        print(f"      accepted by {model}")
+        return task_id, model
+
+    raise RuntimeError(
+        "no model accepted the job.\n        "
+        + "\n        ".join(reasons)
+        + "\n      Set DASHSCOPE_VIDEO_MODEL (or the workflow's `model` input) to a "
+          "video model your\n      Model Studio account actually has."
+    )
 
 
 def download(client: httpx.Client, url: str, destination: Path) -> None:
@@ -740,12 +789,15 @@ def main() -> int:
     raw = RAW_DIR / f"{name}.mp4"
 
     print(f"\n{name} — {shot['title']}")
-    print(f"  {video_model()}, {RESOLUTION} {RATIO}, {args.seconds}s")
+    print(f"  {RESOLUTION} {RATIO}, {args.seconds}s")
 
     if args.dry_run:
         print("\n--dry-run: nothing submitted.\n")
-        print(f"  first frame ({image_model()}):\n    {shot['frame_prompt']}\n")
-        print(f"  motion:\n    {shot['video_prompt']}\n")
+        print(f"  models, in order: {', '.join(video_models())}")
+        print(f"\n  prompt:\n    {shot['video_prompt']}\n")
+        print("  (frame_prompt in the shot file is only used when a first "
+              "frame is supplied\n   by hand; the default path is "
+              "text-to-video and needs no first frame.)\n")
         return 0
 
     require_tool("ffmpeg")
@@ -768,21 +820,25 @@ def main() -> int:
                 if raw.is_file() and raw.stat().st_size > 0:
                     print("      master already downloaded — re-grading only")
                 else:
-                    if not frame.is_file():
-                        print("      generating the first frame")
-                        generate_first_frame(client, shot["frame_prompt"], frame)
-                    else:
-                        print(f"      using the first frame already at {frame.name}")
-
-                    url = frame_urls.get(name)
-                    if not url:
-                        print("      hosting the first frame")
+                    # Text-to-video by default. A first frame is only used if
+                    # one was actually supplied — a real photograph dropped in
+                    # by hand, or a URL passed on the command line. Nothing is
+                    # generated just to be handed straight back.
+                    url = frame_urls.get(name, "")
+                    if not url and frame.is_file():
+                        print(f"      using the supplied first frame {frame.name}")
                         url = upload_frame(client, frame)
-                    print(f"      first frame: {url}")
+                        print(f"      first frame: {url}")
+                    elif url:
+                        print(f"      using the supplied first frame URL: {url}")
+                    else:
+                        print("      text-to-video (no first frame supplied)")
 
                     print("      submitting")
-                    task_id = submit_video(client, shot["video_prompt"], url, args.seconds)
-                    print(f"      task {task_id}")
+                    task_id, used = submit_video(
+                        client, shot["video_prompt"], args.seconds, url
+                    )
+                    print(f"      task {task_id} on {used}")
                     video_url, body = poll_task(client, task_id, want="video")
                     usage = describe_usage(body)
                     if usage:
