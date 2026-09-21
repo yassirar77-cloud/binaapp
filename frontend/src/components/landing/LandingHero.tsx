@@ -81,15 +81,9 @@ export default function LandingHero() {
             className="w-full h-auto rounded-2xl shadow-[0_30px_80px_rgba(79,61,255,.4),0_0_0_1px_rgba(199,255,61,.15)]"
           />
 
-          {/* Floating badge — top left: daily orders */}
-          <div className="absolute -top-4 -left-4 lg:-top-5 lg:-left-5 bg-ink-900 border border-volt-400/40 rounded-xl px-3.5 py-2.5 shadow-[0_20px_40px_rgba(0,0,0,.4)]">
-            <div className="font-geist-mono text-[10px] text-volt-400 tracking-[.1em] font-semibold whitespace-nowrap">
-              PESANAN HARI INI
-            </div>
-            <div className="font-geist font-extrabold text-2xl text-white tracking-tight tabular-nums">
-              RM 1,284
-            </div>
-          </div>
+          {/* The "PESANAN HARI INI — RM 1,284" badge stood here. It was an
+              invented number presented as a live figure, on the page where
+              merchants decide whether to trust us with their money. */}
 
           {/* Floating badge — bottom right: zero commission */}
           <div className="absolute -bottom-4 -right-3 lg:-bottom-5 lg:-right-3 bg-volt-400 rounded-xl px-4 py-2.5 shadow-[0_20px_40px_rgba(199,255,61,.35)]">

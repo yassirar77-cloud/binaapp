@@ -110,12 +110,15 @@ export default function LandingHeroVideo() {
         className="absolute inset-0 h-full w-full object-cover"
       />
 
-      {/* Scrims. The hero's headline and CTA have to stay readable over every
-          frame, and the bottom edge has to meet the section below without a
-          seam. Weighted to the left, where the copy sits. */}
-      <div className="absolute inset-0 bg-ink-950/45" />
-      <div className="absolute inset-0 bg-gradient-to-r from-ink-950 via-ink-950/70 to-ink-950/30" />
-      <div className="absolute inset-0 bg-gradient-to-b from-ink-950/80 via-transparent to-ink-950" />
+      {/* Scrims. Lighter than they look like they should be, because the
+          clip is already graded down in the encode — the gradient over the
+          headline is baked into the file. These only finish the job: a little
+          overall weight, and a bottom edge that meets the section below
+          without a seam. Stacking a full scrim on top of the grade turns the
+          picture to mud. */}
+      <div className="absolute inset-0 bg-ink-950/25" />
+      <div className="absolute inset-0 bg-gradient-to-r from-ink-950/70 via-ink-950/30 to-transparent" />
+      <div className="absolute inset-0 bg-gradient-to-b from-ink-950/50 via-transparent to-ink-950" />
     </div>
   )
 }

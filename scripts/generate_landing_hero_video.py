@@ -1,64 +1,51 @@
 #!/usr/bin/env python3
 """Build the clip that plays behind the landing hero.
 
-Three shots, cut together into one silent loop:
+ONE continuous shot: a merchant in a tudung in a warm, dim kedai makan,
+phone in hand, slow push-in. Nothing else.
 
-    1. a merchant in a tudung using BinaApp on her phone, shot from behind
-    2. the real /create page with her brief typed into it
-    3. the site that brief produced — wesddd.binaapp.my
+It used to be three shots, two of them screen captures of real BinaApp pages.
+That was wrong and the result was unusable: the hero headline sits on top of
+this clip, and text behind text makes both unreadable. So both prompts here
+forbid anything legible — no signage, no menu boards, no writing, no labels —
+and the encode grades the frame down hardest where the copy sits.
 
-Shots 2 and 3 start from a REAL screenshot of the real page, so the Malay copy
-and the layout are genuine pixels before the video model ever sees them. That
-matters: wan3.0 redraws every frame, and text is the first thing it loses.
-Their prompts are camera motion only — a slow push-in with slight parallax —
-and spell out, element by element, that no text, button, icon, border or
-layout may be redrawn. Shot 1 is the only one with motion in the scene, and
-the only one whose first frame is generated rather than captured.
-
-A prompt cannot make a redraw-every-frame model preserve typography, only bias
-it. Judge shot 2 on its own (``--only 02-create``) before paying for the rest.
+There is no photograph to start from, so the first frame is generated with
+text-to-image and then animated with wan3.0 image-to-video.
 
 Provider, endpoint and key are the ones the product already uses for merchant
 hero videos — DashScope (Alibaba Model Studio), read exactly as
 ``backend/app/services/zai_video_service.py`` reads them. The key comes from
 the environment or a ``.env`` git already ignores; nothing is hardcoded.
 
-Per shot: submit → poll → download the master into ``scripts/hero_raw/``
-(gitignored) → and once all three are in, ffmpeg cross-fades them together,
-strips the audio, scales to 720p and writes:
+wan3.0 fetches the first frame by URL, so the generated PNG has to be hosted
+before the job is submitted. Three routes are tried in order — DashScope's own
+upload endpoint, then Cloudinary (BinaApp's own storage, used when its
+credentials are in the environment), then a generic file host — each retried
+through transient 5xx. All of it happens before anything billable.
 
-    frontend/public/hero/binaapp-hero.mp4
-    frontend/public/hero/binaapp-hero.jpg
+The encode does three things the raw clip does not:
 
-wan3.0 takes 5 or 10 seconds per job and nothing in between, so "longer" means
-more shots, not a longer one: three 5s shots cross-faded make about 14s, and
-``--seconds 10`` makes about 28s. Longer shots also drift further from their
-first frame, which is the opposite of what shots 2 and 3 want.
+  * scales it so its long edge is at most 1280 and strips the audio,
+  * grades it down — less brightness, a touch more contrast — and lays a
+    black gradient over the upper left, where the headline and CTA sit, so
+    white copy keeps its contrast over any frame,
+  * fades the first and last half second, so the loop point reads as
+    deliberate rather than as a jump cut. wan3.0 does not produce a genuinely
+    seamless loop and no prompt makes it.
 
 Usage
 -----
-    # what it would do, and what it would cost — calls nothing
+    # the plan and the prompts — calls nothing
     python3 scripts/generate_landing_hero_video.py --dry-run
-
-    # capture the two screenshots first, then look at them before paying
-    python3 scripts/generate_landing_hero_video.py --capture-only
 
     # the real run
     python3 scripts/generate_landing_hero_video.py
 
-    # redo one shot you did not like
-    python3 scripts/generate_landing_hero_video.py --only 03-website
+    # re-grade what is already downloaded, without paying again
+    python3 scripts/generate_landing_hero_video.py --regrade
 
-wan3.0 fetches the first frame by URL, so a captured PNG has to be hosted
-before the job is submitted. Three routes are tried in order — DashScope's own
-upload endpoint, then Cloudinary (BinaApp's own storage, used when its
-credentials are in the environment), then a generic file host — each retried
-through transient 5xx. All of it happens before anything billable, so a
-hosting outage costs nothing.
-
-Requires ``ffmpeg``/``ffprobe``, ``httpx``, and ``playwright`` for --capture.
-Shot 2 is captured from a LOCAL dev server (``npm run dev`` in frontend/), so
-start that first or pass --frames-dir with your own PNGs.
+Requires ``ffmpeg``/``ffprobe`` and ``httpx``. No browser, no dev server.
 """
 
 from __future__ import annotations
@@ -107,8 +94,15 @@ DEFAULT_API_URL = "https://dashscope-intl.aliyuncs.com/api/v1"
 RUNNING_STATES = ("PENDING", "RUNNING", "SUSPENDED")
 FAILED_STATES = ("FAILED", "CANCELED", "CANCELLED", "UNKNOWN")
 
+#: Vertical. The hero is full-bleed, and a portrait frame keeps the subject
+#: whole on a phone — which is where most Malaysian merchants will see it.
 RESOLUTION = "1080P"
-RATIO = "16:9"
+RATIO = "9:16"
+DURATION_SECONDS = 10
+
+#: Size asked of the text-to-image model for the first frame. Portrait, to
+#: match the video's own aspect so nothing is cropped on the way in.
+IMAGE_SIZE = "720*1280"
 
 SUBMIT_TIMEOUT = 90
 POLL_TIMEOUT = 60
@@ -116,18 +110,26 @@ POLL_INTERVAL = 10
 MAX_WAIT_SECONDS = 1200
 DOWNLOAD_TIMEOUT = 600
 
-#: The hero sits behind a heavy scrim at full width. 1280 wide is enough for a
-#: retina phone once the scrim is over it, and CRF 30 keeps the whole loop in
-#: the low megabytes.
-ENCODE_WIDTH = 1280
+#: The clip sits behind a scrim, graded down, at full bleed. Capping the long
+#: edge at 1280 is plenty on a retina phone and keeps the loop to a couple of
+#: megabytes.
+ENCODE_LONG_EDGE = 1280
 ENCODE_CRF = 30
-CROSSFADE_SECONDS = 0.7
-SIZE_BUDGET_BYTES = 3_500_000
+SIZE_BUDGET_BYTES = 2_500_000
 
-#: Screenshots are captured at this size — the video's own aspect, so nothing
-#: is letterboxed or cropped when it becomes a first frame.
-CAPTURE_WIDTH = 1280
-CAPTURE_HEIGHT = 720
+#: The grade. `eq` pulls the whole frame down; the gradient is a black overlay
+#: strongest at the top-left, where the headline and the CTA sit, falling away
+#: toward the lower right, where the subject is. Measured on a bright test
+#: pattern: -60% luminance under the copy, -31% over the subject.
+GRADE_EQ = "eq=brightness=-0.10:contrast=1.06:saturation=0.92"
+GRADE_LEFT_STRENGTH = 0.72     # how black the left edge goes
+GRADE_LEFT_REACH = 0.85        # ... fading out by this fraction of the width
+GRADE_TOP_STRENGTH = 0.60      # how black the top edge goes
+GRADE_TOP_REACH = 0.45         # ... fading out by this fraction of the height
+
+#: wan3.0 does not loop seamlessly and no prompt makes it. Fading the ends
+#: into the dark grade makes the loop point read as deliberate.
+LOOP_FADE_SECONDS = 0.5
 
 
 def load_dotenv(path: Path) -> None:
@@ -245,7 +247,7 @@ def generate_first_frame(client: httpx.Client, prompt: str, destination: Path) -
     payload = {
         "model": image_model(),
         "input": {"prompt": prompt},
-        "parameters": {"size": "1280*720", "n": 1},
+        "parameters": {"size": os.getenv("HERO_IMAGE_SIZE", IMAGE_SIZE), "n": 1},
     }
     response = client.post(
         f"{api_url()}/services/aigc/text2image/image-synthesis",
@@ -554,86 +556,6 @@ def download(client: httpx.Client, url: str, destination: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Capturing the two real pages
-# ---------------------------------------------------------------------------
-
-
-def capture_frames(shots: Dict[str, Dict], names: List[str]) -> None:
-    """Screenshot the pages that shots 2 and 3 start from.
-
-    Shot 2 is captured from a local dev server with the brief typed into the
-    real textarea, so the frame the model animates already contains her words.
-    """
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        sys.exit(
-            "playwright is not installed, so the frames cannot be captured.\n"
-            "Either: pip install playwright && playwright install chromium\n"
-            "Or:     put your own 1280x720 PNGs in scripts/hero_frames/ and rerun."
-        )
-
-    wanted = [n for n in names if shots[n].get("frame_from") == "capture"]
-    if not wanted:
-        return
-
-    FRAMES_DIR.mkdir(parents=True, exist_ok=True)
-
-    # A machine whose Chromium is not where playwright expects it (a CI image,
-    # a pinned browser bundle) can say where it is rather than re-downloading.
-    executable = os.getenv("PLAYWRIGHT_CHROMIUM_PATH") or None
-
-    with sync_playwright() as playwright:
-        try:
-            browser = playwright.chromium.launch(executable_path=executable)
-        except Exception as exc:
-            sys.exit(
-                f"Could not start Chromium: {exc}\n\n"
-                "Run `playwright install chromium`, or set PLAYWRIGHT_CHROMIUM_PATH to a\n"
-                "Chromium binary you already have, or put your own "
-                f"{CAPTURE_WIDTH}x{CAPTURE_HEIGHT} PNGs\n"
-                f"in {FRAMES_DIR} and rerun with --no-capture."
-            )
-        page = browser.new_page(
-            viewport={"width": CAPTURE_WIDTH, "height": CAPTURE_HEIGHT},
-            device_scale_factor=2,
-        )
-
-        for name in wanted:
-            shot = shots[name]
-            url = shot["capture_url"]
-            destination = FRAMES_DIR / f"{name}.png"
-            print(f"      capturing {url}")
-            try:
-                page.goto(url, wait_until="networkidle", timeout=60000)
-            except Exception as exc:
-                print(f"      could not load {url}: {exc}")
-                print(f"      put a 1280x720 PNG at {destination} and rerun")
-                continue
-
-            brief = shot.get("capture_brief")
-            if brief:
-                # Type into whichever box the page actually offers, rather than
-                # assuming a selector that a redesign would silently break.
-                box = page.query_selector("textarea") or page.query_selector(
-                    "input[type=text]"
-                )
-                if box:
-                    box.click()
-                    box.fill(brief)
-                    page.wait_for_timeout(600)
-                else:
-                    print("      no text box found on the page — capturing it empty")
-
-            page.wait_for_timeout(2500)
-            page.screenshot(path=str(destination))
-            print(f"      → {destination.relative_to(REPO_ROOT)}")
-
-        page.close()
-        browser.close()
-
-
-# ---------------------------------------------------------------------------
 # ffmpeg
 # ---------------------------------------------------------------------------
 
@@ -660,109 +582,77 @@ def duration_of(path: Path) -> float:
     return float(result.stdout.strip())
 
 
-def video_size(path: Path) -> Tuple[int, int]:
-    result = subprocess.run(
-        ["ffprobe", "-v", "error", "-select_streams", "v:0",
-         "-show_entries", "stream=width,height", "-of", "csv=p=0:s=x", str(path)],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"ffprobe failed on {path.name}:\n{result.stderr[-500:]}")
-    width, _, height = result.stdout.strip().partition("x")
-    return int(width), int(height)
+def gradient_alpha_expression() -> str:
+    """The black overlay's alpha, as an ffmpeg geq expression.
 
-
-def normalise(clip: Path, destination: Path) -> None:
-    """Re-encode one shot to the wall's size and frame rate, on its own.
-
-    This exists because of a real ffmpeg limitation rather than taste: putting
-    `scale`, `fps` or even `setpts` in front of `xfade` in a filter_complex
-    drops the frame rate from the filter link, and xfade then refuses the whole
-    graph with "current rate of 1/0 is invalid". Normalising to a file first
-    and cross-fading the files raw is the version that actually runs. The
-    intermediate is near-lossless so the second pass costs no visible quality.
+    Strongest at the top-left corner and falling to nothing by
+    GRADE_*_REACH across the frame. The two edges are combined with `max`
+    rather than added, so the corner where they meet does not go to solid
+    black.
     """
+    left = f"{GRADE_LEFT_STRENGTH}*(1-X/(W*{GRADE_LEFT_REACH}))"
+    top = f"{GRADE_TOP_STRENGTH}*(1-Y/(H*{GRADE_TOP_REACH}))"
+    return f"255*clip(max({left}, {top}),0,1)"
+
+
+def grade_and_encode(clip: Path, out: Path, crf: int = ENCODE_CRF) -> None:
+    """Scale, grade, fade the ends and write the clip the hero will play.
+
+    The gradient is a second input — a black source the same size as the
+    scaled video — given a per-pixel alpha by `geq` and laid over the graded
+    frame. Doing it as an overlay rather than inside the video's own filter
+    chain keeps `geq` off the video, which is both faster and avoids the
+    frame-rate loss this ffmpeg build shows when filters stack up.
+    """
+    out.parent.mkdir(parents=True, exist_ok=True)
+    width, height = scaled_size(clip)
+    length = duration_of(clip)
+    fade_out_at = max(0.0, length - LOOP_FADE_SECONDS)
+
     run_quiet([
-        "ffmpeg", "-y", "-loglevel", "error", "-i", str(clip),
-        "-an", "-vf", f"scale={ENCODE_WIDTH}:-2,fps=30,format=yuv420p",
-        "-c:v", "libx264", "-crf", "16", "-preset", "veryfast",
-        "-pix_fmt", "yuv420p", str(destination),
+        "ffmpeg", "-y", "-loglevel", "error",
+        "-i", str(clip),
+        "-f", "lavfi", "-i", f"color=c=black:s={width}x{height}:r=30",
+        "-filter_complex",
+        (
+            f"[0:v]scale={width}:{height},fps=30,{GRADE_EQ}[base];"
+            f"[1:v]format=rgba,geq=r=0:g=0:b=0:a='{gradient_alpha_expression()}'[grad];"
+            f"[base][grad]overlay=shortest=1,"
+            f"fade=t=in:st=0:d={LOOP_FADE_SECONDS},"
+            f"fade=t=out:st={fade_out_at:.2f}:d={LOOP_FADE_SECONDS},"
+            f"format=yuv420p[out]"
+        ),
+        "-map", "[out]",
+        "-an",
+        "-c:v", "libx264", "-crf", str(crf), "-preset", "slow",
+        "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+        str(out),
     ])
 
 
-def assemble(clips: List[Path], out: Path, crf: int = ENCODE_CRF) -> None:
-    """Cross-fade the shots into one silent clip.
+def scaled_size(clip: Path) -> Tuple[int, int]:
+    """Target size: long edge capped at ENCODE_LONG_EDGE, aspect kept, both
+    dimensions even (H.264 cannot encode odd ones)."""
+    result = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=width,height", "-of", "csv=p=0:s=x", str(clip)],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"ffprobe failed on {clip.name}:\n{result.stderr[-500:]}")
+    raw_w, _, raw_h = result.stdout.strip().partition("x")
+    width, height = int(raw_w), int(raw_h)
 
-    Each fade eats CROSSFADE_SECONDS of overlap, so the result is shorter than
-    the sum of its parts. Offsets come from the real measured durations, never
-    the requested ones — a provider that returns 5.2s where 5 was asked for
-    would otherwise put a black gap at every seam.
-    """
-    out.parent.mkdir(parents=True, exist_ok=True)
-
-    if len(clips) == 1:
-        run_quiet([
-            "ffmpeg", "-y", "-loglevel", "error", "-i", str(clips[0]),
-            "-an", "-vf", f"scale={ENCODE_WIDTH}:-2,fps=30,format=yuv420p",
-            "-c:v", "libx264", "-crf", str(crf), "-preset", "slow",
-            "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(out),
-        ])
-        return
-
-    # xfade needs every input the same size. They normally are — same model,
-    # same resolution, same ratio — so the extra pass is skipped unless the
-    # provider actually returned something different.
-    sizes = {video_size(clip) for clip in clips}
-    staged: List[Path] = list(clips)
-    temporary: List[Path] = []
-
-    if len(sizes) > 1:
-        print(f"      shots came back at {len(sizes)} different sizes — normalising")
-        staged = []
-        for index, clip in enumerate(clips):
-            destination = clip.parent / f".norm-{index}-{clip.name}"
-            normalise(clip, destination)
-            staged.append(destination)
-            temporary.append(destination)
-
-    try:
-        command: List[str] = ["ffmpeg", "-y", "-loglevel", "error"]
-        for clip in staged:
-            command += ["-i", str(clip)]
-
-        # Nothing may sit between an input and its xfade — see normalise().
-        steps: List[str] = []
-        running = duration_of(staged[0])
-        previous = "0:v"
-        for i in range(1, len(staged)):
-            label = f"x{i}"
-            steps.append(
-                f"[{previous}][{i}:v]xfade=transition=fade:"
-                f"duration={CROSSFADE_SECONDS}:offset={running - CROSSFADE_SECONDS:.3f}[{label}]"
-            )
-            running = running + duration_of(staged[i]) - CROSSFADE_SECONDS
-            previous = label
-
-        steps.append(f"[{previous}]scale={ENCODE_WIDTH}:-2,format=yuv420p[out]")
-
-        command += [
-            "-filter_complex", ";".join(steps),
-            "-map", "[out]",
-            "-an",
-            "-c:v", "libx264", "-crf", str(crf), "-preset", "slow",
-            "-pix_fmt", "yuv420p", "-movflags", "+faststart",
-            str(out),
-        ]
-        run_quiet(command)
-    finally:
-        for path in temporary:
-            path.unlink(missing_ok=True)
+    scale = min(1.0, ENCODE_LONG_EDGE / max(width, height))
+    width = max(2, int(width * scale) // 2 * 2)
+    height = max(2, int(height * scale) // 2 * 2)
+    return width, height
 
 
-def assemble_within_budget(clips: List[Path], out: Path) -> int:
-    """Assemble, stepping quality down if the result busts the size budget."""
+def grade_within_budget(clip: Path, out: Path) -> int:
+    """Grade, stepping quality down if the result busts the size budget."""
     for crf in (ENCODE_CRF, ENCODE_CRF + 3, ENCODE_CRF + 6):
-        assemble(clips, out, crf=crf)
+        grade_and_encode(clip, out, crf=crf)
         size = out.stat().st_size
         if size <= SIZE_BUDGET_BYTES:
             if crf != ENCODE_CRF:
@@ -801,24 +691,22 @@ def parse_args() -> argparse.Namespace:
         description="Build the clip that plays behind the landing hero.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
-            "Generation costs real money. --dry-run prints the plan and the prompts\n"
-            "and calls nothing; a shot whose master is already downloaded is re-cut\n"
-            "for free rather than re-generated."
+            "Generating costs real money. --dry-run prints the prompts and calls\n"
+            "nothing; --regrade re-cuts the master already on disk for free."
         ),
     )
-    parser.add_argument("--only", metavar="SHOT", help="build just this shot (e.g. 03-website)")
-    parser.add_argument("--seconds", type=int, choices=(5, 10), default=5,
-                        help="length per shot; wan3.0 allows 5 or 10 and nothing else")
-    parser.add_argument("--capture-only", action="store_true",
-                        help="capture the screenshots and stop, so you can look at them first")
-    parser.add_argument("--no-capture", action="store_true",
-                        help="use the PNGs already in scripts/hero_frames/ as they are")
+    parser.add_argument("--only", metavar="SHOT",
+                        help="build just this shot (there is only one: 01-merchant)")
+    parser.add_argument("--seconds", type=int, choices=(5, 10), default=DURATION_SECONDS,
+                        help="clip length; wan3.0 allows 5 or 10 and nothing else")
+    parser.add_argument("--regrade", action="store_true",
+                        help="re-grade the downloaded master without generating anything")
     parser.add_argument("--frames-dir", metavar="DIR",
-                        help="take first frames from here instead of scripts/hero_frames/")
+                        help="take the first frame from here instead of scripts/hero_frames/")
     parser.add_argument("--frame-urls", metavar="JSON",
-                        help='{"01-merchant": "https://...png"} — skip uploading, use these')
+                        help='{"01-merchant": "https://...png"} — skip hosting, use these')
     parser.add_argument("--dry-run", action="store_true",
-                        help="print the plan and the prompts; call nothing")
+                        help="print the prompts; call nothing")
     return parser.parse_args()
 
 
@@ -839,113 +727,74 @@ def main() -> int:
             sys.exit(f"Unknown shot '{args.only}'. Known: {', '.join(names)}")
         names = [args.only]
 
-    print(f"\n{len(names)} shot(s), {args.seconds}s each on {video_model()} "
-          f"({RESOLUTION} {RATIO}).")
-    for name in names:
-        print(f"  {name} — {shots[name]['title']}")
+    name = names[0]
+    shot = shots[name]
+    raw = RAW_DIR / f"{name}.mp4"
+
+    print(f"\n{name} — {shot['title']}")
+    print(f"  {video_model()}, {RESOLUTION} {RATIO}, {args.seconds}s")
 
     if args.dry_run:
         print("\n--dry-run: nothing submitted.\n")
-        for name in names:
-            shot = shots[name]
-            print(f"  {name}")
-            if shot.get("frame_from") == "generate":
-                print(f"    first frame (generated): {shot['frame_prompt']}\n")
-            else:
-                print(f"    first frame (captured):  {shot['capture_url']}")
-                if shot.get("capture_brief"):
-                    print(f"    typed into the page:     {shot['capture_brief']}")
-            print(f"    motion: {shot['video_prompt']}\n")
+        print(f"  first frame ({image_model()}):\n    {shot['frame_prompt']}\n")
+        print(f"  motion:\n    {shot['video_prompt']}\n")
         return 0
 
     require_tool("ffmpeg")
     require_tool("ffprobe")
-    api_key()  # fail now, not after the first shot renders
     RAW_DIR.mkdir(parents=True, exist_ok=True)
     FRAMES_DIR.mkdir(parents=True, exist_ok=True)
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    if not args.no_capture:
-        print("\nCapturing the pages the shots start from:")
-        capture_frames(shots, names)
+    if args.regrade:
+        if not raw.is_file():
+            sys.exit(f"Nothing to re-grade: {raw} does not exist. Run without --regrade.")
+        print("\n--regrade: using the master already on disk, generating nothing.")
+    else:
+        api_key()  # fail now, not after the frame has been generated
+        frame = FRAMES_DIR / f"{name}.png"
+        frame_urls: Dict[str, str] = json.loads(args.frame_urls) if args.frame_urls else {}
 
-    if args.capture_only:
-        print(f"\nFrames are in {FRAMES_DIR.relative_to(REPO_ROOT)}. "
-              f"Look at them, then rerun without --capture-only.\n")
-        return 0
-
-    frame_urls: Dict[str, str] = json.loads(args.frame_urls) if args.frame_urls else {}
-    built: List[str] = []
-    failed: List[Tuple[str, str]] = []
-
-    with httpx.Client() as client:
-        for index, name in enumerate(names, start=1):
-            shot = shots[name]
-            print(f"\n[{index}/{len(names)}] {name} — {shot['title']}")
-            raw = RAW_DIR / f"{name}.mp4"
-            frame = FRAMES_DIR / f"{name}.png"
-
+        with httpx.Client() as client:
             try:
                 if raw.is_file() and raw.stat().st_size > 0:
-                    print("      master already downloaded — reusing it")
-                    built.append(name)
-                    continue
-
-                if not frame.is_file():
-                    if shot.get("frame_from") == "generate":
+                    print("      master already downloaded — re-grading only")
+                else:
+                    if not frame.is_file():
                         print("      generating the first frame")
                         generate_first_frame(client, shot["frame_prompt"], frame)
                     else:
-                        raise RuntimeError(
-                            f"no first frame at {frame}. Capture it (drop --no-capture) "
-                            f"or put a {CAPTURE_WIDTH}x{CAPTURE_HEIGHT} PNG there."
-                        )
+                        print(f"      using the first frame already at {frame.name}")
 
-                url = frame_urls.get(name)
-                if not url:
-                    print("      uploading the first frame")
-                    url = upload_frame(client, frame)
-                print(f"      first frame: {url}")
+                    url = frame_urls.get(name)
+                    if not url:
+                        print("      hosting the first frame")
+                        url = upload_frame(client, frame)
+                    print(f"      first frame: {url}")
 
-                print("      submitting")
-                task_id = submit_video(client, shot["video_prompt"], url, args.seconds)
-                print(f"      task {task_id}")
-                video_url, body = poll_task(client, task_id, want="video")
-                usage = describe_usage(body)
-                if usage:
-                    print(f"      usage: {usage}")
-                print("      downloading")
-                download(client, video_url, raw)
-                built.append(name)
-
-            except Exception as exc:  # one bad shot must not lose the others
+                    print("      submitting")
+                    task_id = submit_video(client, shot["video_prompt"], url, args.seconds)
+                    print(f"      task {task_id}")
+                    video_url, body = poll_task(client, task_id, want="video")
+                    usage = describe_usage(body)
+                    if usage:
+                        print(f"      usage: {usage}")
+                    print("      downloading")
+                    download(client, video_url, raw)
+            except Exception as exc:
                 print(f"      FAILED: {exc}")
-                failed.append((name, str(exc)))
+                return 1
 
-    ordered = [RAW_DIR / f"{n}.mp4" for n in shots if (RAW_DIR / f"{n}.mp4").is_file()]
-    if not ordered:
-        print("\nNo shots to cut together.\n")
-        return 1
-
-    if len(ordered) < len(shots):
-        missing = [n for n in shots if not (RAW_DIR / f"{n}.mp4").is_file()]
-        print(f"\nCutting {len(ordered)} of {len(shots)} shots — still missing: {', '.join(missing)}")
-
-    print("\nCutting them together")
-    size = assemble_within_budget(ordered, OUT_VIDEO)
+    print("\nGrading")
+    size = grade_within_budget(raw, OUT_VIDEO)
     make_poster(OUT_VIDEO, OUT_POSTER)
-    length = duration_of(OUT_VIDEO)
-    print(f"      → {OUT_VIDEO.relative_to(REPO_ROOT)}  {length:.1f}s  {size / 1e6:.2f} MB")
+    width, height = scaled_size(OUT_VIDEO)
+    print(f"      → {OUT_VIDEO.relative_to(REPO_ROOT)}  "
+          f"{duration_of(OUT_VIDEO):.1f}s  {width}x{height}  {size / 1e6:.2f} MB")
     print(f"      → {OUT_POSTER.relative_to(REPO_ROOT)}")
-
-    if failed:
-        print(f"\n{len(failed)} shot(s) failed:")
-        for name, reason in failed:
-            print(f"  {name}: {reason}")
-        print("\nRerun to retry only those — finished shots are reused, not re-paid for.")
-
     print("\nNext: cd frontend && npm run build, look at the hero, then commit "
           "the MP4 and the poster.\n")
-    return 1 if failed else 0
+    return 0
 
 
 if __name__ == "__main__":
