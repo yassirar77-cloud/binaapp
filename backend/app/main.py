@@ -3014,6 +3014,12 @@ async def _start_generation_from_body(body: dict, preferred_plan: Optional[dict]
         if _raw_price:
             _formatted = _format_price(_raw_price)
             if _formatted is None:
+                # Say what was refused. Four 400s in a row on 21 Sep left
+                # nothing in the log but the status line.
+                logger.warning(
+                    f"💰 Refusing generation: price {_raw_price!r} for item "
+                    f"{_item.get('name')!r} is not a number"
+                )
                 return JSONResponse(
                     status_code=400,
                     content={"success": False, "error": "invalid_price",

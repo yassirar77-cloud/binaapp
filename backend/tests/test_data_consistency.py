@@ -77,6 +77,13 @@ def test_price_parsing_rejects_typos_and_formats_once():
     assert parse_price("RM25.oo") is None
     assert parse_price("dari RM6") is None
     assert parse_price("") is None and parse_price(None) is None
+    # A dangling separator is still a number; a bare one is not.
+    assert parse_price("24.") == Decimal("24.00")
+    assert parse_price(".90") == Decimal("0.90")
+    assert parse_price("RM 12,") == Decimal("12.00")
+    assert format_price("24./pax") == "RM24.00/pax"
+    assert parse_price(".") is None and parse_price("RM") is None and parse_price("RM.") is None
+    assert parse_price("1234567") is None  # still not a price
     assert format_price("RM6") == "RM6.00" and format_price(Decimal("12.5")) == "RM12.50" and format_price("abc") is None
 
 

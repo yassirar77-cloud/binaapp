@@ -275,7 +275,12 @@ def normalize_hours(structured: Optional[str], story: Optional[str] = None, lang
 # ---------------------------------------------------------------------------
 
 #: "RM6", "6.5", "RM 12,50", and a decimal with a unit ("RM18/pax", "12 / kg").
-_PRICE_INPUT_RE = re.compile(r"^\s*(?:rm)?\s*(\d{1,6})(?:[.,](\d{1,2}))?\s*(?:/\s*([a-z]{1,12}))?\s*$", re.IGNORECASE)
+#: Either side of the separator may be empty — "24." is 24.00 and ".90" is
+#: 0.90 — but not both: a lone "." is no price. The create page's field lets
+#: a trailing or leading dot through (it only strips letters), and a merchant
+#: who typed "24." was refused with "invalid_price" for a number any human
+#: reads without hesitation.
+_PRICE_INPUT_RE = re.compile(r"^\s*(?:rm)?\s*(\d{0,6})(?:[.,](\d{0,2}))?\s*(?:/\s*([a-z]{1,12}))?\s*$", re.IGNORECASE)
 #: A price whose decimal part is not digits: "RM25.oo", "RM6.", "RM12.5x".
 #: Same word-boundary guard as _PRICE_IN_TEXT_RE below: the "RM" at the end
 #: of "transfoRM" is not a currency prefix.
@@ -299,7 +304,10 @@ def split_price(raw: Any) -> Optional[Tuple[Decimal, Optional[str]]]:
     m = _PRICE_INPUT_RE.match(str(raw))
     if not m:
         return None
-    whole, frac, unit = m.group(1), m.group(2) or "0", m.group(3)
+    whole, frac, unit = m.group(1), m.group(2), m.group(3)
+    if not whole and not frac:
+        return None  # "", "RM", "." — nothing to read
+    whole, frac = whole or "0", frac or "0"
     try:
         return Decimal(f"{whole}.{frac}").quantize(Decimal("0.01"), rounding=ROUND_HALF_UP), (unit.lower() if unit else None)
     except InvalidOperation:
