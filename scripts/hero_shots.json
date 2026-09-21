@@ -1,0 +1,25 @@
+{
+  "_note": "Three shots, played in this order, for the clip behind the landing hero. Shot 1's first frame is generated; shots 2 and 3 are captured from the real pages so their text is real before wan3.0 ever sees it.",
+  "_style": "Cinematic, photorealistic, warm amber and deep indigo palette, dark moody background, shallow depth of field, gentle handheld camera, 16:9, no on-screen captions, no logos, no watermark.",
+  "shots": {
+    "01-merchant": {
+      "title": "She is using BinaApp",
+      "frame_from": "generate",
+      "frame_prompt": "Over-the-shoulder view from behind and slightly above a Malaysian Malay woman wearing a soft grey tudung (hijab), sitting at a warm wooden table in her small restaurant late at night, holding a smartphone in both hands. Her face is NOT visible — the camera is behind her right shoulder, we see the back of her tudung, her shoulder and her hands. Warm amber lamp light, empty dining chairs blurred behind her. Cinematic, photorealistic, warm amber and deep indigo palette, dark moody background, shallow depth of field, gentle handheld camera, 16:9, no on-screen captions, no logos, no watermark.",
+      "video_prompt": "A slow, gentle push-in from behind her right shoulder. She tilts the phone slightly and her thumb moves across the screen as she types. Warm light flickers, faint steam drifts in the background. Her face stays out of frame the entire time. Natural, unhurried, photoreal. Cinematic, photorealistic, warm amber and deep indigo palette, dark moody background, shallow depth of field, gentle handheld camera, 16:9, no on-screen captions, no logos, no watermark."
+    },
+    "02-create": {
+      "title": "She writes the brief in BinaApp",
+      "frame_from": "capture",
+      "capture_url": "http://localhost:3000/create",
+      "capture_brief": "Kedai western buchher di Jalan Manjalara, Kuala Lumpur. Hidangan barat dengan sentuhan mewah ala hotel butik. Menu: chicken chop RM10, lamb grill RM25, chicken wings RM8. Buka 5pm sampai 12am setiap hari. Saya nak website gelap, mewah, gambar besar, boleh terima pesanan WhatsApp.",
+      "video_prompt": "An extremely slow, steady push-in on a laptop screen showing a dark website builder with Malay text already typed into it. A soft lime glow breathes around the input panel and faint dust drifts through the light. The interface and every word of text stay completely static, sharp and unchanged for the whole shot. Do not redraw, warp, translate, add or remove any text. Only the camera moves. Cinematic, photorealistic, warm amber and deep indigo palette, dark moody background, shallow depth of field, gentle handheld camera, 16:9, no on-screen captions, no logos, no watermark."
+    },
+    "03-website": {
+      "title": "The finished website, its hero moving",
+      "frame_from": "capture",
+      "capture_url": "https://wesddd.binaapp.my/",
+      "video_prompt": "An extremely slow push-in on a finished dark, premium restaurant website. The large photograph behind the restaurant name comes alive — grilled meat glistening, steam rising, embers glowing, light drifting across it — as if a video were playing behind the page. The page layout, the navigation and every word of text stay perfectly still and sharp on top of it. The interface and every word of text stay completely static, sharp and unchanged for the whole shot. Do not redraw, warp, translate, add or remove any text. Only the camera moves. Cinematic, photorealistic, warm amber and deep indigo palette, dark moody background, shallow depth of field, gentle handheld camera, 16:9, no on-screen captions, no logos, no watermark."
+    }
+  }
+}
