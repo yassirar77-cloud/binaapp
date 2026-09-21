@@ -31,7 +31,7 @@ import {
   type PublishHeroVideoOutcome,
 } from '@/lib/heroVideo'
 import { checkCreateWebsiteAllowed } from '@/lib/quota'
-import { initialLiveness, observePoll, pollGiveUpMessage, pollVerdict } from '@/lib/generationPoll'
+import { GENERATION_POLL_INTERVAL_MS, afterSleep, initialLiveness, observePoll, pollGiveUpMessage, pollVerdict } from '@/lib/generationPoll'
 import { normalizePriceInput } from '@/lib/priceInput'
 import {
   BRIEF_EXAMPLES,
@@ -884,18 +884,18 @@ export default function CreatePage() {
     // GENERATION_HARD_CAP_MS has passed. See lib/generationPoll.ts.
     const startedAt = Date.now();
     let liveness = initialLiveness(startedAt);
+    let lastTickAt = startedAt;
 
     // CRITICAL: Store interval in ref so it can be cleared on retry
     pollIntervalRef.current = setInterval(async () => {
-      const verdict = pollVerdict(liveness, startedAt, Date.now());
-      if (verdict !== 'continue') {
-        if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
-        setError(pollGiveUpMessage(verdict, liveness, jobId));
-        console.error(`❌ Generation ${verdict} - Job: ${jobId}, Progress: ${liveness.progress}%, elapsed: ${Math.round((Date.now() - startedAt) / 1000)}s`);
-        // Keep loading=true so the modal stays open with retry button
-        return;
-      }
+      // The verdict is reached at the END of the tick (see the finally
+      // below), after this poll's answer is in. A phone that suspends the
+      // page (screen off, app switched) fires the next tick minutes later;
+      // judging first declared job 25bff45b stalled while the server had
+      // it completed. The sleep is not silence, so the window restarts.
+      const tickAt = Date.now();
+      liveness = afterSleep(liveness, lastTickAt, tickAt);
+      lastTickAt = tickAt;
 
       try {
         // Add cache-busting timestamp
@@ -993,8 +993,21 @@ export default function CreatePage() {
       } catch (pollError: any) {
         console.warn('Poll error:', pollError);
         // Continue polling on error
+      } finally {
+        // Still polling (a completed or failed job has cleared the interval
+        // above)? Then decide, with this poll's answer already folded in.
+        if (pollIntervalRef.current) {
+          const verdict = pollVerdict(liveness, startedAt, Date.now());
+          if (verdict !== 'continue') {
+            clearInterval(pollIntervalRef.current);
+            pollIntervalRef.current = null;
+            setError(pollGiveUpMessage(verdict, liveness, jobId));
+            console.error(`❌ Generation ${verdict} - Job: ${jobId}, Progress: ${liveness.progress}%, elapsed: ${Math.round((Date.now() - startedAt) / 1000)}s`);
+            // Keep loading=true so the modal stays open with retry button
+          }
+        }
       }
-    }, 3000); // Poll every 3 seconds
+    }, GENERATION_POLL_INTERVAL_MS);
   };
 
   const handleGenerate = async (opts?: { skipListening?: boolean; descriptionOverride?: string; locationResolution?: Record<string, 'story' | 'address'> } | unknown) => {

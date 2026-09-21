@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
   GENERATION_HARD_CAP_MS,
+  GENERATION_POLL_INTERVAL_MS,
+  GENERATION_SLEEP_GAP_MS,
   GENERATION_STALL_MS,
+  afterSleep,
   initialLiveness,
   observePoll,
   pollGiveUpMessage,
@@ -80,6 +83,42 @@ describe('generation polling liveness', () => {
     live = observePoll(live, { status: 'processing', progress: 50, updated_at: 'fresh' }, justUnder);
     expect(pollVerdict(live, t0, justUnder)).toBe('continue');
     expect(pollVerdict(live, t0, t0 + GENERATION_HARD_CAP_MS)).toBe('exceeded');
+  });
+
+  it('a page that slept through the job is judged on what it sees when it wakes', () => {
+    // Job 25bff45b: last poll at 44% (~4 min in), the phone suspended the
+    // page, the backend completed the job, the page woke 12 minutes later.
+    const t0 = 0;
+    let live = initialLiveness(t0);
+    const lastTick = t0 + 4 * MIN;
+    live = observePoll(live, { status: 'processing', progress: 44, updated_at: 'a' }, lastTick);
+    const wake = lastTick + 12 * MIN;
+
+    // Judged before polling, the old order: a stall, wrongly.
+    expect(pollVerdict(live, t0, wake)).toBe('stalled');
+
+    // The sleep gap restarts the window, and the poll then shows the job done.
+    live = afterSleep(live, lastTick, wake);
+    expect(pollVerdict(live, t0, wake)).toBe('continue');
+    live = observePoll(live, { status: 'completed', progress: 100, updated_at: 'z' }, wake);
+    expect(live.progress).toBe(100);
+    expect(pollVerdict(live, t0, wake)).toBe('continue');
+
+    // A worker that really died is still caught: identical rows for a
+    // full window after waking.
+    let dead = afterSleep(initialLiveness(t0), lastTick, wake);
+    for (let s = 0; s < GENERATION_STALL_MS / 1000; s += 3) {
+      dead = observePoll(dead, { status: 'processing', progress: 44, updated_at: 'a' }, wake + s * 1000);
+    }
+    expect(pollVerdict(dead, t0, wake + GENERATION_STALL_MS)).toBe('stalled');
+  });
+
+  it('an ordinary tick gap is not a sleep', () => {
+    let live = initialLiveness(0);
+    live = observePoll(live, { status: 'processing', progress: 30, updated_at: 'a' }, 1000);
+    const later = 1000 + GENERATION_SLEEP_GAP_MS - 1;
+    expect(afterSleep(live, 1000 + GENERATION_POLL_INTERVAL_MS, later)).toEqual(live);
+    expect(afterSleep(live, 1000, 1000 + GENERATION_SLEEP_GAP_MS).lastChangeAt).toBe(1000 + GENERATION_SLEEP_GAP_MS);
   });
 
   it('remembers the last progress for the message even when nothing else changed', () => {

@@ -81,7 +81,31 @@ export function observePoll(prev: PollLiveness, sample: PollSample | null, now: 
   return { lastChangeAt: now, signature, progress };
 }
 
-/** Decide whether to keep polling. Checked before every poll. */
+/**
+ * A tick that arrives this long after the previous one means the browser
+ * suspended the page in between (screen off, app switched: Android stops
+ * a background tab's timers outright). Nothing was observed during that
+ * gap, so it cannot count as silence from the server.
+ */
+export const GENERATION_SLEEP_GAP_MS = 4 * GENERATION_POLL_INTERVAL_MS;
+
+/**
+ * Apply at the start of a tick, before polling. After a sleep the stall
+ * window restarts from now: the row is judged on what the next polls
+ * return, not on the time the page spent asleep. Job 25bff45b: the page
+ * slept from 44% through completion, woke twelve minutes later and
+ * declared the job stalled before asking the server once.
+ */
+export function afterSleep(liveness: PollLiveness, lastTickAt: number, now: number): PollLiveness {
+  if (now - lastTickAt < GENERATION_SLEEP_GAP_MS) return liveness;
+  return { ...liveness, lastChangeAt: now };
+}
+
+/**
+ * Decide whether to keep polling. Checked AFTER each poll has been folded
+ * in, never before: a page that wakes to find the job completed must see
+ * the site, not a stall message.
+ */
 export function pollVerdict(liveness: PollLiveness, startedAt: number, now: number): PollVerdict {
   if (now - startedAt >= GENERATION_HARD_CAP_MS) return 'exceeded';
   if (now - liveness.lastChangeAt >= GENERATION_STALL_MS) return 'stalled';
