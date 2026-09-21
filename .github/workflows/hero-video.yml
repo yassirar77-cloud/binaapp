@@ -122,6 +122,17 @@ jobs:
       - name: Build the clip
         env:
           DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+          # wan3.0 fetches the first frame by URL, so the captured PNG has to
+          # be hosted before the job is submitted. The script tries DashScope's
+          # own upload endpoint first and needs nothing for it; these make the
+          # Cloudinary fallback — BinaApp's own storage — available too. A
+          # secret that does not exist resolves to an empty string and the
+          # script simply skips that route, so this is safe to leave in place
+          # whether or not they are set.
+          CLOUDINARY_URL: ${{ secrets.CLOUDINARY_URL }}
+          CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
+          CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
+          CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
           # Through the environment, never interpolated into the script body:
           # `only` is free text from whoever pressed the button, and
           # ${{ }} inside a run block would make it executable shell.
