@@ -1,32 +1,33 @@
 #!/usr/bin/env python3
 """Build the 20-second "how it works" film that sits under the landing hero.
 
-Four generated shots of five seconds each, joined with zoom transitions:
+Four shots of five seconds each, joined with zoom transitions:
 
-    1. she has the idea, phone in hand          text-to-video
-    2. her real /create brief, on that phone    image-to-video
-    3. her finished site, on that phone         image-to-video
-    4. she shows it to a customer               text-to-video
+    1. she has the idea, phone in hand          generated  (text-to-video)
+    2. her real /create brief, on that phone    composited (ffmpeg)
+    3. her finished site, on that phone         composited (ffmpeg)
+    4. she shows it to a customer               generated  (text-to-video)
        then a one-second hold on the last frame
 
-Shots 2 and 3 start from a frame this script draws: the merchant's own
-screenshot, pin-sharp, on a phone standing in a warm out-of-focus kedai. The
-frame is built with PIL (`build_first_frame`), hosted, and handed to the model
-as `input.media[0].type == "first_frame"`.
+Only the two shots with a person in them are generated. Shots 2 and 3 are
+built here, from a frame drawn with PIL: her own captures, at full resolution,
+on a 9:19.5 phone standing in the blurred dark of a steakhouse. They cost
+nothing and their text is pin-sharp, which is the point — this was tried
+through wan3.0 first and the model redrew the interface into letter-shaped
+noise, because a video model redraws every frame it is given, including the
+one it was handed.
 
-WHAT THAT COSTS YOU. wan3.0 redraws every frame it generates, including the
-first one it was given. UI text is the first thing it destroys — this was
-tried before and the clips came back with the interface melted into
-letter-shaped noise. The prompts for those two shots therefore say "camera
-move only" about as loudly as a prompt can, but the model is under no
-obligation to listen, and the first frame is the only part guaranteed sharp.
-Judge shots 2 and 3 on their first second.
+Shot 3 goes further: the hero clip playing on the merchant's live site is
+scraped from the page (`find_live_hero_video`, the same marker the showcase
+builder uses), darkened to match her site's scrim, and composited into the
+hero block of the phone screen — behind her headline, which is held out of it
+by a mask built from the capture's own luma. So the flames move while every
+word stays exactly as she published it.
 
-Models are tried in order until one accepts: wan3.0-video, then
-happyhorse-1.1-t2v. A model the account does not have is rejected at submit,
-and a rejected submit is not billed, so walking the list costs nothing. Note
-that the fallback is text-to-video only: if wan3.0 is unavailable, shots 1 and
-4 still generate and shots 2 and 3 cannot.
+The two generated shots go to DashScope. Models are tried in order until one
+accepts: wan3.0-video, then happyhorse-1.1-t2v. A model the account does not
+have is rejected at submit, and a rejected submit is not billed, so walking the
+list costs nothing.
 
 The film's own length is arithmetic, not a target to hit: four five-second
 shots, three overlapping transitions and a tail hold come to about 19.5s.
@@ -34,7 +35,8 @@ shots, three overlapping transitions and a tail hold come to about 19.5s.
 Usage
 -----
     python3 scripts/generate_howitworks_video.py --dry-run   # frames + prompts, no spend
-    python3 scripts/generate_howitworks_video.py             # the real run, four clips
+    python3 scripts/generate_howitworks_video.py             # two billable shots
+    python3 scripts/generate_howitworks_video.py --only 2-create,3-site   # free
 
 Requires ``ffmpeg``/``ffprobe``, ``httpx`` and ``pillow``.
 """
@@ -250,66 +252,102 @@ def _rounded(image, radius: int):
 
 
 def build_backdrop(seed: int = BACKDROP_SEED):
-    """A bright, colourful kedai afternoon, thrown well out of focus.
+    """The merchant's own room, thrown well out of focus.
+
+    A modern steakhouse rather than a bright kedai: matte black and dark wood,
+    Edison bulbs hanging warm, the open grill glowing low and off to one side,
+    a leather booth and a couple of blurred diners. It is drawn to the same
+    palette her website uses — near-black with orange — so the two composited
+    shots sit in the same room as the two generated ones instead of announcing
+    themselves as a different production.
 
     Everything is drawn, then blurred past recognition, then given its
-    highlights back on top — blurring a bokeh bulb along with everything else
-    just makes a smudge, so the bulbs go on after the blur and keep their
-    shape.
+    highlights back on top: blurring a bulb along with everything else just
+    makes a smudge, so the bulbs go on after the blur and keep their shape.
     """
     from PIL import Image, ImageDraw, ImageEnhance, ImageFilter
 
     rng = random.Random(seed)
-    image = Image.new("RGB", (WIDTH, HEIGHT), (58, 30, 18))
+    image = Image.new("RGB", (WIDTH, HEIGHT), (12, 8, 6))
     draw = ImageDraw.Draw(image)
 
-    # Afternoon sun through the shopfront: a broad warm band across the top,
-    # falling away to the deep warm shade of the room below.
+    # The room falls away to black at the top; the warmth lives low, where the
+    # grill and the table lamps are.
     for y in range(HEIGHT):
-        fall = (1 - y / (HEIGHT - 1)) ** 1.6
-        draw.line(
-            [(0, y), (WIDTH, y)],
-            fill=(int(52 + 168 * fall), int(30 + 118 * fall), int(20 + 72 * fall)),
-        )
-    draw.rectangle([0, int(HEIGHT * 0.74), WIDTH, HEIGHT], fill=(44, 22, 14))
+        down = (y / (HEIGHT - 1)) ** 1.3
+        draw.line([(0, y), (WIDTH, y)],
+                  fill=(int(10 + 46 * down), int(6 + 24 * down), int(5 + 13 * down)))
 
-    # Customers at the tables, the drinks fridge, a shopfront awning. None of
-    # it is meant to be identifiable — it is there to give the blur something
-    # with the right colours and the right weights in the right places.
-    masses = [
-        ((0.08, 0.58, 0.20, 0.92), (96, 52, 46)),
-        ((0.22, 0.52, 0.33, 0.92), (128, 74, 52)),
-        ((0.72, 0.55, 0.85, 0.92), (86, 48, 44)),
-        ((0.86, 0.48, 0.99, 0.92), (150, 92, 58)),
-        ((0.02, 0.06, 0.30, 0.20), (206, 88, 56)),
-        ((0.66, 0.05, 0.98, 0.17), (72, 150, 142)),
-    ]
-    for (left, top, right, bottom), colour in masses:
+    # Dark wood panelling: vertical boards, barely separable once blurred.
+    for i in range(14):
+        x = WIDTH * i / 14
+        shade = 26 + rng.randrange(0, 16)
+        draw.rectangle([x, 0, x + WIDTH / 28, HEIGHT], fill=(shade, shade - 9, shade - 14))
+
+    # The open grill: a low bed of fire off to the right, broken into a few
+    # overlapping pools rather than drawn as one shape. A single ellipse
+    # survives the blur as a single ellipse, and reads as a glowing oval
+    # pasted on the wall instead of as fire.
+    draw.rectangle([WIDTH * 0.50, HEIGHT * 0.30, WIDTH * 0.98, HEIGHT * 0.44],
+                   fill=(34, 24, 20))
+    for fx, fy, rx, ry, tint in (
+        (0.60, 0.615, 0.10, 0.045, (120, 46, 12)),
+        (0.72, 0.600, 0.13, 0.052, (146, 58, 15)),
+        (0.85, 0.625, 0.10, 0.042, (118, 44, 11)),
+        (0.69, 0.608, 0.07, 0.030, (168, 74, 20)),
+        (0.80, 0.612, 0.05, 0.024, (160, 68, 18)),
+    ):
+        draw.ellipse([WIDTH * (fx - rx), HEIGHT * (fy - ry),
+                      WIDTH * (fx + rx), HEIGHT * (fy + ry)], fill=tint)
+
+    # A leather booth along the left, and two diners in it.
+    draw.rounded_rectangle([WIDTH * -0.05, HEIGHT * 0.46, WIDTH * 0.34, HEIGHT * 1.05],
+                           radius=120, fill=(42, 24, 17))
+    for left, top, right, bottom in (
+        (0.03, 0.54, 0.14, 0.95),
+        (0.17, 0.58, 0.28, 0.95),
+    ):
         draw.rounded_rectangle(
             [WIDTH * left, HEIGHT * top, WIDTH * right, HEIGHT * bottom],
-            radius=90, fill=colour,
+            radius=90, fill=(30, 19, 15),
         )
-    image = image.filter(ImageFilter.GaussianBlur(40))
 
-    palette = [
-        (255, 214, 132), (255, 176, 96), (255, 244, 206), (128, 226, 212),
-        (255, 122, 96), (196, 240, 150), (255, 198, 150),
-    ]
+    image = image.filter(ImageFilter.GaussianBlur(46))
+
+    # Edison bulbs: few, warm, hung at different depths. Amber only — this room
+    # has one colour of light in it.
+    bulbs = [(0.12, 0.18, 30), (0.27, 0.11, 22), (0.44, 0.22, 26), (0.63, 0.14, 20),
+             (0.79, 0.20, 28), (0.91, 0.09, 18), (0.36, 0.34, 16), (0.70, 0.31, 15)]
+    for fx, fy, radius in bulbs:
+        x, y = WIDTH * fx, HEIGHT * fy
+        for scale, alpha, tint in ((5.5, 46, (196, 104, 34)),
+                                   (2.2, 104, (240, 158, 66)),
+                                   (1.0, 224, (255, 214, 150))):
+            glow = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
+            size = radius * scale
+            ImageDraw.Draw(glow).ellipse([x - size, y - size, x + size, y + size],
+                                         fill=tint + (alpha,))
+            image = Image.alpha_composite(
+                image.convert("RGBA"),
+                glow.filter(ImageFilter.GaussianBlur(size * 0.5)),
+            ).convert("RGB")
+
+    # Embers over the grill, and the flame-light bouncing off the hood.
     for _ in range(BACKDROP_BOKEH):
-        x, y = rng.uniform(0, WIDTH), rng.uniform(0, HEIGHT * 0.86)
-        radius = rng.uniform(30, 130)
-        colour = palette[rng.randrange(len(palette))]
+        x = rng.uniform(WIDTH * 0.48, WIDTH)
+        y = rng.uniform(HEIGHT * 0.34, HEIGHT * 0.76)
+        radius = rng.uniform(10, 46)
         glow = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
         ImageDraw.Draw(glow).ellipse(
             [x - radius, y - radius, x + radius, y + radius],
-            fill=colour + (rng.randrange(85, 190),),
+            fill=(255, rng.randrange(110, 170), 48, rng.randrange(40, 110)),
         )
         image = Image.alpha_composite(
-            image.convert("RGBA"), glow.filter(ImageFilter.GaussianBlur(radius * 0.42))
+            image.convert("RGBA"), glow.filter(ImageFilter.GaussianBlur(radius * 0.8))
         ).convert("RGB")
 
-    image = image.filter(ImageFilter.GaussianBlur(14))
-    return ImageEnhance.Color(image).enhance(1.25)
+    image = image.filter(ImageFilter.GaussianBlur(18))
+    return ImageEnhance.Color(image).enhance(1.12)
 
 
 def screen_image(spec: Dict):
@@ -500,6 +538,62 @@ def phone_body(screen, height: int, tilt: float):
     return body.rotate(tilt, resample=Image.BICUBIC, expand=True)
 
 
+def hero_placement(spec: Dict, screen, screen_height: int, tilt: float,
+                   body_size: Tuple[int, int], origin: Tuple[int, int],
+                   frame_out: Path) -> Dict:
+    """Where her hero block lands in the finished frame, and the patch to mask with.
+
+    Shot 3 plays her live hero clip inside the phone. The clip has to be put
+    there in ffmpeg, frame by frame, but only this function knows where "there"
+    is: the phone is built here, tilted here, and placed here. So the geometry
+    is computed once and written out beside the PNG.
+
+    The tilt is a plain rotation, not a perspective, so the hero block stays a
+    rectangle — it only turns. That is why ffmpeg can place it with `rotate` and
+    an overlay rather than a four-corner warp.
+    """
+    from PIL import Image
+    import math
+
+    hero = spec.get("hero_video")
+    if not hero:
+        return {}
+
+    top, bottom = hero.get("box", [0.076, 0.34])
+    width = max(2, round(screen.width * screen_height / screen.height))
+    scaled = screen.resize((width, screen_height), Image.LANCZOS)
+
+    y0, y1 = round(screen_height * top), round(screen_height * bottom)
+    patch = scaled.crop((0, y0, width, y1))
+    patch_path = frame_out.with_name(frame_out.stem + "-hero.png")
+    patch.save(patch_path)
+
+    # The patch's centre, as an offset from the centre of the untilted body.
+    bezel = FRAME_PHONE_BEZEL
+    dx = 0.0
+    dy = (bezel + (y0 + y1) / 2) - (screen_height + bezel * 2) / 2
+
+    # PIL rotates counter-clockwise for a positive angle, with y pointing down.
+    theta = math.radians(tilt)
+    rotated_dx = dx * math.cos(theta) + dy * math.sin(theta)
+    rotated_dy = -dx * math.sin(theta) + dy * math.cos(theta)
+
+    return {
+        "patch": patch_path.name,
+        "size": [patch.width, patch.height],
+        "center": [
+            round(origin[0] + body_size[0] / 2 + rotated_dx, 2),
+            round(origin[1] + body_size[1] / 2 + rotated_dy, 2),
+        ],
+        # ffmpeg's `rotate` turns clockwise for a positive angle; PIL's turns
+        # the other way, so the sign flips on the way across.
+        "rotate_radians": round(-theta, 6),
+        "darken": hero.get("darken", 0.66),
+        "keep_text_from": hero.get("keep_text_from", 100),
+        "keep_text_to": hero.get("keep_text_to", 150),
+    }
+
+
 def build_first_frame(spec: Dict, out: Path) -> Path:
     """Draw the frame shots 2 and 3 start from, and save it as a PNG.
 
@@ -532,6 +626,8 @@ def build_first_frame(spec: Dict, out: Path) -> Path:
     x = int(WIDTH * (0.5 + float(offset_x)) - body.width / 2)
     y = int(HEIGHT * (0.5 + float(offset_y)) - body.height / 2)
 
+    placement = hero_placement(spec, screen, height, tilt, body.size, (x, y), out)
+
     silhouette = Image.new("RGBA", body.size, (0, 0, 0, 0))
     silhouette.paste((0, 0, 0, FRAME_SHADOW_ALPHA), (0, 0), body)
     shadow = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
@@ -545,7 +641,61 @@ def build_first_frame(spec: Dict, out: Path) -> Path:
 
     out.parent.mkdir(parents=True, exist_ok=True)
     frame.convert("RGB").save(out)
+    if placement:
+        out.with_suffix(".hero.json").write_text(
+            json.dumps(placement, indent=2), encoding="utf-8"
+        )
     return out
+
+
+# ---------------------------------------------------------------------------
+# The clip already playing on her live site
+# ---------------------------------------------------------------------------
+
+#: The hero patcher writes `<video class="binaapp-hero-video" …><source src="…">`
+#: into every generated site, so the clip is found by that class rather than by
+#: guessing at the first <video> on the page. Same marker the showcase builder
+#: uses to pull Wak Hassan's clip.
+HERO_VIDEO_BLOCK = re.compile(
+    r'<video[^>]*class="[^"]*binaapp-hero-video[^"]*"[^>]*>(.*?)</video>',
+    re.IGNORECASE | re.DOTALL,
+)
+SOURCE_SRC = re.compile(r'<source[^>]*\bsrc="([^"]+)"', re.IGNORECASE)
+ANY_MP4 = re.compile(r'https?://[^"\'<>\s]+\.mp4[^"\'<>\s]*', re.IGNORECASE)
+
+
+def find_live_hero_video(client: httpx.Client, site: str) -> str:
+    """The URL of the hero clip already playing on a live BinaApp site."""
+    response = client.get(site, timeout=60, follow_redirects=True)
+    response.raise_for_status()
+    html = response.text
+
+    block = HERO_VIDEO_BLOCK.search(html)
+    if block:
+        source = SOURCE_SRC.search(block.group(1))
+        if source:
+            return source.group(1)
+
+    fallback = ANY_MP4.search(html)
+    if fallback:
+        print("      no binaapp-hero-video block — using the first MP4 on the page")
+        return fallback.group(0)
+
+    raise RuntimeError(f"no hero clip found on {site}")
+
+
+def fetch_live_hero_video(client: httpx.Client, site: str) -> Path:
+    """Download her site's hero clip once and keep it for later runs."""
+    destination = RAW_DIR / "live-hero.mp4"
+    if destination.is_file() and destination.stat().st_size > 0:
+        print("      live hero clip already downloaded — reusing it")
+        return destination
+
+    url = find_live_hero_video(client, site)
+    print(f"      {url}")
+    RAW_DIR.mkdir(parents=True, exist_ok=True)
+    download(client, url, destination)
+    return destination
 
 
 # ---------------------------------------------------------------------------
@@ -878,6 +1028,91 @@ def build_shot(client: httpx.Client, prompt: str, seconds: int, out: Path,
     normalise(master, out, tail_push)
 
 
+def camera_move(seconds: float, move: Dict) -> str:
+    """An eased push over a still frame. zoompan's floor is 1.0, so pushes only."""
+    start = max(1.0, float(move.get("from", 1.0)))
+    end = max(1.0, float(move.get("to", 1.16)))
+    centre_x, centre_y = move.get("center", [0.5, 0.5])
+
+    frames = max(2, int(round(seconds * FPS)))
+    eased = smoothstep(f"min(on/{frames - 1},1)")
+    x_expr = f"(iw*({0.5:.4f}+({float(centre_x):.4f}-0.5)*{eased}))-(iw/zoom/2)"
+    y_expr = f"(ih*({0.5:.4f}+({float(centre_y):.4f}-0.5)*{eased}))-(ih/zoom/2)"
+    return (
+        f"zoompan=z='{start:.4f}+{end - start:.4f}*{eased}':d=1"
+        f":x='{x_expr}':y='{y_expr}':s={WIDTH}x{HEIGHT}:fps={FPS}"
+    )
+
+
+def build_composite_shot(frame: Path, seconds: float, out: Path,
+                         move: Dict = None, hero_clip: Path = None,
+                         tail_push: Dict = None) -> None:
+    """One shot built here rather than generated: the drawn frame, given motion.
+
+    With `hero_clip`, her live site's hero video is played inside the phone.
+    The clip goes down first and the capture goes on top of it, carrying an
+    alpha built from its own luma — her headline, her Halal badge and her
+    orange rule are the bright things in that block and the darkened
+    photograph is everything else, so a ramp between two luma values separates
+    them cleanly. The type therefore comes through untouched, at full
+    resolution, with the fire moving behind it.
+    """
+    placement = {}
+    hero_json = frame.with_suffix(".hero.json")
+    if hero_clip and hero_json.is_file():
+        placement = json.loads(hero_json.read_text(encoding="utf-8"))
+
+    # -framerate, not just -loop: a looped image input is 25fps unless told
+    # otherwise, so five seconds of it became 125 frames and the 30fps shot it
+    # fed came out 4.2s long.
+    still = ["-loop", "1", "-framerate", str(FPS), "-t", f"{seconds:.3f}", "-i"]
+    inputs: List[str] = still + [str(frame)]
+    steps: List[str] = []
+    label = "0:v"
+
+    if placement:
+        patch = frame.with_name(placement["patch"])
+        width, height = placement["size"]
+        centre_x, centre_y = placement["center"]
+        angle = placement["rotate_radians"]
+        darken = float(placement["darken"])
+        lo, hi = float(placement["keep_text_from"]), float(placement["keep_text_to"])
+
+        inputs += ["-stream_loop", "-1", "-t", f"{seconds:.3f}", "-i", str(hero_clip)]
+        inputs += still + [str(patch)]
+        steps += [
+            # Her site lays a dark scrim over this clip; the raw file has none,
+            # so it is brought down to the capture's own level or the block
+            # would light up brighter than the page around it.
+            f"[1:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
+            f"crop={width}:{height},fps={FPS},lutyuv=y='val*{darken}',format=rgba[fire]",
+            "[2:v]format=rgba,split=2[keep][luma]",
+            f"[luma]format=gray,lutyuv=y='clip((val-{lo})*255/{max(hi - lo, 1):.1f},0,255)'[mask]",
+            "[keep][mask]alphamerge[type]",
+            "[fire][type]overlay=0:0[block]",
+            # format=rgba before the turn, not just before the overlay: without
+            # it the stream negotiates to YUV, `c=none` fills the corners with
+            # Y=0,U=0,V=0, and that is bright green — which is exactly what
+            # drew a dashed green line down two edges of the block.
+            f"[block]format=rgba,rotate={angle}:c=none"
+            f":ow=rotw({angle}):oh=roth({angle})[turned]",
+            f"[0:v][turned]overlay=x={centre_x}-w/2:y={centre_y}-h/2[lit]",
+        ]
+        label = "lit"
+
+    chain = camera_move(seconds, move or {})
+    if tail_push:
+        chain += "," + tail_push_filter(seconds, tail_push)
+    steps.append(f"[{label}]{chain},format=yuv420p[out]")
+
+    run_quiet(
+        ["ffmpeg", "-y", "-loglevel", "error"] + inputs
+        + ["-filter_complex", ";".join(steps), "-map", "[out]", "-an",
+           "-t", f"{seconds:.3f}"]
+        + INTERMEDIATE_ARGS + [str(out)]
+    )
+
+
 def normalise(master: Path, out: Path, tail_push: Dict = None) -> None:
     """One clip to the film's size, rate and timebase, with its tail move.
 
@@ -1003,12 +1238,14 @@ def prompt_for(plan: Dict, shot: Dict) -> str:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description='Build the "how it works" film — four generated shots.',
+        description='Build the "how it works" film — two generated shots, two composited.',
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--seconds", type=int, choices=(5, 10), default=None,
                         help="length of each shot; the provider allows 5 or 10")
-    parser.add_argument("--only", default="", help="build one shot by name")
+    parser.add_argument("--only", default="",
+                        help="build only these shots, comma separated "
+                             "(e.g. 1-idea,4-handover)")
     parser.add_argument("--frames-only", action="store_true",
                         help="draw the first frames and stop — nothing is submitted")
     parser.add_argument("--frame-urls", default="",
@@ -1031,17 +1268,22 @@ def main() -> int:
     transition_name = str(timing.get("transition", "zoomin"))
     tail_hold = float(timing.get("tail_hold_seconds", 1.0))
 
-    names = [n for n in shots if not args.only or n == args.only]
-    if args.only and not names:
-        sys.exit(f"no shot named {args.only}. Have: {', '.join(shots)}")
+    wanted = [n.strip() for n in args.only.split(",") if n.strip()]
+    unknown = [n for n in wanted if n not in shots]
+    if unknown:
+        sys.exit(f"no shot named {', '.join(unknown)}. Have: {', '.join(shots)}")
+    names = [n for n in shots if not wanted or n in wanted]
 
+    generated = [n for n in names if shots[n].get("kind") == "text_to_video"]
     length = seconds * len(names) - transition * max(0, len(names) - 1) + tail_hold
     print(f"\n{plan['merchant']['name']} — {len(names)} shots of {seconds}s, "
           f"{transition}s {transition_name} transitions, {tail_hold}s tail hold "
           f"→ {length:.1f}s")
     for name in names:
-        kind = "image-to-video" if shots[name].get("first_frame") else "text-to-video"
+        kind = ("generated" if shots[name].get("kind") == "text_to_video"
+                else "composited here, free")
         print(f"  {name:12} {shots[name]['title']}  ({kind})")
+    print(f"  {len(generated)} of {len(names)} shots are billable.")
 
     require_tool("ffmpeg")
     require_tool("ffprobe")
@@ -1060,51 +1302,59 @@ def main() -> int:
         print(f"      → {frame.relative_to(REPO_ROOT)}")
 
     if args.dry_run or args.frames_only:
-        billable = len(names)
         print(f"\n--{'dry-run' if args.dry_run else 'frames-only'}: nothing submitted, "
               f"nothing spent.")
-        print(f"  A real run is {billable} jobs, roughly "
-              f"USD {billable * ROUGH_COST_PER_SHOT_USD:.2f} at "
+        print(f"  A real run is {len(generated)} job(s), roughly "
+              f"USD {len(generated) * ROUGH_COST_PER_SHOT_USD:.2f} at "
               f"~{ROUGH_COST_PER_SHOT_USD:.2f}/shot.")
         print(f"  Models, in order: {', '.join(video_models())}\n")
         for name in names:
-            print(f"  ── {name} — {shots[name]['title']}")
+            shot = shots[name]
+            print(f"  ── {name} — {shot['title']}")
             if name in frames:
-                print(f"     first frame: {frames[name].relative_to(REPO_ROOT)}")
-            print(f"     {prompt_for(plan, shots[name])}\n")
+                print(f"     frame: {frames[name].relative_to(REPO_ROOT)}")
+            if shot.get("kind") == "text_to_video":
+                print(f"     {prompt_for(plan, shot)}\n")
+            else:
+                print("     composited here — no prompt, nothing sent\n")
         return 0
 
-    api_key()  # fail now, not after the first shot renders
-    supplied = json.loads(args.frame_urls) if args.frame_urls else {}
+    if generated:
+        api_key()  # fail now, not after the first shot renders
     RAW_DIR.mkdir(parents=True, exist_ok=True)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
     with httpx.Client() as client:
-        # Every frame is hosted before any job is submitted: a hosting problem
-        # should cost nothing, which is how it failed the first time and how
-        # it should keep failing.
-        frame_urls: Dict[str, str] = {}
-        for name, frame in frames.items():
-            if name in supplied:
-                frame_urls[name] = supplied[name]
-                print(f"\n[{name}] using the supplied first-frame URL")
+        # Her live site's hero clip, for whichever shot plays it. Fetched once,
+        # before anything is submitted, so a site that has moved or lost its
+        # clip fails while the run is still free.
+        hero_clips: Dict[str, Path] = {}
+        for name in names:
+            site = (shots[name].get("first_frame") or {}).get("hero_video", {}).get("site")
+            if not site:
                 continue
-            print(f"\n[{name}] hosting the first frame")
+            print(f"\n[{name}] fetching the hero clip from {site}")
             try:
-                frame_urls[name] = upload_frame(client, frame)
-            except RuntimeError as exc:
-                print(f"\n{exc}\n")
+                hero_clips[name] = fetch_live_hero_video(client, site)
+            except Exception as exc:
+                print(f"\n      could not fetch her hero clip: {exc}\n")
                 return 1
 
         for name in names:
-            print(f"\n[{name}] {shots[name]['title']}")
+            shot = shots[name]
+            print(f"\n[{name}] {shot['title']}")
             clip = RAW_DIR / f"{name}.mp4"
             try:
-                build_shot(
-                    client, prompt_for(plan, shots[name]), seconds, clip,
-                    frame_url=frame_urls.get(name, ""),
-                    tail_push=shots[name].get("tail_push"),
-                )
+                if shot.get("kind") == "text_to_video":
+                    build_shot(client, prompt_for(plan, shot), seconds, clip,
+                               tail_push=shot.get("tail_push"))
+                else:
+                    build_composite_shot(
+                        frames[name], seconds, clip,
+                        move=shot.get("move"),
+                        hero_clip=hero_clips.get(name),
+                        tail_push=shot.get("tail_push"),
+                    )
             except Exception as exc:
                 print(f"      FAILED: {exc}")
                 return 1

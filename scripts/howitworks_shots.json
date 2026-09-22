@@ -1,5 +1,5 @@
 {
-  "_note": "The 'how it works' film under the landing hero: four generated shots of five seconds, joined with zoom transitions and held one second on the last frame. Shots 1 and 4 are text-to-video and share the `woman` description below verbatim — that is the only way the same person appears at both ends. Shots 2 and 3 are image-to-video from a first frame this script draws: a 9:19.5 phone standing in the warm blur of her kedai, its screen filled edge to edge by stacking two of her own captures. Browser chrome is cropped off every layer and her login is painted out of the app header. Nothing on the glass is invented. Their prompts forbid redrawing the interface about as loudly as a prompt can; the model is under no obligation to listen, and the first frame is the only part guaranteed sharp.",
+  "_note": "The 'how it works' film under the landing hero: four shots of five seconds, joined with zoom transitions and held one second on the last frame. Only shots 1 and 4 are generated — text-to-video, sharing the `woman` description below verbatim, which is the only way the same person appears at both ends. Shots 2 and 3 are composited here from her own captures and cost nothing: a 9:19.5 phone standing in the blurred dark of the same steakhouse, its screen filled edge to edge by stacking two of her captures, browser chrome cropped off every layer and her login painted out. Shot 3 also plays the hero clip from her live site inside the phone, behind her headline. Nothing on the glass is invented and no capture is ever sent to a video model, so every word on screen is exactly as she published it.",
   "merchant": {
     "name": "Dapur Western Kak Mira",
     "site_url": "https://dapurwesternkakmira.binaapp.my",
@@ -26,10 +26,10 @@
         ],
         "note": "The frame is already diving toward her phone when the transition starts, so the cut into shot 2 finishes a move this shot began."
       },
-      "prompt": "{woman}. She is standing in her own small, bright, lively kedai makan in the middle of the afternoon. Warm colourful daylight pours in through the shopfront behind her; red and yellow plastic chairs, a colourful drinks fridge and two or three customers eating at tables are all thrown far out of focus behind her. She holds her smartphone in one hand and looks down at it, thoughtful, her brow slightly furrowed — and then her face lights up, her eyes widening into a delighted smile, as if she has just had an idea. Her phone screen is dark and switched off; nothing on it is legible. Cinematic, photorealistic, vibrant saturated colour, warm afternoon light, shallow depth of field, slow steady push-in toward her. STRICTLY FORBIDDEN: no text, no letters, no numbers, no words, no signage, no menu boards, no writing on walls, no labels, no logos, no watermark, no captions and no subtitles anywhere in frame at any point. Landscape 16:9."
+      "prompt": "{woman}. She is standing in a modern, professional western restaurant after service has started: dark stained wood and matte black surfaces, Edison bulbs hanging low and warm overhead, an open grill kitchen behind her with flames glowing softly, deep leather booth seating, two or three customers thrown far out of focus. Premium steakhouse mood, near-black with warm orange light, no bright daylight. She holds her smartphone in one hand and looks down at it, thoughtful, her brow slightly furrowed — and then her face lights up, her eyes widening into a delighted smile, as if she has just had an idea. The warm light from the grill catches one side of her face. Her phone screen is dark and switched off; nothing on it is legible. STRICTLY FORBIDDEN: no text, no letters, no numbers, no words, no signage, no menu boards, no writing on walls, no labels, no brand logos of any kind, no drinks fridge, no bottles or cans with branding, no watermark, no captions and no subtitles anywhere in frame at any point. Cinematic, photorealistic, moody low-key lighting, warm orange practical light against near-black, shallow depth of field, slow steady push-in. Landscape 16:9."
     },
     "2-create": {
-      "kind": "image_to_video",
+      "kind": "composite",
       "title": "Her brief, in the app",
       "first_frame": {
         "layers_note": "Two of her /create captures, stacked, so the glass is full of her own page rather than 40% padding. The first keeps the BinaApp header and ends after the example chips, before the orphan '03' heading; the second starts below its own header so the app chrome is not repeated, and carries her shop name and the story she typed. Measured: the blue Chrome bar runs to y=0.1318, the app header's ink to 0.199, the white navigation bar starts at 0.9361.",
@@ -68,11 +68,19 @@
           0.0
         ]
       },
-      "prompt": "Camera move only. Hold the supplied image exactly as it is and do not redraw any part of it. The camera pushes slowly and smoothly in toward the phone screen while the out-of-focus kedai behind it drifts with a slight parallax, and the screen's backlight lifts very slightly, as if the phone has just woken. The phone, the app on it, its layout, its colours, its logo, and every word, button, icon and edge of the interface must remain pixel-identical to the supplied frame for the whole clip. STRICTLY FORBIDDEN: redrawing, restyling, retyping, translating, adding, removing or re-rendering any text or any part of the interface; changing the app's colours, spacing, icons or logo; adding any new text, caption, watermark or logo anywhere in frame; introducing any new object, hand or person. Photorealistic, warm, colourful, shallow depth of field, steady. Landscape 16:9."
+      "move": {
+        "from": 1.0,
+        "to": 1.16,
+        "center": [
+          0.5,
+          0.42
+        ],
+        "note": "A slow push toward the brief she typed."
+      }
     },
     "3-site": {
-      "kind": "image_to_video",
-      "title": "Her finished site, on the same phone",
+      "kind": "composite",
+      "title": "Her finished site, hero clip running",
       "first_frame": {
         "layers_note": "Her hero and then her menu, from two points in her own recording, so the glass is full of her site. Both are taken before or around the point where Chrome's 'No internet connection' banner appears, and each is cropped past whatever chrome that frame happens to have — at 0.4s a URL bar, at 5s the banner and no URL bar, because it had scrolled away.",
         "layers": [
@@ -112,14 +120,35 @@
         "offset": [
           0.02,
           0.0
-        ]
+        ],
+        "hero_video": {
+          "site": "https://dapurwesternkakmira.binaapp.my",
+          "box": [
+            0.076,
+            0.34
+          ],
+          "box_note": "The hero block on the composed screen, measured: her sticky header's type ends at 0.038, the block runs dark from 0.076, the Halal badge sits at 0.132-0.151, the headline at 0.186-0.317 and the orange rule at 0.340.",
+          "darken": 0.66,
+          "darken_note": "Her site lays a scrim over this clip; the raw file has none. Measured medians: the capture's hero block is 31, the raw clip 50, so the clip is brought to about two thirds or the block lights up brighter than the page around it.",
+          "keep_text_from": 100,
+          "keep_text_to": 150,
+          "keep_text_note": "The luma ramp that decides what stays from the capture and what gives way to the clip. Inside the hero block the darkened photograph sits around 24-40 and her type is 165 and up, so anything between the two separates them; the ramp is there to keep the edges of the letters smooth."
+        }
       },
-      "prompt": "Camera move only. Hold the supplied image exactly as it is and do not redraw any part of it. The phone screen glows a little brighter and the whole phone rises and grows toward the camera, filling more of the frame, while the out-of-focus kedai behind it falls away with a slight parallax — as though the website were being offered up to the viewer. The website on the screen, its layout, its photography, its colours and every word on it must remain pixel-identical to the supplied frame for the whole clip. STRICTLY FORBIDDEN: redrawing, restyling, retyping, translating, adding, removing or re-rendering any text or any part of the website; changing its colours, spacing, photographs or layout; adding any new text, caption, watermark or logo anywhere in frame; introducing any new object, hand or person. Photorealistic, warm, colourful, shallow depth of field, steady. Landscape 16:9."
+      "move": {
+        "from": 1.0,
+        "to": 1.14,
+        "center": [
+          0.5,
+          0.4
+        ],
+        "note": "A slow push toward her hero, where the fire is moving."
+      }
     },
     "4-handover": {
       "kind": "text_to_video",
       "title": "She shows it to a customer",
-      "prompt": "{woman}. She stands behind the counter of her small, bright, lively kedai makan in the middle of the afternoon, smiling proudly, and turns her smartphone around to show it to a happy customer standing across the counter from her — the customer seen from behind, out of focus, nodding and laughing. Warm colourful afternoon daylight, red and yellow plastic chairs and a colourful drinks fridge behind her, all thrown out of focus. Her phone screen is dark and switched off; nothing on it is legible. The shot settles and she holds still, still smiling, at the end. Cinematic, photorealistic, vibrant saturated colour, warm afternoon light, shallow depth of field, slow steady push-in. STRICTLY FORBIDDEN: no text, no letters, no numbers, no words, no signage, no menu boards, no writing on walls, no labels, no logos, no watermark, no captions and no subtitles anywhere in frame at any point. Landscape 16:9."
+      "prompt": "{woman}. She stands behind the pass of a modern, professional western restaurant after service has started: dark stained wood and matte black surfaces, Edison bulbs hanging low and warm overhead, an open grill kitchen behind her with flames glowing softly, deep leather booth seating, two or three customers thrown far out of focus. Premium steakhouse mood, near-black with warm orange light, no bright daylight, smiling proudly, and turns her smartphone around to show it to a happy customer standing across the counter from her — the customer seen from behind, out of focus, nodding and smiling. The shot settles and she holds still, still smiling, at the end. Her phone screen is dark and switched off; nothing on it is legible. STRICTLY FORBIDDEN: no text, no letters, no numbers, no words, no signage, no menu boards, no writing on walls, no labels, no brand logos of any kind, no drinks fridge, no bottles or cans with branding, no watermark, no captions and no subtitles anywhere in frame at any point. Cinematic, photorealistic, moody low-key lighting, warm orange practical light against near-black, shallow depth of field, slow steady push-in. Landscape 16:9."
     }
   }
 }
