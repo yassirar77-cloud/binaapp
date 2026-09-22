@@ -134,3 +134,9 @@ tests/fixtures/*.html
 # clips can be re-encoded for free, never committed — only the compressed
 # MP4s and posters in frontend/public/showcase/ belong in the repo.
 scripts/showcase_raw/
+
+# Working files for the landing hero clip: the captured first frames and the
+# uncompressed masters. Regenerable and large — only the finished
+# frontend/public/hero/ MP4 and poster belong in the repo.
+scripts/hero_frames/
+scripts/hero_raw/
