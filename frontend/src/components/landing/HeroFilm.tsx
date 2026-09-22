@@ -1,18 +1,19 @@
 'use client'
 
 /**
- * The film in the hero: Dapur Western Kak Mira, from picking up her phone to
- * showing the finished site to a customer.
+ * The film behind the hero: Dapur Western Kak Mira, from picking up her phone
+ * to showing the finished site to a customer.
  *
  * Its own component rather than part of LandingHero, so the hero's copy — the
  * headline, the subtext, the one thing on this page anybody is meant to click —
  * stays server-rendered. Only the video needs to be interactive.
  *
- * It plays only while it is on screen. That matters more here than it did when
- * this sat below the fold: on a phone the card is under the headline and the
- * call to action, so a visitor who taps through without scrolling should never
- * pay for three megabytes. `preload="none"` is what makes that true — without
- * it the browser fetches the file whatever the observer decides.
+ * It fills the section and is cropped to it, which on a phone means a 16:9
+ * film in a tall box: roughly the middle quarter of each frame is what shows.
+ * The film is framed for that — its subject sits near the centre of every shot.
+ *
+ * It plays only while the hero is on screen, and `preload="none"` means the
+ * four megabytes are not fetched until it is. The poster covers the gap.
  */
 
 import { useEffect, useRef, useState } from 'react'
@@ -25,7 +26,7 @@ const POSTER_SRC = '/hero/binaapp-howitworks.jpg'
  * does routinely here, because `preload="none"` means the load only begins
  * when play() asks for it, and anything that pauses in the meantime cancels it.
  * It says nothing about whether the file can be played, and treating it as
- * fatal took the card off the page every time.
+ * fatal took the film off the page every time.
  */
 const MEDIA_ERR_ABORTED = 1
 
@@ -57,8 +58,7 @@ export default function HeroFilm() {
         onScreen = entry.isIntersecting
         settle()
       },
-      // A little early, so it is running by the time it is properly in view.
-      { rootMargin: '100px', threshold: 0.25 }
+      { rootMargin: '100px', threshold: 0.1 }
     )
     observer.observe(frame)
     document.addEventListener('visibilitychange', settle)
@@ -71,16 +71,13 @@ export default function HeroFilm() {
     }
   }, [])
 
-  // No film on disk, or the browser cannot decode this one. The card goes;
-  // the hero keeps its headline and its button, which are the parts that
-  // matter. An aborted fetch is not that — see MEDIA_ERR_ABORTED above.
+  // No film on disk, or the browser cannot decode this one. The layer goes and
+  // the section's own gradient shows through, which is what the hero looked
+  // like before there was a film. An aborted fetch is not that — see above.
   if (failed) return null
 
   return (
-    <div
-      ref={frameRef}
-      className="relative overflow-hidden rounded-2xl ring-1 ring-volt-400/15 shadow-[0_30px_80px_rgba(79,61,255,.4)]"
-    >
+    <div ref={frameRef} className="absolute inset-0 z-0">
       <video
         ref={videoRef}
         src={VIDEO_SRC}
@@ -90,11 +87,11 @@ export default function HeroFilm() {
         playsInline
         preload="none"
         disablePictureInPicture
-        aria-label="Dapur Western Kak Mira membina websitenya dengan BinaApp"
+        aria-hidden="true"
         onError={() => {
           if (videoRef.current?.error?.code !== MEDIA_ERR_ABORTED) setFailed(true)
         }}
-        className="aspect-video w-full object-cover"
+        className="h-full w-full object-cover"
       />
     </div>
   )
