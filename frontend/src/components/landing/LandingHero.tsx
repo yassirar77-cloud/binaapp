@@ -1,5 +1,6 @@
 import Link from 'next/link'
-import Image from 'next/image'
+
+import HeroFilm from './HeroFilm'
 
 export default function LandingHero() {
   return (
@@ -22,19 +23,37 @@ export default function LandingHero() {
       {/* Indigo glow — right */}
       <div className="absolute -bottom-[100px] -right-[5%] w-[500px] h-[500px] rounded-full bg-[radial-gradient(circle,rgba(79,61,255,.35),transparent_65%)] pointer-events-none" />
 
-      {/* Content grid */}
-      <div className="relative max-w-[1200px] mx-auto grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-12 items-center">
+      {/*
+        Three children, placed rather than flowed. Stacked on a phone they come
+        out in source order — copy, film, trust line — which puts the film
+        directly under the button. On a wide screen the explicit rows and
+        columns put the copy above the trust line on the left and give the film
+        the whole right-hand column, without the trust line having to exist
+        twice in the markup to be in the right place in both layouts.
+      */}
+      <div className="relative max-w-[1200px] mx-auto grid grid-cols-1 lg:grid-cols-[1.08fr_1fr] lg:grid-rows-[auto_auto] gap-y-10 gap-x-12 lg:gap-y-7 items-start">
 
-        {/* Left column — copy */}
-        <div>
+        {/* Copy */}
+        <div className="lg:col-start-1 lg:row-start-1">
           {/* Eyebrow pill */}
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 border border-volt-400/30 bg-volt-400/[.08] rounded-full font-geist-mono text-[11px] tracking-[.12em] uppercase text-volt-400 font-medium mb-7">
             <span className="w-1.5 h-1.5 rounded-full bg-volt-400 shadow-[0_0_12px_theme(colors.volt.400)]" />
             Dibina untuk restoran Malaysia
           </div>
 
-          {/* Headline */}
-          <h1 className="font-geist font-extrabold text-5xl sm:text-6xl lg:text-7xl leading-[1.02] tracking-[-0.045em] mb-8">
+          {/*
+            The size steps back down at lg and up again at xl because that is
+            where the column changes, not the viewport. Below lg the copy has
+            the page to itself; from lg it has half of it, and half of a
+            1200px page is 456px at 1024 and 576px from 1264 up. In Geist
+            ExtraBold, "Website restoran siap" measures 595px at 72px, 485 at
+            60 and 374 at 48 — so 72 broke mid-phrase at every desktop width,
+            and these two fit at theirs with room to spare. The margin is
+            deliberate: Geist is loaded from Google Fonts, and until it
+            arrives — or for good, if it cannot be reached — the line is set
+            in a fallback that measures wider.
+          */}
+          <h1 className="font-geist font-extrabold text-5xl sm:text-6xl lg:text-5xl xl:text-6xl leading-[1.02] tracking-[-0.045em] mb-8">
             Borak dengan AI.<br />
             Website restoran siap<br />
             <span className="text-volt-400 drop-shadow-[0_0_40px_rgba(199,255,61,.4)]">
@@ -56,45 +75,18 @@ export default function LandingHero() {
           >
             Mula Percuma — RM 5/bln →
           </Link>
-
-          {/* Trust line */}
-          <div className="flex flex-wrap gap-x-6 gap-y-2 mt-7 font-geist-mono text-[11px] text-ink-400 tracking-[.06em]">
-            <span>✓ AI BINA DALAM BM / MANGLISH</span>
-            <span>✓ PESANAN WHATSAPP AUTO</span>
-            <span>✓ TOYYIBPAY SEDIA</span>
-          </div>
         </div>
 
-        {/* Right column — hero image + floating badges */}
-        <div className="relative">
-          <Image
-            src="/brand/hero-mamak.svg"
-            alt="Ilustrasi kedai mamak dengan sistem pesanan BinaApp"
-            width={580}
-            height={420}
-            priority
-            className="w-full h-auto rounded-2xl shadow-[0_30px_80px_rgba(79,61,255,.4),0_0_0_1px_rgba(199,255,61,.15)]"
-          />
+        {/* The film */}
+        <div className="lg:col-start-2 lg:row-start-1 lg:row-span-2 lg:self-center">
+          <HeroFilm />
+        </div>
 
-          {/* Floating badge — top left: daily orders */}
-          <div className="absolute -top-4 -left-4 lg:-top-5 lg:-left-5 bg-ink-900 border border-volt-400/40 rounded-xl px-3.5 py-2.5 shadow-[0_20px_40px_rgba(0,0,0,.4)]">
-            <div className="font-geist-mono text-[10px] text-volt-400 tracking-[.1em] font-semibold whitespace-nowrap">
-              PESANAN HARI INI
-            </div>
-            <div className="font-geist font-extrabold text-2xl text-white tracking-tight tabular-nums">
-              RM 1,284
-            </div>
-          </div>
-
-          {/* Floating badge — bottom right: zero commission */}
-          <div className="absolute -bottom-4 -right-3 lg:-bottom-5 lg:-right-3 bg-volt-400 rounded-xl px-4 py-2.5 shadow-[0_20px_40px_rgba(199,255,61,.35)]">
-            <div className="font-geist-mono text-[10px] text-ink-900 tracking-[.1em] font-bold whitespace-nowrap">
-              KOMISEN DIBAYAR
-            </div>
-            <div className="font-geist font-extrabold text-2xl text-ink-900 tracking-tight tabular-nums">
-              RM 0.00
-            </div>
-          </div>
+        {/* Trust line */}
+        <div className="flex flex-wrap gap-x-6 gap-y-2 font-geist-mono text-[11px] text-ink-400 tracking-[.06em] lg:col-start-1 lg:row-start-2">
+          <span>✓ AI BINA DALAM BM / MANGLISH</span>
+          <span>✓ PESANAN WHATSAPP AUTO</span>
+          <span>✓ TOYYIBPAY SEDIA</span>
         </div>
       </div>
     </section>
