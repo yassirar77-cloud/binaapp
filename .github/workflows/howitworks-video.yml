@@ -1,10 +1,11 @@
 # Build the "how it works" film, then commit it back.
 #
-# Manual only — this spends money: four generated clips at roughly USD 0.70
-# each, about USD 2.80 a run. Two of them animate a first frame drawn from the
-# merchant's own screenshots; drawing those frames costs nothing.
+# Manual only — this spends money, but only on two of the four shots: 1-idea
+# and 4-handover are generated, at roughly USD 0.70 each, about USD 1.40 a run.
+# 2-create and 3-site are composited on the runner from the merchant's own
+# captures and her live site's hero clip, and cost nothing.
 #
-# Tick dry_run to see all four prompts and download both first frames without
+# Tick dry_run to read both prompts and download both drawn frames without
 # spending anything. The frames are uploaded as the run's artifact either way,
 # so they can be judged from a phone before the money is committed.
 
@@ -19,7 +20,7 @@ on:
         type: boolean
         default: false
       only:
-        description: 'Build one shot: 1-idea, 2-create, 3-site or 4-handover. Empty builds all four.'
+        description: 'Shots to build, comma separated: 1-idea, 2-create, 3-site, 4-handover. Empty builds all four. Only 1-idea and 4-handover cost anything.'
         required: false
         type: string
       seconds:
@@ -29,7 +30,7 @@ on:
         options: ['5', '10']
         default: '5'
       model:
-        description: 'Pin one video model, e.g. wan3.0-video. Empty tries wan3.0-video then happyhorse-1.1-t2v. Note the fallback cannot animate a first frame.'
+        description: 'Pin one video model, e.g. wan3.0-video. Empty tries wan3.0-video then happyhorse-1.1-t2v.'
         required: false
         type: string
 
