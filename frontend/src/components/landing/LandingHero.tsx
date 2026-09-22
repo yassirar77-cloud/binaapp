@@ -20,21 +20,27 @@ export default function LandingHero() {
       <HeroFilm />
 
       {/*
-        Two scrims over the film. The flat one holds the whole frame down so
-        the picture never competes with the type; the gradient pours the dark
-        in from the side the copy is on — up from the bottom on a phone, in
-        from the left once there is a left. Without the second one the headline
-        sits over whichever part of the film happens to be playing, and two of
-        the four shots are a phone screen full of small text.
+        The scrim covers the copy, not the picture.
 
-        The phone is held down harder than the desktop is, and its gradient
-        never reaches transparent. On a wide screen the copy has a side to
-        itself and the film has the other; on a phone the copy runs down the
-        whole frame, and the shot of her finished site put her headline
-        directly behind ours until the top of the scrim came up to 55%.
+        It used to be a flat 50% over everything plus a gradient that reached
+        full ink-950 at the left, and the two multiplied: the clear side of the
+        frame showed half the film and the copy side showed none of it. The
+        film is a dark restaurant to begin with — its own mean luma runs 26 to
+        53 of 255 across the four shots — so halving that again left a black
+        rectangle where the picture was meant to be.
+
+        Now the flat layer is gone from desktop entirely and the gradient is
+        shaped: it starts at 92%, is down to 45% by 38% across, and is
+        transparent from 68% on, so the right two fifths of the frame are the
+        film at its own colour. A phone keeps a light flat layer and a slower
+        fade, because there the copy runs down the whole frame rather than
+        sitting beside the picture.
+
+        What the type lost in blanket dimming it gets back in its own shadow,
+        which darkens the pixels behind the letters instead of the whole shot.
       */}
-      <div className="absolute inset-0 z-10 bg-ink-950/65 lg:bg-ink-950/50" />
-      <div className="absolute inset-0 z-10 bg-gradient-to-t from-ink-950 via-ink-950/80 to-ink-950/55 lg:bg-gradient-to-r lg:from-ink-950 lg:via-ink-950/80 lg:to-transparent" />
+      <div className="absolute inset-0 z-10 bg-ink-950/30 lg:bg-transparent" />
+      <div className="absolute inset-0 z-10 bg-gradient-to-t from-ink-950/95 via-ink-950/60 via-45% to-ink-950/15 lg:bg-gradient-to-r lg:from-ink-950/92 lg:via-ink-950/45 lg:via-38% lg:to-transparent lg:to-68%" />
 
       {/* Copy */}
       <div className="relative z-20 mx-auto w-full max-w-[1200px]">
@@ -53,7 +59,7 @@ export default function LandingHero() {
             566 in the wider fallback that renders until Geist arrives. Both
             fit, so the line stays whole at every width above sm.
           */}
-          <h1 className="font-geist font-extrabold text-5xl sm:text-6xl leading-[1.02] tracking-[-0.045em] mb-8 drop-shadow-[0_2px_24px_rgba(0,0,0,.55)]">
+          <h1 className="font-geist font-extrabold text-5xl sm:text-6xl leading-[1.02] tracking-[-0.045em] mb-8 [text-shadow:0_2px_18px_rgba(0,0,0,.85),0_1px_4px_rgba(0,0,0,.7)]">
             Borak dengan AI.<br />
             Website restoran siap<br />
             <span className="text-volt-400 drop-shadow-[0_0_40px_rgba(199,255,61,.4)]">
@@ -62,7 +68,7 @@ export default function LandingHero() {
           </h1>
 
           {/* Subtext */}
-          <p className="font-geist text-lg leading-relaxed text-ink-200 max-w-[520px] mb-8 drop-shadow-[0_1px_12px_rgba(0,0,0,.6)]">
+          <p className="font-geist text-lg leading-relaxed text-ink-200 max-w-[520px] mb-8 [text-shadow:0_1px_10px_rgba(0,0,0,.9),0_1px_3px_rgba(0,0,0,.8)]">
             Ceritakan kedai anda dalam Bahasa Melayu. AI akan bina website penuh
             dengan menu, pesanan WhatsApp, dan jejakan penghantar. Berhenti bayar
             30% komisen platform penghantaran — miliki pelanggan anda sendiri.
@@ -77,7 +83,7 @@ export default function LandingHero() {
           </Link>
 
           {/* Trust line */}
-          <div className="flex flex-wrap gap-x-6 gap-y-2 mt-7 font-geist-mono text-[11px] text-ink-300 tracking-[.06em]">
+          <div className="flex flex-wrap gap-x-6 gap-y-2 mt-7 font-geist-mono text-[11px] text-ink-200 tracking-[.06em] [text-shadow:0_1px_6px_rgba(0,0,0,.9)]">
             <span>✓ AI BINA DALAM BM / MANGLISH</span>
             <span>✓ PESANAN WHATSAPP AUTO</span>
             <span>✓ TOYYIBPAY SEDIA</span>
