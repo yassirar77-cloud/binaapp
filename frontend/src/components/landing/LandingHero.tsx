@@ -31,7 +31,7 @@ export default function LandingHero() {
         the whole right-hand column, without the trust line having to exist
         twice in the markup to be in the right place in both layouts.
       */}
-      <div className="relative max-w-[1200px] mx-auto grid grid-cols-1 lg:grid-cols-2 lg:grid-rows-[auto_auto] gap-y-10 gap-x-12 lg:gap-y-7 items-start">
+      <div className="relative max-w-[1200px] mx-auto grid grid-cols-1 lg:grid-cols-[1.08fr_1fr] lg:grid-rows-[auto_auto] gap-y-10 gap-x-12 lg:gap-y-7 items-start">
 
         {/* Copy */}
         <div className="lg:col-start-1 lg:row-start-1">
@@ -41,8 +41,19 @@ export default function LandingHero() {
             Dibina untuk restoran Malaysia
           </div>
 
-          {/* Headline */}
-          <h1 className="font-geist font-extrabold text-5xl sm:text-6xl lg:text-7xl leading-[1.02] tracking-[-0.045em] mb-8">
+          {/*
+            The size steps back down at lg and up again at xl because that is
+            where the column changes, not the viewport. Below lg the copy has
+            the page to itself; from lg it has half of it, and half of a
+            1200px page is 456px at 1024 and 576px from 1264 up. In Geist
+            ExtraBold, "Website restoran siap" measures 595px at 72px, 485 at
+            60 and 374 at 48 — so 72 broke mid-phrase at every desktop width,
+            and these two fit at theirs with room to spare. The margin is
+            deliberate: Geist is loaded from Google Fonts, and until it
+            arrives — or for good, if it cannot be reached — the line is set
+            in a fallback that measures wider.
+          */}
+          <h1 className="font-geist font-extrabold text-5xl sm:text-6xl lg:text-5xl xl:text-6xl leading-[1.02] tracking-[-0.045em] mb-8">
             Borak dengan AI.<br />
             Website restoran siap<br />
             <span className="text-volt-400 drop-shadow-[0_0_40px_rgba(199,255,61,.4)]">
