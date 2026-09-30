@@ -196,6 +196,31 @@ class Settings(BaseSettings):
     EMAIL_VERIFICATION_MAX_ATTEMPTS: int = Field(default=5, env="EMAIL_VERIFICATION_MAX_ATTEMPTS")
     BLOCK_DISPOSABLE_EMAILS: bool = Field(default=True, env="BLOCK_DISPOSABLE_EMAILS")
 
+    # TikTok publishing (admin posts to BinaApp's own TikTok account through
+    # Login Kit + the Content Posting API). See docs/TIKTOK_PUBLISHING.md.
+    # TIKTOK_REDIRECT_URI must match, byte for byte, a redirect URI registered
+    # in the TikTok developer portal; it is sent in the authorize URL AND in
+    # the code exchange. Both https://binaapp.my/api/tiktok/callback and the
+    # www. variant are registered.
+    TIKTOK_CLIENT_KEY: str = Field(default="", env="TIKTOK_CLIENT_KEY")
+    TIKTOK_CLIENT_SECRET: str = Field(default="", env="TIKTOK_CLIENT_SECRET")
+    TIKTOK_REDIRECT_URI: str = Field(
+        default="https://binaapp.my/api/tiktok/callback", env="TIKTOK_REDIRECT_URI"
+    )
+    # Optional. Fernet key (urlsafe base64, 32 bytes) for token encryption at
+    # rest. When unset the key is derived from TIKTOK_CLIENT_SECRET, so
+    # rotating the client secret means reconnecting the account.
+    TIKTOK_TOKEN_ENCRYPTION_KEY: str = Field(default="", env="TIKTOK_TOKEN_ENCRYPTION_KEY")
+    # Public prefix TikTok pulls photos from (PULL_FROM_URL). Must be verified
+    # as a URL prefix in the TikTok portal. Served by a Next.js rewrite.
+    TIKTOK_MEDIA_PUBLIC_BASE: str = Field(
+        default="https://www.binaapp.my/api/tiktok/media", env="TIKTOK_MEDIA_PUBLIC_BASE"
+    )
+    # Flip to true after TikTok approves the app. Until then Direct Post is
+    # limited to SELF_ONLY; the UI shows that up front instead of failing.
+    TIKTOK_APP_AUDITED: bool = Field(default=False, env="TIKTOK_APP_AUDITED")
+    TIKTOK_MAX_UPLOAD_MB: int = Field(default=300, env="TIKTOK_MAX_UPLOAD_MB")
+
     @validator("UNLIMITED_ACCESS_EMAILS", pre=True)
     def parse_unlimited_access_emails(cls, v):
         if isinstance(v, str):

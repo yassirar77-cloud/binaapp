@@ -447,9 +447,14 @@ export default function AdminPage() {
             <h1 className="text-lg font-bold text-gray-800">Admin Dashboard</h1>
             <p className="text-xs text-gray-500">BinaApp Platform Management</p>
           </div>
-          <Link href="/profil" className="text-sm text-blue-600 hover:underline">
-            Kembali ke Dashboard
-          </Link>
+          <div className="flex items-center gap-4">
+            <Link href="/admin/tiktok" className="text-sm text-blue-600 hover:underline">
+              TikTok Publishing
+            </Link>
+            <Link href="/profile" className="text-sm text-blue-600 hover:underline">
+              Kembali ke Dashboard
+            </Link>
+          </div>
         </div>
 
         {/* Tabs */}

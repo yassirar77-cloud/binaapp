@@ -25,6 +25,9 @@ requests
 
 # Authentication & Security
 python-jose[cryptography]
+# Fernet encryption for TikTok OAuth tokens at rest (app/services/social/token_vault.py).
+# Already pulled in transitively by python-jose; pinned here so the dependency is explicit.
+cryptography>=42.0.0
 passlib[bcrypt]
 bcrypt==4.1.2
 python-dotenv

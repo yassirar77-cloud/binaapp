@@ -59,6 +59,23 @@ export async function middleware(req: NextRequest) {
     '/rider-icon-',  // /rider-icon-192.png, /rider-icon-512.png (rider manifest icons)
     '/brand',        // Logo/icon assets referenced from manifests
     '/screenshots',  // PWA manifest screenshots
+    // Legal documents must be reachable by anyone (TikTok app review, app
+    // store listings, customers). /terms and /privacy redirect to the EN
+    // pages in next.config.js; every spelling is listed so the redirected
+    // request passes too.
+    '/terms',
+    '/privacy',
+    '/terma',
+    '/privasi',
+    '/terms-of-service',
+    '/privacy-policy',
+    '/terma-perkhidmatan',
+    '/polisi-privasi',
+    // TikTok publishing: the admin page is guarded by the backend's admin
+    // check (401/403), not by the coming-soon cookie, so the OAuth round
+    // trip back from TikTok lands on it in a fresh tab too. The callback
+    // itself is under /api (already bypassed above).
+    '/admin/tiktok',
   ]
 
   const isComingSoonBypassPath = comingSoonBypassPaths.some(path =>
