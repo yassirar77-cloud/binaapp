@@ -73,7 +73,7 @@ export type PrivacyPolicy = {
 export const privacyPolicyBM: PrivacyPolicy = {
   version: '3.1',
   effectiveDate: '21 Oktober 2026',
-  lastUpdated: '20 September 2026',
+  lastUpdated: '30 September 2026',
   estimatedReadingMinutes: 44,
 
   executiveSummary: {
@@ -888,6 +888,14 @@ Jadual berikut meringkaskan tempoh pengekalan untuk pelbagai jenis data:
           period: '12 bulan dari tarikh kerja selesai (disimpan untuk pertikaian kredit dan refund)',
         },
         {
+          dataType: 'Token OAuth TikTok akaun rasmi BinaApp (`tiktok_accounts` — disulitkan; pentadbir sahaja, seksyen 18A)',
+          period: 'Sehingga pentadbir menekan "Disconnect TikTok" atau token penyegaran tamat tempoh (365 hari); dipadam serta-merta apabila diputuskan',
+        },
+        {
+          dataType: 'Rekod siaran TikTok (`tiktok_posts` — sari kata, tetapan privasi, status TikTok; tiada data merchant/customer)',
+          period: '12 bulan dari tarikh siaran, atau serta-merta apabila akaun TikTok diputuskan',
+        },
+        {
           dataType: 'Rekod kualiti penjanaan (`design_plans` — pelan, skor, cincangan HTML)',
           period: '24 bulan dari tarikh penjanaan, atau atas permintaan kepada admin@binaapp.my',
         },
@@ -1077,6 +1085,27 @@ Anda bersetuju untuk membayar ganti rugi dan melindungi BinaApp daripada sebaran
 **Pemadaman selepas penamatan akaun:**
 
 Apabila akaun merchant anda ditamatkan, kami akan memadam semua data customer dan data pihak ketiga lain yang anda muat naik mengikut polisi pengekalan kami (lihat seksyen 14), tertakluk kepada keperluan undang-undang untuk pengekalan rekod tertentu.`,
+    },
+
+    {
+      id: 'integrasi-tiktok',
+      title: '18A. Integrasi TikTok (Akaun Rasmi BinaApp)',
+      content: `Seksyen ini menerangkan integrasi BinaApp dengan **TikTok** melalui TikTok Login Kit dan Content Posting API. Integrasi ini digunakan oleh **pentadbir BinaApp sahaja** untuk menerbitkan kandungan pemasaran ke akaun TikTok rasmi BinaApp (@binaapp.my) dari dashboard admin. Ia **tidak** disambungkan kepada akaun TikTok merchant atau customer, dan tiada data merchant atau customer dihantar kepada TikTok.
+
+**Data TikTok yang kami akses:**
+
+- **Profil asas** (skop \`user.info.basic\`): ID pengguna terbuka (open_id), nama paparan dan URL avatar akaun TikTok yang disambungkan — dipaparkan pada dashboard admin supaya pentadbir melihat akaun mana yang akan menerima kandungan;
+- **Kebenaran menerbit** (skop \`video.upload\` dan \`video.publish\`): keupayaan untuk memuat naik video ke peti masuk draf TikTok dan untuk menerbitkan video atau foto terus ke akaun tersebut, dengan tetapan privasi, interaksi dan pendedahan kandungan komersial yang dipilih oleh pentadbir bagi setiap siaran;
+- **Maklumat pencipta** (\`creator_info\`): pilihan tahap privasi yang tersedia, sama ada komen/duet/stitch dibenarkan, dan tempoh video maksimum — diminta sebelum setiap siaran seperti yang dikehendaki oleh garis panduan TikTok;
+- **Status penerbitan**: status pemprosesan setiap siaran (sedang diproses, diterbitkan, gagal beserta sebab).
+
+**Mengapa:** semata-mata untuk menerbitkan kandungan pemasaran BinaApp sendiri ke TikTok. Kami tidak membaca mesej, pengikut, komen atau analitik akaun TikTok, dan tidak menggunakan data TikTok untuk sebarang tujuan lain.
+
+**Bagaimana token disimpan:** token akses dan token penyegaran OAuth yang dikeluarkan oleh TikTok disimpan dalam pangkalan data Supabase kami (rantau Singapura) dalam bentuk **disulitkan** (Fernet / AES-128-CBC dengan HMAC-SHA256). Token tidak pernah dilog, tidak pernah dihantar ke pelayar, dan hanya boleh dibaca oleh pelayan backend kami melalui kunci peranan perkhidmatan. Token akses dinyahaktifkan secara automatik selepas kira-kira 24 jam dan disegarkan oleh pelayan; token penyegaran tamat tempoh selepas 365 hari. Rekod setiap percubaan siaran (sari kata, tetapan privasi, status TikTok) disimpan untuk tujuan audit dan disenaraikan dalam jadual penyimpanan (seksyen 14) sebagai "rekod siaran TikTok" dengan tempoh 12 bulan.
+
+**Cara memutuskan sambungan:** pentadbir boleh menekan **"Disconnect TikTok"** pada dashboard admin pada bila-bila masa. Tindakan ini membatalkan token di TikTok (\`/v2/oauth/revoke/\`) dan **memadam** token yang disimpan serta rekod siaran yang berkaitan daripada pangkalan data kami serta-merta. Kebenaran juga boleh dibatalkan dari pihak TikTok melalui Tetapan → Keselamatan → Apl yang disambungkan pada akaun TikTok.
+
+**Kandungan yang diterbitkan** tertakluk kepada Terma Perkhidmatan TikTok, Music Usage Confirmation TikTok dan, jika didedahkan sebagai kandungan berjenama, Branded Content Policy TikTok. Pendedahan kandungan komersial ("Your brand" / "Branded content") dan label AIGC dipilih secara nyata oleh pentadbir bagi setiap siaran dan tidak dihidupkan secara lalai.`,
     },
 
     {
@@ -1313,6 +1342,7 @@ Setiap kemas kini versi disenaraikan dengan nombor versi, tarikh, dan ringkasan 
         'Sembilan baris baharu dalam jadual penyimpanan data meliputi media janaan, lejar kerja video hero, rekod kualiti penjanaan, input kerja penjanaan, koordinat geokod, gambar merchant dan entri borang tempahan (Seksyen 14);',
         'Pendedahan baharu mengenai kawalan automatik yang boleh mengubah atau menyekat kandungan pada laman web merchant sendiri tanpa semakan manusia — kawalan fakta dan dakwaan, sekatan ketidakselarasan lokasi, semakan imej, pintu kritik reka bentuk, lantai kualiti, pengawal penerbitan dan pengawal pautan — dengan hak semakan manual diperluas untuk meliputinya (Seksyen 19);',
         'Seksyen 20 ditulis semula sebagai laporan status jujur mengenai komitmen 60 hari v3.0: sokongan Do-Not-Track telah dilaksanakan dan melebihi skop (analitik tanpa kuki dan Global Privacy Control tidak dijanjikan), manakala UI persetujuan AI dan banner notis pelawat TIDAK dilaksanakan menjelang tarikh akhir 20 Julai 2026 dan dikomitkan semula kepada 31 Januari 2027.',
+        'Seksyen 18A baharu mendedahkan integrasi TikTok untuk akaun rasmi BinaApp (@binaapp.my): data yang diakses melalui TikTok Login Kit (profil asas, kebenaran menerbit), tujuannya (menerbitkan kandungan pemasaran BinaApp sendiri sahaja), penyimpanan token OAuth dalam bentuk disulitkan dengan akses peranan perkhidmatan sahaja, dan cara memutuskan sambungan (butang "Disconnect TikTok" yang membatalkan dan memadam token). Tiada data merchant atau customer dihantar kepada TikTok.',
       ],
     },
     {

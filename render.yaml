@@ -70,6 +70,26 @@ services:
       - key: ISSUE_FREE_REGEN_CAP
         sync: false
 
+      # TikTok publishing (admin posts to @binaapp.my). Set the three secrets
+      # in the Render dashboard; see docs/TIKTOK_PUBLISHING.md. Run
+      # backend/migrations/058_tiktok_publishing.sql on Supabase first.
+      # TIKTOK_REDIRECT_URI must match a redirect URI registered in the
+      # TikTok developer portal byte for byte.
+      - key: TIKTOK_CLIENT_KEY
+        sync: false
+      - key: TIKTOK_CLIENT_SECRET
+        sync: false
+      - key: TIKTOK_REDIRECT_URI
+        value: "https://binaapp.my/api/tiktok/callback"
+      # Optional Fernet key for token encryption at rest; when unset the key
+      # is derived from TIKTOK_CLIENT_SECRET (rotating the secret then means
+      # reconnecting the account).
+      - key: TIKTOK_TOKEN_ENCRYPTION_KEY
+        sync: false
+      # Flip to "true" once TikTok approves the app (lifts the SELF_ONLY note).
+      - key: TIKTOK_APP_AUDITED
+        value: "false"
+
       # App config
       - key: FRONTEND_URL
         value: "https://binaapp.my"

@@ -22,7 +22,7 @@ import type { PrivacyPolicy } from './policy-content-bm';
 export const privacyPolicyEN: PrivacyPolicy = {
   version: '3.1',
   effectiveDate: '21 October 2026',
-  lastUpdated: '20 September 2026',
+  lastUpdated: '30 September 2026',
   estimatedReadingMinutes: 40,
 
   executiveSummary: {
@@ -837,6 +837,14 @@ The table below summarizes the retention periods for various data types:
           period: '12 months from job completion (retained for credit and refund disputes)',
         },
         {
+          dataType: 'TikTok OAuth tokens for BinaApp\u2019s official account (`tiktok_accounts` — encrypted; administrators only, section 18A)',
+          period: 'Until an administrator presses \u201cDisconnect TikTok\u201d or the refresh token expires (365 days); deleted immediately on disconnect',
+        },
+        {
+          dataType: 'TikTok publish records (`tiktok_posts` — caption, privacy setting, TikTok status; no merchant/customer data)',
+          period: '12 months from the post date, or immediately when the TikTok account is disconnected',
+        },
+        {
           dataType: 'Generation quality records (`design_plans` — plan, scores, HTML hash)',
           period: '24 months from generation, or on request to admin@binaapp.my',
         },
@@ -1026,6 +1034,27 @@ You agree to indemnify and hold BinaApp harmless from any claims, fines, or loss
 **Deletion after account termination:**
 
 Upon termination of your merchant account, we will delete all customer data and other third-party data that you uploaded in accordance with our retention policy (see section 14), subject to legal retention requirements for certain records.`,
+    },
+
+    {
+      id: 'integrasi-tiktok',
+      title: '18A. TikTok Integration (BinaApp’s Official Account)',
+      content: `This section describes BinaApp’s integration with **TikTok** through TikTok Login Kit and the Content Posting API. The integration is used by **BinaApp administrators only** to publish marketing content to BinaApp’s official TikTok account (@binaapp.my) from the admin dashboard. It is **not** connected to any merchant’s or customer’s TikTok account, and no merchant or customer data is sent to TikTok.
+
+**TikTok data we access:**
+
+- **Basic profile** (\`user.info.basic\` scope): the open user ID (open_id), display name and avatar URL of the connected TikTok account — shown on the admin dashboard so the administrator can see which account will receive the content;
+- **Posting permissions** (\`video.upload\` and \`video.publish\` scopes): the ability to upload a video to the TikTok drafts inbox and to publish a video or photos directly to that account, with the privacy, interaction and commercial-content-disclosure settings the administrator chooses for each post;
+- **Creator information** (\`creator_info\`): the privacy levels available, whether comments/duet/stitch are allowed, and the maximum video duration — requested before every post as TikTok’s guidelines require;
+- **Publish status**: the processing status of each post (processing, published, failed with a reason).
+
+**Why:** solely to publish BinaApp’s own marketing content to TikTok. We do not read messages, followers, comments or analytics of the TikTok account, and we do not use TikTok data for any other purpose.
+
+**How tokens are stored:** the OAuth access token and refresh token issued by TikTok are stored in our Supabase database (Singapore region) in **encrypted** form (Fernet / AES-128-CBC with HMAC-SHA256). Tokens are never logged, never sent to a browser, and can only be read by our backend server through the service-role key. The access token expires automatically after about 24 hours and is refreshed server-side; the refresh token expires after 365 days. A record of each publish attempt (caption, privacy setting, TikTok status) is kept for audit purposes and is listed in the retention table (section 14) as “TikTok publish records” with a 12-month period.
+
+**How to disconnect:** an administrator can press **“Disconnect TikTok”** on the admin dashboard at any time. This revokes the token at TikTok (\`/v2/oauth/revoke/\`) and **deletes** the stored tokens and the related publish records from our database immediately. The permission can also be revoked from TikTok’s side under Settings → Security → Connected apps on the TikTok account.
+
+**Published content** is subject to TikTok’s Terms of Service, TikTok’s Music Usage Confirmation and, where disclosed as branded content, TikTok’s Branded Content Policy. The commercial content disclosure (“Your brand” / “Branded content”) and the AIGC label are chosen explicitly by the administrator for each post and are off by default.`,
     },
 
     {
@@ -1262,6 +1291,7 @@ Each version update is listed with version number, date, and a summary of materi
         'Nine new rows in the data retention table covering generated media, the hero video job ledger, generation quality records, generation job inputs, geocoded coordinates, merchant photographs and booking form entries (Section 14);',
         'New disclosure of automated controls that can alter or block content on a merchant\u2019s own website without human review — fact and claim controls, the location consistency block, image checks, the design critique gate, the quality floor, the publish guard and the link guard — with the right to manual review extended to cover them (Section 19);',
         'Section 20 rewritten as an honest status report on the v3.0 60-day commitments: Do-Not-Track support was delivered and exceeded (cookieless analytics and Global Privacy Control were not promised), while the AI consent UI and the visitor notice banner were NOT delivered by the 20 July 2026 deadline and are recommitted to 31 January 2027.',
+        'New Section 18A disclosing the TikTok integration for BinaApp\u2019s official account (@binaapp.my): the data accessed through TikTok Login Kit (basic profile, posting permissions), its purpose (publishing BinaApp\u2019s own marketing content only), storage of OAuth tokens in encrypted form with service-role-only access, and how to disconnect (the "Disconnect TikTok" button, which revokes and deletes the tokens). No merchant or customer data is sent to TikTok.',
       ],
     },
     {
