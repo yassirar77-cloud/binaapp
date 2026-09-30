@@ -66,35 +66,60 @@ class TestTokenVault:
 # --------------------------------------------------------------------------
 
 class TestChunkPlan:
-    def test_small_video_is_one_whole_chunk(self):
-        plan = plan_chunks(3 * MB)
-        assert plan == ChunkPlan(3 * MB, 3 * MB, 1)
-        assert plan.ranges() == [(0, 3 * MB - 1)]
+    """Media Transfer Guide rules + the Sandbox lesson: one chunk means the
+    whole file (chunk_size == video_size), splitting only above 64 MB."""
 
-    def test_medium_video_uses_default_chunks_and_merges_remainder(self):
-        size = 27 * MB + 123
+    @pytest.mark.parametrize("size", [3 * MB, int(12.7 * MB), 64 * MB])
+    def test_files_up_to_64mb_go_up_as_one_whole_chunk(self, size):
         plan = plan_chunks(size)
-        assert plan.chunk_size == 10 * MB
-        assert plan.total_chunk_count == 2  # floor(27.0/10)
+        assert plan == ChunkPlan(size, size, 1)
+        assert plan.ranges() == [(0, size - 1)]
+        assert plan.source_info() == {
+            "source": "FILE_UPLOAD",
+            "video_size": size,
+            "chunk_size": size,
+            "total_chunk_count": 1,
+        }
+
+    def test_12_7mb_regression_is_not_declared_as_a_10mb_chunk(self):
+        # The exact Sandbox failure: 12.7 MB declared as chunk_size=10 MB,
+        # total_chunk_count=1 → "invalid_params: The chunk size is invalid".
+        plan = plan_chunks(int(12.7 * MB))
+        assert plan.chunk_size == plan.video_size
+        assert plan.total_chunk_count == 1
+
+    @pytest.mark.parametrize("size", [65 * MB, 300 * MB])
+    def test_files_above_64mb_are_split_into_uniform_chunks(self, size):
+        plan = plan_chunks(size)
+        assert plan.total_chunk_count >= 2
+        assert 5 * MB <= plan.chunk_size <= 64 * MB
+        assert plan.total_chunk_count == size // plan.chunk_size
         ranges = plan.ranges()
-        assert ranges[0] == (0, 10 * MB - 1)
-        assert ranges[-1] == (10 * MB, size - 1)  # final chunk absorbs 17 MB + 123 B
-        assert ranges[-1][1] - ranges[-1][0] + 1 <= 128 * MB
+        assert len(ranges) == plan.total_chunk_count
+        assert ranges[0][0] == 0 and ranges[-1][1] == size - 1
+        # Every chunk but the last is exactly chunk_size and they are contiguous.
+        for (start, end), (next_start, _) in zip(ranges, ranges[1:]):
+            assert end - start + 1 == plan.chunk_size
+            assert next_start == end + 1
+        last_len = ranges[-1][1] - ranges[-1][0] + 1
+        assert plan.chunk_size <= last_len <= 128 * MB
+
+    def test_65mb_and_300mb_concrete_plans(self):
+        p65 = plan_chunks(65 * MB)
+        assert (p65.chunk_size, p65.total_chunk_count) == (10 * MB, 6)  # last chunk 15 MB
+        p300 = plan_chunks(300 * MB)
+        assert (p300.chunk_size, p300.total_chunk_count) == (10 * MB, 30)
+
+    def test_preferred_chunk_near_the_cap_still_yields_two_chunks(self):
+        plan = plan_chunks(65 * MB, preferred_chunk=64 * MB)
+        assert plan.total_chunk_count == 2
+        assert 5 * MB <= plan.chunk_size <= 64 * MB
 
     def test_chunk_count_never_exceeds_1000(self):
         size = 3 * 1024 * MB  # 3 GB
         plan = plan_chunks(size, preferred_chunk=5 * MB)
-        assert plan.total_chunk_count <= 1000
+        assert 2 <= plan.total_chunk_count <= 1000
         assert 5 * MB <= plan.chunk_size <= 64 * MB
-
-    def test_source_info_shape(self):
-        info = plan_chunks(12 * MB).source_info()
-        assert info == {
-            "source": "FILE_UPLOAD",
-            "video_size": 12 * MB,
-            "chunk_size": 10 * MB,
-            "total_chunk_count": 1,
-        }
 
     def test_rejects_bad_sizes(self):
         with pytest.raises(ValueError):

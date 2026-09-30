@@ -111,7 +111,7 @@ straight to Render (Vercel's 4.5 MB body limit would block videos).
 5. **Post now** (Direct Post, `video.publish`) or **Send to TikTok drafts**
    (`video.upload`, inbox) → confirm dialog → multipart upload to the
    backend → `tiktok_posts` row → background job: init (`FILE_UPLOAD`
-   with a 5–64 MB chunk plan, sequential PUTs with `Content-Range`) → poll
+   — one whole chunk up to 64 MB, else 5–64 MB chunks — sequential PUTs with `Content-Range`) → poll
    `status/fetch` → `published` / `sent_to_inbox` / `failed` + reason.
    The UI polls `GET /posts/{id}` every 4 s; that endpoint also re-syncs
    with TikTok so a backend restart never leaves a post stuck.

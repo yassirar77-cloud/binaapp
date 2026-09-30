@@ -17,10 +17,12 @@ Everything here is a faithful, minimal mapping of the documented endpoints:
     POST /v2/post/publish/status/fetch/
 
 Chunk rules (Media Transfer Guide): each chunk 5 MB – 64 MB except the final
-one which may run to 128 MB; a file under 5 MB goes up whole; at most 1000
-chunks; ``total_chunk_count = floor(video_size / chunk_size)`` with the
-remainder merged into the final chunk; chunks are uploaded sequentially;
-206 = partial accepted, 201 = complete.
+one which may run to 128 MB; at most 1000 chunks; ``total_chunk_count =
+floor(video_size / chunk_size)`` with the remainder merged into the final
+chunk; chunks are uploaded sequentially; 206 = partial accepted, 201 =
+complete. In practice (Sandbox) a single-chunk upload is only accepted when
+``chunk_size == video_size``, so anything up to 64 MB goes up as one whole
+chunk — see ``plan_chunks``.
 
 Web apps do not use PKCE (the token doc says ``code_verifier`` is "required
 for mobile and desktop app only"), so ``state`` is the CSRF control.
@@ -346,23 +348,40 @@ class ChunkPlan:
 
 
 def plan_chunks(video_size: int, preferred_chunk: int = DEFAULT_CHUNK_BYTES) -> ChunkPlan:
-    """Pick a chunk size that satisfies every documented rule for ``video_size``."""
+    """Pick a chunk plan TikTok accepts for ``video_size``.
+
+    Learned in Sandbox: a single-chunk upload must have ``chunk_size ==
+    video_size`` — TikTok answers ``invalid_params: The chunk size is
+    invalid`` when one chunk is declared with a smaller ``chunk_size`` (e.g.
+    a 12.7 MB file declared as one 10 MB chunk). So:
+
+    * ``video_size <= 64 MB`` (MAX_CHUNK_BYTES): one chunk, the whole file.
+    * larger: ``total_chunk_count >= 2``; every chunk except the last is
+      exactly ``chunk_size`` (5–64 MB); the last absorbs the remainder and
+      stays under 128 MB; at most 1000 chunks.
+    """
     if video_size <= 0:
         raise ValueError("video_size must be positive")
     if video_size > MAX_VIDEO_BYTES:
         raise ValueError("video exceeds TikTok's 4 GB limit")
-    if video_size < MIN_CHUNK_BYTES:
-        # "must be uploaded as a whole, with chunk_size equal to the entire video's byte size"
+    if video_size <= MAX_CHUNK_BYTES:
         return ChunkPlan(video_size, video_size, 1)
 
     chunk = max(MIN_CHUNK_BYTES, min(int(preferred_chunk), MAX_CHUNK_BYTES))
     # Respect the 1000-chunk ceiling for very large files.
     if math.floor(video_size / chunk) > MAX_CHUNK_COUNT:
         chunk = min(MAX_CHUNK_BYTES, math.ceil(video_size / MAX_CHUNK_COUNT))
-    count = max(1, math.floor(video_size / chunk))
+    count = math.floor(video_size / chunk)
+    if count < 2:
+        # Only reachable with a preferred chunk near the 64 MB cap and a
+        # file just above it: halve so there are two real chunks.
+        chunk = max(MIN_CHUNK_BYTES, math.floor(video_size / 2))
+        count = math.floor(video_size / chunk)
     final = video_size - (count - 1) * chunk
-    if final > MAX_FINAL_CHUNK_BYTES:  # only possible near the 64 MB cap
-        raise ValueError("cannot satisfy the final-chunk limit for this file size")
+    # count = floor(size / chunk) keeps the final chunk in [chunk, 2*chunk),
+    # so with chunk <= 64 MB it never exceeds 128 MB.
+    if count < 2 or final > MAX_FINAL_CHUNK_BYTES or final < MIN_CHUNK_BYTES:
+        raise ValueError("cannot build a valid chunk plan for this file size")
     return ChunkPlan(video_size, chunk, count)
 
 
