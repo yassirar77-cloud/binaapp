@@ -24,6 +24,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Button } from '@/components/ui';
 import { confirmDialog } from '@/components/ui/popups';
+import { TikTokAiVideoPanel } from '@/components/admin/tiktok/TikTokAiVideoPanel';
 import {
   BRANDED_CONTENT_POLICY_URL,
   DISCLOSURE_COPY,
@@ -40,6 +41,7 @@ import {
   privacyOptions,
   probeVideoDuration,
   utf16Length,
+  type AiVideoJob,
   type CreatorInfo,
   type MediaType,
   type PostDraft,
@@ -66,6 +68,9 @@ function formatBytes(n: number): string {
 
 export function TikTokComposer({ config, account, onPostCreated, onAuthError }: Props) {
   const [mediaType, setMediaType] = useState<MediaType>('video');
+  // Where the video comes from: the file picker, or a Wan 3.0 clip made here.
+  const [videoSource, setVideoSource] = useState<'file' | 'ai'>('file');
+  const [aiSourceJob, setAiSourceJob] = useState<AiVideoJob | null>(null);
   const [files, setFiles] = useState<File[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
   const [draft, setDraft] = useState<PostDraft>(EMPTY_DRAFT);
@@ -121,6 +126,7 @@ export function TikTokComposer({ config, account, onPostCreated, onAuthError }: 
         return;
       }
       setFiles([file]);
+      setAiSourceJob(null);
       const duration = await probeVideoDuration(file);
       setDraft((d) => ({ ...d, media_type: 'video', duration_sec: duration }));
     } else {
@@ -136,7 +142,24 @@ export function TikTokComposer({ config, account, onPostCreated, onAuthError }: 
   const switchMediaType = (t: MediaType) => {
     setMediaType(t);
     setFiles([]);
+    setAiSourceJob(null);
+    if (t === 'photo') setVideoSource('file');
     setDraft((d) => ({ ...d, media_type: t, duration_sec: null, allow_duet: false, allow_stitch: false }));
+  };
+
+  /** "Use this video" from the AI panel: load the clip exactly as if it had
+   *  been picked with the file input, and tick the AIGC label for the admin. */
+  const useAiVideo = async (file: File, job: AiVideoJob) => {
+    setMediaType('video');
+    setFiles([file]);
+    setAiSourceJob(job);
+    const duration = await probeVideoDuration(file);
+    setDraft((d) => ({
+      ...d,
+      media_type: 'video',
+      duration_sec: duration ?? job.duration_sec,
+      is_aigc: true,
+    }));
   };
 
   // ---- derived ---------------------------------------------------------------
@@ -215,6 +238,7 @@ export function TikTokComposer({ config, account, onPostCreated, onAuthError }: 
       const res = await createTikTokPost({ ...draft, mode, media_type: mediaType }, files, setUploadPct);
       onPostCreated(res.post, res.processing_notice);
       setFiles([]);
+      setAiSourceJob(null);
       setDraft((d) => ({ ...EMPTY_DRAFT, media_type: d.media_type }));
     } catch (err) {
       const e = err as { message?: string; status?: number };
@@ -253,17 +277,40 @@ export function TikTokComposer({ config, account, onPostCreated, onAuthError }: 
 
       {/* 1. Media */}
       <div className="space-y-3">
-        <label className="block text-sm font-medium text-ink-800">
-          {mediaType === 'video' ? 'Video (MP4 H.264, MOV or WebM)' : `Photos (JPEG, PNG or WebP · up to ${config.limits.max_photos})`}
-          <input
-            type="file"
-            className="mt-2 block w-full text-sm text-ink-600 file:mr-3 file:rounded-lg file:border-0 file:bg-ink-900 file:px-3 file:py-2 file:text-white"
-            accept={mediaType === 'video' ? VIDEO_ACCEPT : PHOTO_ACCEPT}
-            multiple={mediaType === 'photo'}
-            disabled={busy}
-            onChange={(e) => onPickFiles(e.target.files)}
-          />
-        </label>
+        {mediaType === 'video' && (
+          <div className="inline-flex rounded-xl border border-ink-200 p-0.5 text-sm" role="tablist" aria-label="Video source">
+            {(['file', 'ai'] as const).map((src) => (
+              <button
+                key={src}
+                role="tab"
+                aria-selected={videoSource === src}
+                disabled={busy}
+                onClick={() => setVideoSource(src)}
+                className={`px-3 py-1.5 rounded-lg ${videoSource === src ? 'bg-ink-900 text-white' : 'text-ink-600 hover:bg-ink-050'}`}
+              >
+                {src === 'file' ? 'Choose file' : '✨ Generate AI video'}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {mediaType === 'video' && videoSource === 'ai' && (
+          <TikTokAiVideoPanel disabled={busy} onUseVideo={useAiVideo} />
+        )}
+
+        {(mediaType === 'photo' || videoSource === 'file') && (
+          <label className="block text-sm font-medium text-ink-800">
+            {mediaType === 'video' ? 'Video (MP4 H.264, MOV or WebM)' : `Photos (JPEG, PNG or WebP · up to ${config.limits.max_photos})`}
+            <input
+              type="file"
+              className="mt-2 block w-full text-sm text-ink-600 file:mr-3 file:rounded-lg file:border-0 file:bg-ink-900 file:px-3 file:py-2 file:text-white"
+              accept={mediaType === 'video' ? VIDEO_ACCEPT : PHOTO_ACCEPT}
+              multiple={mediaType === 'photo'}
+              disabled={busy}
+              onChange={(e) => onPickFiles(e.target.files)}
+            />
+          </label>
+        )}
 
         {files.length > 0 && mediaType === 'video' && (
           <div className="flex flex-wrap gap-4 items-start">
@@ -273,6 +320,12 @@ export function TikTokComposer({ config, account, onPostCreated, onAuthError }: 
                 <dt className="inline font-medium text-ink-800">File: </dt>
                 <dd className="inline">{files[0].name} · {formatBytes(files[0].size)}</dd>
               </div>
+              {aiSourceJob && (
+                <div>
+                  <dt className="inline font-medium text-ink-800">Source: </dt>
+                  <dd className="inline">AI video (Wan 3.0, {aiSourceJob.resolution}) — labelled AI-generated</dd>
+                </div>
+              )}
               <div>
                 <dt className="inline font-medium text-ink-800">Duration: </dt>
                 <dd className="inline">
@@ -402,9 +455,8 @@ export function TikTokComposer({ config, account, onPostCreated, onAuthError }: 
 
         {!config.audited && (
           <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            This app has not passed TikTok&apos;s review yet. Until it does, <strong>Post now</strong> only succeeds
-            with <strong>Only you</strong> — TikTok rejects other privacy levels for unaudited apps. Drafts are not
-            affected.
+            Until the app passes TikTok review, the TikTok account itself must be set to <strong>Private</strong> and the
+            post must be <strong>Only you</strong>. Or use <strong>Send to TikTok drafts</strong>.
           </p>
         )}
 

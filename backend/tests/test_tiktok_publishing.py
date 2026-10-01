@@ -225,14 +225,16 @@ class TestStatusMapping:
         patch_ = apply_status_payload({}, {"status": "FAILED", "fail_reason": "spam_risk_unaudited_client"})
         assert patch_["status"] == "failed"
         assert patch_["fail_reason"] == "spam_risk_unaudited_client"
-        assert "Only you" in patch_["error"]
+        assert patch_["error"] == tiktok_publisher.UNAUDITED_MESSAGE
+        assert "account itself must be set to Private" in patch_["error"]
 
     def test_inbox_terminal(self):
         assert apply_status_payload({}, {"status": "SEND_TO_USER_INBOX"})["status"] == "sent_to_inbox"
 
     def test_unaudited_api_error_is_explained(self):
         exc = TikTokAPIError("unaudited_client_can_only_post_to_private_accounts", "x")
-        assert "SELF_ONLY" in tiktok_publisher.humanize_api_error(exc)
+        assert tiktok_publisher.humanize_api_error(exc) == tiktok_publisher.UNAUDITED_MESSAGE
+        assert "Send to TikTok drafts" in tiktok_publisher.humanize_api_error(exc)
 
 
 # --------------------------------------------------------------------------

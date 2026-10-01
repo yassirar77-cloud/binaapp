@@ -5,6 +5,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   EMPTY_DRAFT,
+  describeAiVideo,
+  estimateAiVideoCost,
+  formatRm,
+  isAiVideoActive,
+  tiktokMediaUrl,
+  type AiVideoConfig,
+  type AiVideoJob,
   brandedContentDisabled,
   checkDraft,
   declarationText,
@@ -155,5 +162,65 @@ describe('status + errors', () => {
     expect(e.message).toBe('Choose privacy.');
     expect(errorFromBody(401, { detail: 'Session expired' }).message).toBe('Session expired');
     expect(errorFromBody(500, {}).message).toBe('Request failed (500)');
+  });
+});
+
+describe('AI video (Wan 3.0)', () => {
+  const cfg: AiVideoConfig = {
+    enabled: true,
+    provider: 'dashscope',
+    model: 'wan3.0-video',
+    resolutions: ['720P', '1080P'],
+    default_resolution: '720P',
+    durations: [10, 15],
+    default_duration: 10,
+    min_photos: 1,
+    max_photos: 3,
+    brief_max: 400,
+    cost_table: { '720P': { '10': { usd: 1, rm: 4.4 }, '15': { usd: 1.5, rm: 6.6 } }, '1080P': { '10': { usd: 2, rm: 8.8 }, '15': { usd: 3, rm: 13.2 } } },
+    usd_to_myr: 4.4,
+    daily: { used: 2, limit: 10, remaining: 8 },
+    poll_interval_seconds: 5,
+  };
+
+  it('reads the estimate from the server table and formats RM', () => {
+    expect(estimateAiVideoCost(cfg, '720P', 10)).toEqual({ usd: 1, rm: 4.4 });
+    expect(estimateAiVideoCost(cfg, '1080P', 15)).toEqual({ usd: 3, rm: 13.2 });
+    expect(estimateAiVideoCost(cfg, '720P', 7)).toBeNull();
+    expect(estimateAiVideoCost(null, '720P', 10)).toBeNull();
+    expect(formatRm(4.4)).toBe('RM4.40');
+  });
+
+  it('describes job states and knows which are still running', () => {
+    const job = (over: Partial<AiVideoJob>): AiVideoJob => ({
+      id: 'abcdef12-0000',
+      status: 'processing',
+      brief: 'promo',
+      prompt: null,
+      resolution: '720P',
+      duration_sec: 10,
+      provider: 'dashscope',
+      model: 'wan3.0-video',
+      provider_status: 'RUNNING',
+      error: null,
+      photo_keys: [],
+      video_key: null,
+      submitted: true,
+      video_bytes: null,
+      estimated_cost_usd: 1,
+      estimated_cost_rm: 4.4,
+      created_at: '',
+      finished_at: null,
+      ...over,
+    });
+    expect(isAiVideoActive(job({}))).toBe(true);
+    expect(isAiVideoActive(job({ status: 'ready' }))).toBe(false);
+    expect(describeAiVideo(job({})).label).toMatch(/Wan 3.0/);
+    expect(describeAiVideo(job({ status: 'ready' }))).toEqual({ label: 'Ready', tone: 'ok' });
+    expect(describeAiVideo(job({ status: 'failed', error: 'Wan 3.0 did not accept the job: rate limit' })).tone).toBe('err');
+  });
+
+  it('builds media URLs against the direct backend origin', () => {
+    expect(tiktokMediaUrl('a'.repeat(32) + '.mp4')).toMatch(/\/api\/v1\/social\/tiktok\/media\/a{32}\.mp4$/);
   });
 });

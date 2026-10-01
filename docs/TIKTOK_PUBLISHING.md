@@ -12,6 +12,9 @@ account from `/admin/tiktok`. The integration follows TikTok's
 | Piece | Path |
 |---|---|
 | Migration (3 tables + private storage bucket) | `backend/migrations/058_tiktok_publishing.sql` |
+| Migration (AI video ledger) | `backend/migrations/059_tiktok_ai_videos.sql` |
+| AI video job + cost rules | `backend/app/services/social/tiktok_ai_video.py` |
+| AI video panel | `frontend/src/components/admin/tiktok/TikTokAiVideoPanel.tsx` |
 | Settings | `backend/app/core/config.py` (`TIKTOK_*`) |
 | Admin guard (email allowlist **or** `users.role='admin'`) | `backend/app/core/admin.py` |
 | TikTok HTTP client (OAuth, creator_info, init, chunk upload, status) | `backend/app/services/social/tiktok_client.py` |
@@ -34,13 +37,15 @@ and `frontend/src/components/admin/<platform>/`.
 
 ### 1. Supabase — run the migration
 
-Run `backend/migrations/058_tiktok_publishing.sql` in the SQL editor of the
-production project. It is idempotent. It creates:
+Run `backend/migrations/058_tiktok_publishing.sql` and
+`backend/migrations/059_tiktok_ai_videos.sql` in the SQL editor of the
+production project. Both are idempotent. They create:
 
 - `tiktok_accounts` (encrypted tokens, RLS: service role only)
 - `tiktok_oauth_states` (single-use CSRF states)
 - `tiktok_posts` (publish ledger the UI polls)
-- storage bucket `tiktok-media` (private; photos staged for TikTok to pull)
+- storage bucket `tiktok-media` (private; photos staged for TikTok to pull, AI clips)
+- `tiktok_ai_videos` (AI clip ledger: brief, prompt, cost, status)
 
 ### 2. TikTok developer portal
 
@@ -69,6 +74,9 @@ production project. It is idempotent. It creates:
 | `TIKTOK_MEDIA_PUBLIC_BASE` | default `https://www.binaapp.my/api/tiktok/media` | no |
 | `TIKTOK_MAX_UPLOAD_MB` | default `300` | no |
 | `ADMIN_EMAILS` | comma-separated admin emails (default `yassirar77@gmail.com`) | no |
+| `WAN_DAILY_VIDEO_LIMIT` | AI clips per UTC day (default `10`; `0` disables) | no |
+| `WAN_USD_TO_MYR` | FX for the estimate (default `4.40`) | no |
+| `WAN_COST_USD_PER_SEC_720P` / `_1080P` | override list price per output second | no |
 
 Render redeploys on push (`autoDeploy: true`). `cryptography` is now an
 explicit requirement.
@@ -118,13 +126,48 @@ straight to Render (Vercel's 4.5 MB body limit would block videos).
 6. **Disconnect TikTok** → `POST /v2/oauth/revoke/` then delete the row
    (posts cascade).
 
+## AI video step (Wan 3.0)
+
+`/admin/tiktok` → Video → **Generate AI video**. The admin uploads 1–3 real
+photos (food, shop, product) and a short brief; the backend submits a
+`wan3.0-video` reference-to-video job through the existing DashScope
+integration (`app/services/zai_video_service.py`): the photos go in
+`input.media` as `reference_image` items the prompt names "Image 1…",
+`ratio 9:16`, `duration` 10 or 15 s, `resolution` 720P by default (1080P
+option), `audio` off. The job is polled in the background
+(`app/services/social/tiktok_ai_video.py`), the clip is copied into the
+private `tiktok-media` bucket and served at `/api/v1/social/tiktok/media/<key>.mp4`.
+The panel shows a preview with **Regenerate** and **Use this video**; the
+latter loads the MP4 into the composer as if it had been chosen with the
+file picker and ticks **This content is AI-generated** (`is_aigc`).
+
+Money rules:
+
+- The estimate (resolution × duration × list price, USD and RM) is shown
+  before the button is pressed and written on every row of
+  `tiktok_ai_videos` (migration 059). The panel lists the recent rows as a
+  cost log with totals. List price (Alibaba Cloud Model Studio): $0.05/s
+  480P, $0.10/s 720P, $0.20/s 1080P; override with
+  `WAN_COST_USD_PER_SEC_<RES>`; `WAN_USD_TO_MYR` (default 4.40) converts.
+- `WAN_DAILY_VIDEO_LIMIT` (default 10) caps clips that reach the provider
+  per UTC day; rows refused at submit do not count. `0` disables the step.
+- A Wan failure is shown with the provider's message and a **Try again**
+  button (a new job, new row).
+
+Requires `DASHSCOPE_API_KEY` and `DASHSCOPE_VIDEO_MODEL=wan3.0-video` (the
+defaults the hero-video feature already uses). Reference photos are served
+to DashScope from `TIKTOK_MEDIA_PUBLIC_BASE`, so the Next.js media rewrite
+must be live (it is, since PR #818).
+
 ## Unaudited / Sandbox behaviour
 
-Until TikTok approves the app, Direct Post only succeeds with
-`privacy_level = SELF_ONLY`; other levels return
-`unaudited_client_can_only_post_to_private_accounts`. The UI shows this up
-front while `TIKTOK_APP_AUDITED=false`, and the error is translated when it
-happens. Inbox uploads are unaffected. Sandbox mode also caps pending
+Until TikTok approves the app, Direct Post only succeeds when the TikTok
+account itself is set to Private and `privacy_level = SELF_ONLY`; otherwise
+TikTok returns `unaudited_client_can_only_post_to_private_accounts`. The UI
+says so up front while `TIKTOK_APP_AUDITED=false`, and the error is shown
+as: "Until the app passes TikTok review, the TikTok account itself must be
+set to Private and the post must be Only you. Or use Send to TikTok drafts."
+ Inbox uploads are unaffected. Sandbox mode also caps pending
 drafts at 5 per 24 h.
 
 ## Demo script for the review video
@@ -147,5 +190,7 @@ drafts at 5 per 24 h.
 
 - `backend/tests/test_tiktok_publishing.py` — vault, chunk plan, validation,
   post_info, status mapping, OAuth state, route guard.
+- `backend/tests/test_tiktok_ai_video.py` — cost estimate, daily cap, prompt,
+  the wan3.0 reference-image request shape, the driver, the admin routes.
 - `frontend/src/lib/tiktok.test.ts` — the composer rules (no default privacy,
   toggles off, disclosure gating, declaration text, limits, status copy).

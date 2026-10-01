@@ -41,7 +41,7 @@ import re
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Tuple, Dict, Optional
+from typing import Dict, List, Optional, Tuple
 from urllib.parse import quote, urlsplit
 
 import cloudinary
@@ -295,6 +295,19 @@ ALLOWED_VIDEO_SIZES = (
     "1280x720", "1920x1080", "720x1280", "1080x1920", "1024x1024",
 )
 ALLOWED_DURATIONS = (5, 10)
+#: wan3.x (the unified DashScope model) accepts any whole number of seconds
+#: in this range when no reference video is supplied; the legacy models and
+#: Z.ai keep the fixed 5/10 choice above.
+UNIFIED_DURATION_RANGE = (2, 30)
+
+
+def clean_unified_duration(duration: Optional[int], default: int) -> int:
+    """A duration wan3.x accepts: the request's when it is inside
+    UNIFIED_DURATION_RANGE, else ``default``."""
+    low, high = UNIFIED_DURATION_RANGE
+    if isinstance(duration, int) and low <= duration <= high:
+        return duration
+    return default
 
 #: The shapes a clip can be asked in. A hero is wide; a clip for a WhatsApp
 #: status, a Reel or a TikTok is tall. The aspect decides the DashScope
@@ -835,6 +848,9 @@ class ZaiVideoService:
         image_url: Optional[str] = None,
         provider: Optional[str] = None,
         aspect: Optional[str] = None,
+        reference_image_urls: Optional[List[str]] = None,
+        resolution: Optional[str] = None,
+        audio: bool = False,
     ) -> str:
         """Start a generation. Returns the provider's task id.
 
@@ -843,12 +859,27 @@ class ZaiVideoService:
 
         ``aspect`` "9:16" asks for a portrait clip (a social post); the
         default is the landscape hero shape.
+
+        ``reference_image_urls``, ``resolution`` and ``audio`` are the
+        wan3.x (DashScope unified model) extras used by the TikTok promo
+        clip: real product photos as ``reference_image`` media the prompt
+        can name as "Image 1", "Image 2"…, a per-job resolution, and an
+        optional AI soundtrack. Z.ai has none of these; a Z.ai job with
+        reference images animates the first one.
         """
         aspect = clean_aspect(aspect)
         if (provider or hero_video_provider()) == PROVIDER_DASHSCOPE:
             return await self._submit_dashscope(
-                prompt, duration=duration, image_url=image_url, aspect=aspect
+                prompt,
+                duration=duration,
+                image_url=image_url,
+                aspect=aspect,
+                reference_image_urls=reference_image_urls,
+                resolution=resolution,
+                audio=audio,
             )
+        if reference_image_urls and not image_url:
+            image_url = reference_image_urls[0]
         if not _zai_api_key():
             raise ZaiVideoError("ZAI_API_KEY is not configured")
 
@@ -1034,14 +1065,27 @@ class ZaiVideoService:
         duration: Optional[int] = None,
         image_url: Optional[str] = None,
         aspect: Optional[str] = None,
+        reference_image_urls: Optional[List[str]] = None,
+        resolution: Optional[str] = None,
+        audio: bool = False,
     ) -> str:
         if not _dashscope_api_key():
             raise ZaiVideoError("DASHSCOPE_API_KEY is not configured")
         aspect = clean_aspect(aspect)
+        references = [u for u in (reference_image_urls or []) if u][:10]
         # A prompt-only job runs on the text-to-video model, a job that
         # carries the merchant's photo on the unified one that can animate it.
-        model = dashscope_model_for(image_url)
+        # Reference photos need the unified model too (``reference_image``
+        # media is a wan3.x shape).
+        model = dashscope_model_for(image_url or (references[0] if references else None))
         unified = _dashscope_is_unified(model)
+        if references and not unified:
+            raise ZaiVideoError(
+                f"DashScope model {model} cannot take reference images — set DASHSCOPE_VIDEO_MODEL to a wan3.x model"
+            )
+        chosen_resolution = (resolution or "").strip().upper()
+        if chosen_resolution not in DASHSCOPE_RESOLUTIONS:
+            chosen_resolution = dashscope_video_resolution()
         if image_url and not unified:
             # A pinned text-to-video-only model. We only land here with a
             # photo when Z.ai is not configured either (submit_with_fallback
@@ -1054,13 +1098,23 @@ class ZaiVideoService:
 
         input_block: Dict = {"prompt": prompt[:ZAI_PROMPT_MAX_CHARS]}
         parameters: Dict = {
-            "resolution": dashscope_video_resolution(),
+            "resolution": chosen_resolution,
             # A social clip is tall whatever the operator's default ratio is.
             "ratio": ASPECT_SOCIAL if aspect == ASPECT_SOCIAL else dashscope_video_ratio(),
-            "duration": duration if duration in ALLOWED_DURATIONS else zai_video_duration(),
+            "duration": (
+                clean_unified_duration(duration, zai_video_duration())
+                if unified
+                else (duration if duration in ALLOWED_DURATIONS else zai_video_duration())
+            ),
         }
         if unified:
-            if image_url:
+            if references:
+                # Reference-to-video: the real product/merchant photos the
+                # prompt names as "Image 1", "Image 2"… The model keeps the
+                # subject and composes the scene around it; the ratio stays
+                # as requested (a tall TikTok clip from landscape photos).
+                input_block["media"] = [{"type": "reference_image", "url": u} for u in references]
+            elif image_url:
                 # Image-to-video: the merchant's photo is the clip's first
                 # frame, and "adaptive" makes the clip follow the photo's own
                 # aspect — the pairing the wan3.0 reference documents.
@@ -1069,10 +1123,11 @@ class ZaiVideoService:
                 # reframes the photo into it. A hero clip follows the photo.
                 if aspect != ASPECT_SOCIAL:
                     parameters["ratio"] = "adaptive"
-            # wan3.x generates a soundtrack by default. The clip plays muted
-            # behind the hero, so audio only makes every visitor's download
-            # heavier (same call the Z.ai path makes with with_audio=False).
-            parameters["audio"] = False
+            # wan3.x generates a soundtrack by default. A hero clip plays
+            # muted behind the page, so audio only makes every visitor's
+            # download heavier (same call the Z.ai path makes with
+            # with_audio=False); a clip made to be posted may ask for it.
+            parameters["audio"] = bool(audio)
             # "watermark" is not in wan3.0's documented parameter list. Send
             # it only when an operator explicitly opts in, rather than risk
             # a rejected request on every job for a default of False.
@@ -1088,11 +1143,11 @@ class ZaiVideoService:
         # before this; now it is one log line per submit.
         logger.info(
             f"🎬 DASHSCOPE VIDEO REQUEST model={payload['model']} "
-            f"mode={'image-to-video' if image_url else 'text-to-video'} "
+            f"mode={'reference-to-video' if references else ('image-to-video' if image_url else 'text-to-video')} "
             f"resolution={parameters['resolution']} ratio={parameters['ratio']} "
             f"duration={parameters['duration']}s audio={parameters.get('audio')} "
             f"watermark={parameters.get('watermark', False)} "
-            f"image={image_url or '-'} prompt={input_block['prompt']!r}"
+            f"image={image_url or '-'} references={len(references)} prompt={input_block['prompt']!r}"
         )
         try:
             async with httpx.AsyncClient(timeout=zai_video_timeout_seconds()) as client:
