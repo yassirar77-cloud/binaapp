@@ -453,3 +453,132 @@ export function probeVideoDuration(file: File): Promise<number | null> {
     video.src = url;
   });
 }
+
+// ---------------------------------------------------------------------------
+// AI video (Wan 3.0 reference-to-video via the backend)
+// ---------------------------------------------------------------------------
+
+export type AiVideoResolution = '720P' | '1080P';
+export type AiVideoStatus = 'queued' | 'processing' | 'ready' | 'failed';
+
+export interface AiVideoConfig {
+  enabled: boolean;
+  provider: string;
+  model: string;
+  resolutions: AiVideoResolution[];
+  default_resolution: AiVideoResolution;
+  durations: number[];
+  default_duration: number;
+  min_photos: number;
+  max_photos: number;
+  brief_max: number;
+  /** cost_table[resolution][String(duration)] = {usd, rm} */
+  cost_table: Record<string, Record<string, { usd: number; rm: number }>>;
+  usd_to_myr: number;
+  daily: AiVideoDaily;
+  poll_interval_seconds: number;
+}
+
+export interface AiVideoDaily {
+  used: number;
+  limit: number;
+  remaining: number;
+}
+
+export interface AiVideoJob {
+  id: string;
+  status: AiVideoStatus;
+  brief: string | null;
+  prompt: string | null;
+  resolution: string;
+  duration_sec: number;
+  provider: string | null;
+  model: string | null;
+  provider_status: string | null;
+  error: string | null;
+  photo_keys: string[];
+  video_key: string | null;
+  submitted: boolean;
+  video_bytes: number | null;
+  estimated_cost_usd: number;
+  estimated_cost_rm: number;
+  created_at: string;
+  finished_at: string | null;
+}
+
+/** The playable URL for a stored clip or photo — the direct backend origin. */
+export function tiktokMediaUrl(key: string): string {
+  return `${UPLOAD_BASE}${ROOT}/media/${key}`;
+}
+
+/** Estimated cost of one clip from the server's table; null when unknown. */
+export function estimateAiVideoCost(
+  cfg: AiVideoConfig | null,
+  resolution: AiVideoResolution,
+  durationSec: number,
+): { usd: number; rm: number } | null {
+  const row = cfg?.cost_table?.[resolution]?.[String(durationSec)];
+  return row ? { usd: row.usd, rm: row.rm } : null;
+}
+
+export function formatRm(value: number): string {
+  return `RM${value.toFixed(2)}`;
+}
+
+export function isAiVideoActive(job: AiVideoJob | null): boolean {
+  return !!job && (job.status === 'queued' || job.status === 'processing');
+}
+
+export function describeAiVideo(job: AiVideoJob): { label: string; tone: 'info' | 'ok' | 'err' } {
+  switch (job.status) {
+    case 'queued':
+      return { label: 'Queued…', tone: 'info' };
+    case 'processing':
+      return { label: `Generating with Wan 3.0… (${job.provider_status || 'running'}, usually 1–3 minutes)`, tone: 'info' };
+    case 'ready':
+      return { label: 'Ready', tone: 'ok' };
+    case 'failed':
+    default:
+      return { label: job.error || 'Generation failed', tone: 'err' };
+  }
+}
+
+export const fetchAiVideoConfig = () => request<AiVideoConfig>('/ai-video/config');
+
+export const fetchAiVideoJob = (id: string) => request<{ job: AiVideoJob }>(`/ai-video/jobs/${id}`);
+
+export const fetchAiVideoJobs = (limit = 20) =>
+  request<{ jobs: AiVideoJob[]; totals: { count: number; estimated_cost_usd: number; estimated_cost_rm: number }; daily: AiVideoDaily }>(
+    `/ai-video/jobs?limit=${limit}`,
+  );
+
+export async function createAiVideoJob(
+  photos: File[],
+  brief: string,
+  resolution: AiVideoResolution,
+  durationSec: number,
+): Promise<{ job: AiVideoJob; daily: AiVideoDaily }> {
+  const form = new FormData();
+  form.append('brief', brief);
+  form.append('resolution', resolution);
+  form.append('duration_sec', String(durationSec));
+  photos.forEach((f) => form.append('files', f, f.name));
+  const res = await fetch(`${UPLOAD_BASE}${ROOT}/ai-video/jobs`, {
+    method: 'POST',
+    headers: await authHeaders(),
+    body: form,
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw errorFromBody(res.status, body);
+  return body as { job: AiVideoJob; daily: AiVideoDaily };
+}
+
+/** Download a stored clip as a File so the composer can treat it as an upload. */
+export async function aiVideoAsFile(job: AiVideoJob): Promise<File> {
+  if (!job.video_key) throw new TikTokApiError('The clip is not ready yet', 409, 'not_ready');
+  const res = await fetch(tiktokMediaUrl(job.video_key));
+  if (!res.ok) throw new TikTokApiError(`Could not download the clip (${res.status})`, res.status, 'download_failed');
+  const blob = await res.blob();
+  const name = `binaapp-ai-${job.id.slice(0, 8)}-${job.resolution.toLowerCase()}-${job.duration_sec}s.mp4`;
+  return new File([blob], name, { type: 'video/mp4' });
+}

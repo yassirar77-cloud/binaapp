@@ -89,6 +89,14 @@ services:
       # Flip to "true" once TikTok approves the app (lifts the SELF_ONLY note).
       - key: TIKTOK_APP_AUDITED
         value: "false"
+      # AI promo clips for TikTok (Wan 3.0 via the existing DASHSCOPE_API_KEY).
+      # Clips that reach the provider per UTC day; 0 disables the step.
+      - key: WAN_DAILY_VIDEO_LIMIT
+        value: "10"
+      # Shown as the estimate before generating. List price USD/second;
+      # override per resolution if the account's rate differs.
+      - key: WAN_USD_TO_MYR
+        value: "4.40"
 
       # App config
       - key: FRONTEND_URL

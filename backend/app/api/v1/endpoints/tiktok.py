@@ -10,7 +10,11 @@
     POST   /api/v1/social/tiktok/posts            multipart: media + post JSON
     GET    /api/v1/social/tiktok/posts            recent posts
     GET    /api/v1/social/tiktok/posts/{id}       one post, synced with TikTok
-    GET    /api/v1/social/tiktok/media/{key}      PUBLIC: staged photo for TikTok to pull
+    GET    /api/v1/social/tiktok/media/{key}      PUBLIC: staged photo / AI clip (unguessable key)
+    GET    /api/v1/social/tiktok/ai-video/config  Wan 3.0 availability, cost table, daily usage
+    POST   /api/v1/social/tiktok/ai-video/jobs    multipart: 1–3 photos + brief → async job
+    GET    /api/v1/social/tiktok/ai-video/jobs    cost log (recent jobs)
+    GET    /api/v1/social/tiktok/ai-video/jobs/{id}
 
 The browser-facing redirect URI (https://binaapp.my/api/tiktok/callback) is
 a Next.js route that forwards ``code`` and ``state`` to the admin page, which
@@ -23,14 +27,11 @@ Every route except ``media/{key}`` requires ``require_admin``.
 from __future__ import annotations
 
 import json
-import mimetypes
 import os
-import re
 import tempfile
 import uuid
 from typing import Any, Dict, List
 
-import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response
 from loguru import logger
@@ -38,7 +39,14 @@ from pydantic import BaseModel, Field, ValidationError
 
 from app.core.admin import require_admin
 from app.core.config import settings
-from app.services.social import caption_ai, tiktok_accounts, tiktok_client, tiktok_publisher
+from app.services.social import (
+    caption_ai,
+    tiktok_accounts,
+    tiktok_ai_video,
+    tiktok_client,
+    tiktok_media,
+    tiktok_publisher,
+)
 from app.services.social.tiktok_client import (
     MAX_PHOTO_COUNT,
     PHOTO_DESCRIPTION_MAX_UTF16,
@@ -48,13 +56,9 @@ from app.services.social.tiktok_client import (
     TikTokAPIError,
 )
 from app.services.social.tiktok_publisher import PostRequest
-from app.services.supabase_client import supabase_service
 
 router = APIRouter(prefix="/social/tiktok", tags=["Social: TikTok"])
 
-MEDIA_BUCKET = "tiktok-media"
-_MEDIA_KEY_RE = re.compile(r"^[a-f0-9]{32}\.(jpg|jpeg|png|webp)$")
-_PHOTO_MIME = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}
 _VIDEO_EXT_MIME = {".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm"}
 
 
@@ -326,38 +330,6 @@ async def _spool_video(upload: UploadFile, max_bytes: int) -> tuple[str, int]:
     return path, size
 
 
-async def _stage_photos(uploads: List[UploadFile], max_bytes: int) -> List[str]:
-    if not uploads:
-        raise HTTPException(status_code=422, detail={"error": "no_photos", "message": "Add at least one photo."})
-    if len(uploads) > MAX_PHOTO_COUNT:
-        raise HTTPException(
-            status_code=422, detail={"error": "too_many_photos", "message": f"TikTok allows up to {MAX_PHOTO_COUNT} photos."}
-        )
-    urls: List[str] = []
-    base = settings.TIKTOK_MEDIA_PUBLIC_BASE.rstrip("/")
-    for upload in uploads:
-        mime = (upload.content_type or mimetypes.guess_type(upload.filename or "")[0] or "").lower()
-        ext = _PHOTO_MIME.get(mime)
-        if not ext:
-            raise HTTPException(
-                status_code=415, detail={"error": "unsupported_photo", "message": "Photos must be JPEG, PNG or WebP."}
-            )
-        data = await upload.read()
-        if not data:
-            raise HTTPException(status_code=422, detail={"error": "empty_file", "message": "A photo file is empty."})
-        if len(data) > max_bytes:
-            raise HTTPException(status_code=413, detail={"error": "too_large", "message": "A photo exceeds the upload limit."})
-        key = f"{uuid.uuid4().hex}.{ext}"
-        stored = await supabase_service.upload_file(MEDIA_BUCKET, key, data, content_type=mime)
-        if not stored:
-            raise HTTPException(
-                status_code=502,
-                detail={"error": "storage_failed", "message": "Could not stage the photo (Supabase Storage)."},
-            )
-        urls.append(f"{base}/{key}")
-    return urls
-
-
 def _post_view(row: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "id": row.get("id"),
@@ -421,7 +393,8 @@ async def create_post(
         )
         tiktok_publisher.start_video_job(post=row, account=account, req=req, file_path=path, mime_type=mime)
     else:
-        urls = await _stage_photos(files, max_bytes)
+        keys = await tiktok_media.stage_photos(files, max_bytes=max_bytes)
+        urls = [tiktok_media.public_url(k) for k in keys]
         row = await tiktok_publisher.create_post_row(
             account,
             _user_id(user),
@@ -470,24 +443,128 @@ async def get_post(post_id: str, _: Dict[str, Any] = Depends(require_admin)):
 
 @router.get("/media/{key}", include_in_schema=False)
 async def serve_media(key: str):
-    """Unauthenticated by design: TikTok's servers fetch the photo from here.
+    """Unauthenticated by design: TikTok's servers fetch photos from here and
+    the admin's browser plays AI clips from here.
 
     Keys are 128-bit random, so the URL is unguessable; the bucket itself is
     private and only reachable through this endpoint with the service key.
     """
-    if not _MEDIA_KEY_RE.match(key):
+    if not tiktok_media.MEDIA_KEY_RE.match(key):
         raise HTTPException(status_code=404, detail="Not found")
-    url = f"{supabase_service.url}/storage/v1/object/{MEDIA_BUCKET}/{key}"
-    headers = {"apikey": supabase_service.service_key, "Authorization": f"Bearer {supabase_service.service_key}"}
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.get(url, headers=headers)
-    if resp.status_code != 200:
+    resp = await tiktok_media.fetch_object(key)
+    if resp is None:
         raise HTTPException(status_code=404, detail="Not found")
     ext = key.rsplit(".", 1)[1]
-    mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "webp": "image/webp"}[ext]
     return Response(
         content=resp.content,
-        media_type=mime,
-        headers={"Cache-Control": "public, max-age=86400", "X-Robots-Tag": "noindex"},
+        media_type=tiktok_media.EXT_MIME[ext],
+        headers={
+            "Cache-Control": "public, max-age=86400",
+            "X-Robots-Tag": "noindex",
+            "Accept-Ranges": "none",
+        },
     )
 
+
+# --------------------------------------------------------------------------
+# AI video (Wan 3.0 reference-to-video, vertical promo clip)
+# --------------------------------------------------------------------------
+
+@router.get("/ai-video/config")
+async def ai_video_config(_: Dict[str, Any] = Depends(require_admin)):
+    usage = await tiktok_ai_video.usage_today()
+    return {
+        "enabled": tiktok_ai_video.is_enabled(),
+        "provider": "dashscope",
+        "model": tiktok_ai_video.video.dashscope_video_model(),
+        "resolutions": list(tiktok_ai_video.RESOLUTIONS),
+        "default_resolution": tiktok_ai_video.DEFAULT_RESOLUTION,
+        "durations": list(tiktok_ai_video.DURATIONS),
+        "default_duration": tiktok_ai_video.DEFAULT_DURATION,
+        "min_photos": tiktok_ai_video.MIN_PHOTOS,
+        "max_photos": tiktok_ai_video.MAX_PHOTOS,
+        "brief_max": tiktok_ai_video.BRIEF_MAX,
+        "cost_table": tiktok_ai_video.cost_table(),
+        "usd_to_myr": tiktok_ai_video.usd_to_myr(),
+        "daily": usage,
+        "poll_interval_seconds": tiktok_ai_video.POLL_INTERVAL_SECONDS,
+    }
+
+
+@router.post("/ai-video/jobs", status_code=202)
+async def ai_video_create(
+    brief: str = Form("", max_length=tiktok_ai_video.BRIEF_MAX),
+    resolution: str = Form(tiktok_ai_video.DEFAULT_RESOLUTION),
+    duration_sec: int = Form(tiktok_ai_video.DEFAULT_DURATION),
+    files: List[UploadFile] = File(..., description="1–3 reference photos (JPEG/PNG/WebP)"),
+    user: Dict[str, Any] = Depends(require_admin),
+):
+    if not tiktok_ai_video.is_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "ai_video_unavailable",
+                "message": "AI video is not available on this server (DASHSCOPE_API_KEY / wan3.x model not configured).",
+            },
+        )
+    if resolution.strip().upper() not in tiktok_ai_video.RESOLUTIONS:
+        raise HTTPException(status_code=422, detail={"error": "bad_resolution", "message": "Choose 720P or 1080P."})
+    if duration_sec not in tiktok_ai_video.DURATIONS:
+        raise HTTPException(status_code=422, detail={"error": "bad_duration", "message": "Choose 10 or 15 seconds."})
+    # Check the cap before storing photos so a refused job stores nothing.
+    usage = await tiktok_ai_video.usage_today()
+    if tiktok_ai_video.cap_reached(usage["used"], usage["limit"]):
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "error": "daily_limit",
+                "message": f"Daily AI video limit reached ({usage['used']}/{usage['limit']}). Try again tomorrow.",
+                "daily": usage,
+            },
+        )
+    max_bytes = 20 * 1024 * 1024  # Wan 3.0 accepts images up to 20 MB
+    keys = await tiktok_media.stage_photos(
+        files, max_bytes=max_bytes, max_count=tiktok_ai_video.MAX_PHOTOS, min_count=tiktok_ai_video.MIN_PHOTOS
+    )
+    try:
+        row = await tiktok_ai_video.start_generation(
+            user_id=_user_id(user), brief=brief, photo_keys=keys, resolution=resolution, duration_sec=duration_sec
+        )
+    except tiktok_ai_video.DailyCapReached as exc:
+        raise HTTPException(status_code=429, detail={"error": "daily_limit", "message": str(exc)})
+    except tiktok_ai_video.AiVideoUnavailable as exc:
+        raise HTTPException(status_code=503, detail={"error": "ai_video_unavailable", "message": str(exc)})
+    view = tiktok_ai_video.public_view(row)
+    if view["status"] == "failed":
+        # Submit refused: say so with a 502 the UI turns into "Try again".
+        raise HTTPException(status_code=502, detail={"error": "video_submit_failed", "message": view["error"], "job": view})
+    return {"job": view, "daily": await tiktok_ai_video.usage_today()}
+
+
+@router.get("/ai-video/jobs")
+async def ai_video_list(limit: int = Query(20, ge=1, le=100), _: Dict[str, Any] = Depends(require_admin)):
+    rows = await tiktok_ai_video.list_jobs(limit)
+    views = [tiktok_ai_video.public_view(r) for r in rows]
+    submitted = [v for v in views if v["submitted"]]
+    return {
+        "jobs": views,
+        "totals": {
+            "count": len(submitted),
+            "estimated_cost_usd": round(sum(v["estimated_cost_usd"] for v in submitted), 4),
+            "estimated_cost_rm": round(sum(v["estimated_cost_rm"] for v in submitted), 2),
+        },
+        "daily": await tiktok_ai_video.usage_today(),
+    }
+
+
+@router.get("/ai-video/jobs/{job_id}")
+async def ai_video_get(job_id: str, _: Dict[str, Any] = Depends(require_admin)):
+    try:
+        uuid.UUID(job_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Job not found")
+    row = await tiktok_ai_video.get_job(job_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Job not found")
+    row = await tiktok_ai_video.sync_stale(row)
+    return {"job": tiktok_ai_video.public_view(row)}

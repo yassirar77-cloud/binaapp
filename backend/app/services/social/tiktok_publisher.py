@@ -135,6 +135,14 @@ def build_post_info(req: PostRequest, creator: Dict[str, Any]) -> Dict[str, Any]
 # Status mapping
 # --------------------------------------------------------------------------
 
+#: TikTok's rule for apps that have not passed review: the ACCOUNT must be
+#: private and the post SELF_ONLY, or the post is refused. Shown wherever
+#: TikTok answers with the unaudited-client error.
+UNAUDITED_MESSAGE = (
+    "Until the app passes TikTok review, the TikTok account itself must be set "
+    "to Private and the post must be Only you. Or use Send to TikTok drafts."
+)
+
 STATUS_MAP = {
     "PROCESSING_UPLOAD": "processing",
     "PROCESSING_DOWNLOAD": "processing",
@@ -159,17 +167,14 @@ FAIL_REASON_TEXT = {
     "spam_risk_text": "TikTok flagged the caption as risky. Edit it and try again.",
     "spam_risk": "TikTok flagged this request as risky.",
     "spam_risk_adult_content": "TikTok flagged the content as adult content.",
-    "spam_risk_unaudited_client": "Until the app passes TikTok review, only private (Only you) posts are allowed.",
+    "spam_risk_unaudited_client": UNAUDITED_MESSAGE,
     "spam_risk_pull_url_unverified": "The media URL prefix is not verified in the TikTok developer portal.",
     "internal": "TikTok had an internal error. Try again in a few minutes.",
     "page_not_found": "TikTok could not find the publish task.",
 }
 
 API_ERROR_TEXT = {
-    "unaudited_client_can_only_post_to_private_accounts": (
-        "This app has not passed TikTok review yet, so Direct Post only works "
-        "with privacy 'Only you' (SELF_ONLY). Choose 'Only you' or send to drafts."
-    ),
+    "unaudited_client_can_only_post_to_private_accounts": UNAUDITED_MESSAGE,
     "privacy_level_option_mismatch": "That privacy level is not allowed for this account. Reload the creator settings.",
     "spam_risk_too_many_posts": "Daily post limit reached for this account.",
     "spam_risk_too_many_pending_share": "TikTok allows at most 5 pending draft uploads in 24 hours.",
