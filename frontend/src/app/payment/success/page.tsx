@@ -169,10 +169,10 @@ function PaymentSuccessContent() {
           })
         });
 
-        const verifyData = await verifyResponse.json();
+        const verifyData = await verifyResponse.json().catch(() => ({}));
         console.log('Backend verification result:', verifyData);
 
-        if (verifyData.success && verifyData.payment_status === 'paid') {
+        if (verifyResponse.ok && verifyData.success && verifyData.payment_status === 'paid') {
           setStatus('success');
           setMessage(isAddonPayment ? 'Kredit Addon Berjaya Ditambah!' : 'Pembayaran Berjaya!');
 
@@ -195,23 +195,31 @@ function PaymentSuccessContent() {
             }
           }, 3000);
           return;
-        } else if (verifyData.payment_status === 'pending') {
-          setStatus('pending');
-          setMessage('Pembayaran dalam proses...');
-          return;
         } else if (verifyData.payment_status === 'failed') {
           setStatus('failed');
           setMessage('Pembayaran Gagal');
           return;
+        } else {
+          // The server answered but did NOT confirm the payment (pending,
+          // unknown status, or a non-OK response). Never claim success from
+          // the URL's status_id alone — show pending with a re-check button.
+          setStatus('pending');
+          setMessage(
+            verifyData.payment_status === 'pending'
+              ? 'Pembayaran dalam proses...'
+              : 'Pembayaran belum disahkan. Sila semak semula sebentar lagi.'
+          );
+          return;
         }
       } catch (error) {
         console.error('Backend verification error:', error);
-        // Fall through to status_id check
+        // Network failure only — fall through to the status_id fallback below.
       }
     }
 
     // =========================================================================
-    // FALLBACK - Check payment status from URL parameter
+    // FALLBACK - Check payment status from URL parameter. Reached only when
+    // verification could not be performed (no bill code, or network failure).
     // =========================================================================
     if (statusId === '1') {
       // Payment successful
@@ -338,6 +346,15 @@ function PaymentSuccessContent() {
           <div className="spinner"></div>
           <h2>{message}</h2>
           <p>Sila tunggu...</p>
+          <button
+            onClick={() => {
+              setStatus('checking');
+              setMessage('Memeriksa pembayaran...');
+              verifyPayment();
+            }}
+          >
+            Semak semula
+          </button>
         </div>
       )}
 

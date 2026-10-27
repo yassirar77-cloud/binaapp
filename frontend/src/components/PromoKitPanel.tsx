@@ -64,7 +64,8 @@ export default function PromoKitPanel({ websiteId, isPublished, subdomain }: Pro
       const token = await getApiAuthToken();
       const objectUrl = await fetchKitImageUrl(websiteId, path, {}, token);
       downloadObjectUrl(objectUrl, filename);
-      URL.revokeObjectURL(objectUrl);
+      // Revoking synchronously can cancel the download in some browsers.
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
     } catch (err) {
       fail(err, 'Gagal menjana imej.');
     } finally {

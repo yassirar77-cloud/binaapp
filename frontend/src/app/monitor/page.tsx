@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import toast from 'react-hot-toast'
 import { getStoredToken } from '@/lib/supabase'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://binaapp-backend.onrender.com'
@@ -118,6 +119,7 @@ export default function MonitorPage() {
       setEvents(data.events || [])
     } catch (err) {
       console.error('Failed to load events:', err)
+      toast.error((err as Error).message || 'Gagal memuatkan peristiwa')
     }
   }, [apiFetch, filterType, filterSeverity])
 
@@ -127,6 +129,7 @@ export default function MonitorPage() {
       setSummary(data)
     } catch (err) {
       console.error('Failed to load summary:', err)
+      toast.error((err as Error).message || 'Gagal memuatkan ringkasan')
     }
   }, [apiFetch])
 
@@ -149,6 +152,7 @@ export default function MonitorPage() {
       loadSummary()
     } catch (err) {
       console.error('Failed to acknowledge:', err)
+      toast.error((err as Error).message || 'Gagal menanda sebagai dibaca')
     }
   }
 
@@ -172,7 +176,7 @@ export default function MonitorPage() {
             <h1 className="text-lg font-bold text-gray-800">Pemantauan AI</h1>
             <p className="text-xs text-gray-500">Notifikasi &amp; pemantauan platform</p>
           </div>
-          <Link href="/profil" className="text-sm text-blue-600 hover:underline">
+          <Link href="/dashboard" className="text-sm text-blue-600 hover:underline">
             Kembali ke Dashboard
           </Link>
         </div>

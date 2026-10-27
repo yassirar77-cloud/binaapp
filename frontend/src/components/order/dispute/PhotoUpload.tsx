@@ -161,7 +161,6 @@ export function PhotoUpload({ orderNumber, photos, onChange }: PhotoUploadProps)
         type="file"
         accept={ACCEPTED_TYPES}
         multiple
-        capture="environment"
         hidden
         onChange={(e) => {
           handleFiles(e.target.files)

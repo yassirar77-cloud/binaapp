@@ -5,7 +5,7 @@ import { useSearchParams } from 'next/navigation'
 import { IdentifyForm } from './IdentifyForm'
 import { useRestaurantStore } from '../restaurant-store'
 import type { ResolvedRestaurant } from '../restaurant-store'
-import { Spinner } from '../primitives'
+import { Button, Spinner } from '../primitives'
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL || 'https://binaapp-backend.onrender.com'
@@ -13,7 +13,8 @@ const API_BASE =
 type Phase =
   | { kind: 'resolving' }
   | { kind: 'ready' }
-  | { kind: 'error'; subdomain: string }
+  /** notFound = backend said 404; otherwise a network/5xx failure (retryable). */
+  | { kind: 'error'; subdomain: string; notFound: boolean }
 
 /**
  * Reads the `?r=` subdomain query parameter, resolves it to a restaurant
@@ -37,6 +38,7 @@ export function IdentifyPageClient() {
     if (stored?.subdomain === subdomain) return { kind: 'ready' }
     return { kind: 'resolving' }
   })
+  const [retryKey, setRetryKey] = useState(0)
 
   useEffect(() => {
     if (!subdomain) return
@@ -52,7 +54,7 @@ export function IdentifyPageClient() {
         if (cancelled) return
 
         if (!res.ok) {
-          setPhase({ kind: 'error', subdomain })
+          setPhase({ kind: 'error', subdomain, notFound: res.status === 404 })
           return
         }
 
@@ -68,13 +70,13 @@ export function IdentifyPageClient() {
         setRestaurant(restaurant)
         setPhase({ kind: 'ready' })
       } catch {
-        if (!cancelled) setPhase({ kind: 'error', subdomain })
+        if (!cancelled) setPhase({ kind: 'error', subdomain, notFound: false })
       }
     }
 
     void resolve()
     return () => { cancelled = true }
-  }, [subdomain, stored?.subdomain, setRestaurant])
+  }, [subdomain, stored?.subdomain, setRestaurant, retryKey])
 
   if (phase.kind === 'resolving') {
     return (
@@ -111,12 +113,35 @@ export function IdentifyPageClient() {
             padding: '0 24px',
           }}
         >
-          <p style={{ fontSize: 18, fontWeight: 600 }}>
-            Restoran &lsquo;{phase.subdomain}&rsquo; tidak ditemui
-          </p>
-          <p style={{ opacity: 0.6, fontSize: 14 }}>
-            Sila semak pautan anda dan cuba lagi.
-          </p>
+          {phase.notFound ? (
+            <>
+              <p style={{ fontSize: 18, fontWeight: 600 }}>
+                Restoran &lsquo;{phase.subdomain}&rsquo; tidak ditemui
+              </p>
+              <p style={{ opacity: 0.6, fontSize: 14 }}>
+                Sila semak pautan anda dan cuba lagi.
+              </p>
+            </>
+          ) : (
+            <>
+              <p style={{ fontSize: 18, fontWeight: 600 }}>
+                Tidak dapat memuatkan restoran
+              </p>
+              <p style={{ opacity: 0.6, fontSize: 14 }}>
+                Masalah sambungan atau pelayan sedang sibuk. Sila cuba lagi.
+              </p>
+              <div style={{ maxWidth: 220, width: '100%' }}>
+                <Button
+                  onClick={() => {
+                    setPhase({ kind: 'resolving' })
+                    setRetryKey((k) => k + 1)
+                  }}
+                >
+                  Cuba lagi
+                </Button>
+              </div>
+            </>
+          )}
         </div>
       </div>
     )

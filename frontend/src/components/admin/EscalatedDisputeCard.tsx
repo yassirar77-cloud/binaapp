@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState } from 'react'
+import toast from 'react-hot-toast'
 
 interface EscalatedDisputeCardProps {
   dispute: {
@@ -50,6 +51,9 @@ export default function EscalatedDisputeCard({
     setLoading(true)
     try {
       await action()
+    } catch (err) {
+      console.error('Dispute action failed:', err)
+      toast.error((err as Error).message || 'Tindakan gagal')
     } finally {
       setLoading(false)
     }

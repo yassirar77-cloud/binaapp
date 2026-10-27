@@ -7,7 +7,6 @@ import {
   supabase,
   getStoredToken,
   isTokenExpiringSoon,
-  isTokenExpired,
   refreshToken,
   clearAuthData,
   getTokenExpiryTime

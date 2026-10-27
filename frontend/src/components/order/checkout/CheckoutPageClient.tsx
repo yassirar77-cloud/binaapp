@@ -3,11 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import toast from 'react-hot-toast'
-import {
-  cartDiscount,
-  cartTotal,
-  useCartStore,
-} from '../cart-store'
+import { cartTotal, useCartStore } from '../cart-store'
 import {
   CoverageError,
   type CoveredZone,
@@ -63,7 +59,6 @@ export function CheckoutPageClient() {
   const cartItems = useCartStore((s) => s.items)
   const cartRestaurantId = useCartStore((s) => s.restaurantId)
   const kitchenNotes = useCartStore((s) => s.kitchenNotes)
-  const promoCode = useCartStore((s) => s.promoCode)
   const clearCart = useCartStore((s) => s.clear)
 
   const [hydrated, setHydrated] = useState(false)
@@ -81,7 +76,7 @@ export function CheckoutPageClient() {
   // which ring covers them. detectedZone holds the resolved ring (with
   // fee in RM) or null. coverageStatus drives the CoverageStatusSection
   // display + the place-order CTA's enabled state.
-  type CoverageStatus = 'idle' | 'checking' | 'covered' | 'uncovered' | 'error'
+  type CoverageStatus = 'idle' | 'checking' | 'covered' | 'uncovered' | 'error' | 'saved_unresolved'
   const [coverageStatus, setCoverageStatus] = useState<CoverageStatus>('idle')
   const [detectedZone, setDetectedZone] = useState<CoveredZone | null>(null)
   const [coverageError, setCoverageError] = useState<string | null>(null)
@@ -161,10 +156,13 @@ export function CheckoutPageClient() {
         if (hit.found && hit.lat != null && hit.lng != null) {
           setPickedLatLng({ lat: hit.lat, lng: hit.lng })
         } else {
-          // Couldn't resolve the saved string. Surface as "uncovered" so
-          // the customer is nudged toward "Tambah alamat baru".
-          setCoverageStatus('uncovered')
+          // Couldn't geocode the saved string — this is NOT "out of
+          // coverage". Say so and switch to the new-address mode so the
+          // customer can type/geolocate a resolvable address.
+          setCoverageStatus('saved_unresolved')
           setDetectedZone(null)
+          setAddressChoice('new')
+          setNewAddressText((prev) => prev || saved)
         }
       })
       .catch((err: unknown) => {
@@ -243,7 +241,10 @@ export function CheckoutPageClient() {
 
   // ---- Money math.
   const subtotal = useMemo(() => cartTotal(cartItems), [cartItems])
-  const discount = useMemo(() => cartDiscount(cartItems, promoCode), [cartItems, promoCode])
+  // Promo discount is client-only (POST /delivery/orders has no promo field and
+  // the server recomputes the total), so it must NOT reduce the payable total
+  // shown here or the customer would be charged more than the button promised.
+  const discount = 0
   const deliveryFee = detectedZone?.fee ?? 0
   const total = Math.max(0, subtotal - discount + deliveryFee)
   const minOrderShortfall =
@@ -377,7 +378,7 @@ export function CheckoutPageClient() {
           subtotal={subtotal}
           deliveryFee={deliveryFee}
           discount={discount}
-          promoCode={promoCode}
+          promoCode={null}
           total={total}
         />
 

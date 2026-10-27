@@ -212,7 +212,9 @@ export default function HeroVideoPanel({ websiteId, onHtmlChange }: Props) {
             return;
           }
           stopSocialTimers();
-          if (next.status === 'completed') {
+          if (next.status === 'ready') {
+            toast(next.message || 'Klip sosial anda sedang disediakan.');
+          } else if (next.status === 'completed') {
             toast.success(next.message || 'Klip sosial anda sedia.');
             // An open library gains the new card.
             if (libraryOpen.current) void loadLibrary();
@@ -266,7 +268,11 @@ export default function HeroVideoPanel({ websiteId, onHtmlChange }: Props) {
             return;
           }
           stopTimers();
-          if (next.status === 'completed') {
+          if (next.status === 'ready') {
+            // A prepared clip is stored and waiting for its publish: not a
+            // failure, and nothing to put on the page yet.
+            toast(next.message || 'Video sedia dan akan dipasang semasa laman diterbitkan.');
+          } else if (next.status === 'completed') {
             if (next.html_content) onHtmlChange(next.html_content);
             if (next.settings) {
               syncLookFrom(next.settings);

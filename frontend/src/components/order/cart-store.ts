@@ -141,6 +141,8 @@ export const cartTotal = (items: CartItem[]): number =>
  * Returns 0 when no promo is applied or the code is unrecognised.
  */
 export function cartDiscount(items: CartItem[], promoCode: string | null): number {
+  // Client-only stub: the order API has no promo field and the server
+  // recomputes the total, so callers must not apply this to a payable total.
   if (promoCode !== STUB_PROMO_CODE) return 0
   const subtotal = cartTotal(items)
   const raw = subtotal * STUB_PROMO_PERCENT

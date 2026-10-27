@@ -200,7 +200,7 @@ function AdminTikTokPageInner() {
           <p className="text-2xl mb-2">🔒</p>
           <h2 className="text-lg font-semibold text-gray-700 mb-2">Akses Ditolak</h2>
           <p className="text-sm text-gray-500 mb-4">Anda tidak mempunyai akses admin.</p>
-          <Link href="/profile" className="text-sm text-blue-600 hover:underline">
+          <Link href="/dashboard" className="text-sm text-blue-600 hover:underline">
             Kembali ke Dashboard
           </Link>
         </div>
@@ -248,7 +248,7 @@ function AdminTikTokPageInner() {
             onPostCreated={(post, msg) => {
               setPosts((prev) => [post, ...prev]);
               setNotice(msg);
-              toast.success(post.mode === 'inbox' ? 'Sent to TikTok — processing' : 'Sent to TikTok — processing');
+              toast.success('Sent to TikTok — processing');
             }}
           />
         )}

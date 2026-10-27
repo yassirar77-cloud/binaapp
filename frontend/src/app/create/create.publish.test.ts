@@ -163,8 +163,10 @@ describe('/create makes the hero video WITH the page, not after publish', () => 
     // Every reset goes through the helper, so the remembered id is dropped
     // from localStorage too and cannot be offered to a later publish.
     const resets = createSource.match(/rememberPreparedHeroVideoJob\(null\)/g) || []
-    // prepare-failure ×2, publish applied, publish fallback, follow done, two start-over buttons
+    // prepare-failure ×2, publish applied, publish fallback, follow done, startOver
     expect(resets.length).toBeGreaterThanOrEqual(6)
-    expect(createSource).toMatch(/setPublishedUrl\(''\); rememberPreparedHeroVideoJob\(null\); setHeroVideoJob\(null\); \}\}/)
+    // Both "Create Another" buttons share one startOver() that drops the id.
+    expect(createSource).toMatch(/const startOver = \(\) => \{[\s\S]*?rememberPreparedHeroVideoJob\(null\)[\s\S]*?resetMerchantInputs\(\)\s*\}/)
+    expect((createSource.match(/onClick=\{startOver\}/g) || []).length).toBe(2)
   })
 })

@@ -7,6 +7,17 @@ import { Dispute, DisputeMessage, DisputeCategory } from '@/types'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://binaapp-backend.onrender.com'
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+function detailToText(detail: unknown, fallback: string): string {
+  if (typeof detail === 'string') return detail
+  if (detail && typeof detail === 'object' && typeof (detail as { message?: unknown }).message === 'string') {
+    return (detail as { message: string }).message
+  }
+  if (Array.isArray(detail) && detail[0]?.msg) return String(detail[0].msg)
+  return fallback
+}
+
 const CATEGORY_LABELS: Record<string, string> = {
   wrong_items: 'Wrong Items',
   missing_items: 'Missing Items',
@@ -133,11 +144,37 @@ export default function TrackDisputePage() {
     setCreating(true)
     setCreateError('')
     try {
-      const res = await fetch(`${API_BASE}/api/v1/disputes/create`, {
+      // This is a public page (no JWT), so use the public customer-create
+      // endpoint. It keys on the order UUID; customers usually only know the
+      // order number (ORD-xxxx), so resolve it via the public tracking
+      // endpoint first.
+      const typed = orderId.trim()
+      let orderUuid = typed
+      if (!UUID_RE.test(typed)) {
+        const trackRes = await fetch(
+          `${API_BASE}/api/v1/delivery/orders/${encodeURIComponent(typed)}/track`
+        )
+        if (trackRes.status === 404) {
+          setCreateError('Order not found. Please check the order number.')
+          return
+        }
+        if (!trackRes.ok) {
+          setCreateError('Could not look up this order. Please try again.')
+          return
+        }
+        const trackData = await trackRes.json().catch(() => null)
+        orderUuid = trackData?.order?.id
+        if (!orderUuid) {
+          setCreateError('Order not found. Please check the order number.')
+          return
+        }
+      }
+
+      const res = await fetch(`${API_BASE}/api/v1/disputes/customer-create`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          order_id: orderId,
+          order_id: orderUuid,
           category,
           description,
           customer_name: customerName,
@@ -153,7 +190,7 @@ export default function TrackDisputePage() {
         loadMessages(data.dispute_number)
       } else {
         const errData = await res.json().catch(() => ({}))
-        setCreateError(errData.detail || 'Failed to create dispute. Please try again.')
+        setCreateError(detailToText(errData?.detail, 'Failed to create dispute. Please try again.'))
       }
     } catch (err) {
       setCreateError('Connection error. Please try again.')
@@ -359,7 +396,7 @@ export default function TrackDisputePage() {
                     </p>
                   </div>
                 )}
-                {dispute.refund_amount && dispute.refund_amount > 0 && (
+                {dispute.refund_amount != null && dispute.refund_amount > 0 && (
                   <div>
                     <p className="text-gray-500">Refund Amount</p>
                     <p className="font-medium text-green-600">RM{dispute.refund_amount.toFixed(2)}</p>

@@ -96,6 +96,7 @@ export default function DisputesPage() {
   const [createWebsiteId, setCreateWebsiteId] = useState('')
   const [createEvidence, setCreateEvidence] = useState<string[]>([])
   const [createResult, setCreateResult] = useState<{ status: string; message: string; amount?: number } | null>(null)
+  const [createError, setCreateError] = useState<string | null>(null)
   const [websites, setWebsites] = useState<{ id: string; name: string }[]>([])
 
   // Summary and websites don't depend on the active tab — load once on mount
@@ -337,6 +338,7 @@ export default function DisputesPage() {
     setCreateWebsiteId('')
     setCreateEvidence([])
     setCreateResult(null)
+    setCreateError(null)
     setShowCreateModal(true)
   }
 
@@ -355,6 +357,7 @@ export default function DisputesPage() {
     if (!token) return
 
     setCreateStep('submitting')
+    setCreateError(null)
     try {
       const severity =
         createCategory === 'service_outage' || createCategory === 'payment_issue'
@@ -397,20 +400,27 @@ export default function DisputesPage() {
             message: 'Aduan anda telah dihantar untuk semakan lanjut',
           })
         }
+        setCreateStep('result')
       } else {
-        setCreateResult({
-          status: 'under_review',
-          message: 'Aduan anda telah dihantar untuk semakan lanjut',
-        })
+        // Surface the real failure — nothing was created, so never show a
+        // fake "under review" success.
+        const errData = await res.json().catch(() => ({}))
+        const d = errData?.detail
+        const msg =
+          typeof d === 'string'
+            ? d
+            : Array.isArray(d) && d[0]?.msg
+              ? String(d[0].msg)
+              : res.status === 401
+                ? 'Sesi tamat. Sila log masuk semula.'
+                : `Gagal menghantar aduan (ralat ${res.status}). Sila cuba lagi.`
+        setCreateError(msg)
+        setCreateStep('form')
       }
-      setCreateStep('result')
     } catch (error) {
       console.error('[Disputes] Error creating subscriber dispute:', error)
-      setCreateResult({
-        status: 'under_review',
-        message: 'Aduan anda telah dihantar. Kami akan menyemak secepat mungkin.',
-      })
-      setCreateStep('result')
+      setCreateError('Masalah sambungan. Aduan tidak dihantar — sila cuba lagi.')
+      setCreateStep('form')
     }
   }
 
@@ -530,7 +540,7 @@ export default function DisputesPage() {
                       <span className={`px-2 py-0.5 rounded text-xs ${PRIORITY_COLORS[dispute.priority] || 'bg-gray-100 text-gray-600'}`}>
                         {dispute.priority}
                       </span>
-                      {dispute.ai_severity_score && (
+                      {dispute.ai_severity_score != null && dispute.ai_severity_score > 0 && (
                         <span className="text-xs text-gray-400">
                           Severity: {dispute.ai_severity_score}/10
                         </span>
@@ -584,7 +594,7 @@ export default function DisputesPage() {
                         {selectedDispute.priority.toUpperCase()}
                       </span>
                     </div>
-                    {selectedDispute.disputed_amount && (
+                    {selectedDispute.disputed_amount != null && selectedDispute.disputed_amount > 0 && (
                       <div>
                         <p className="text-gray-500">Disputed Amount</p>
                         <p className="font-medium text-red-600">RM{selectedDispute.disputed_amount?.toFixed(2)}</p>
@@ -861,6 +871,10 @@ export default function DisputesPage() {
                     </label>
                   )}
                 </div>
+
+                {createError && (
+                  <p role="alert" className="text-sm text-err-400">{createError}</p>
+                )}
 
                 {/* Submit Button */}
                 <button

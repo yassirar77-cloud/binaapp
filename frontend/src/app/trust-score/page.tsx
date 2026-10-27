@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import toast from 'react-hot-toast'
 import { API_BASE_URL } from '@/lib/env'
 import { getStoredToken } from '@/lib/supabase'
 
@@ -64,7 +65,7 @@ export default function TrustScorePage() {
   const loadData = async () => {
     try {
       const token = getStoredToken()
-      if (!token) { router.push('/auth/login'); return }
+      if (!token) { router.push('/login'); return }
 
       const response = await fetch(`${API_BASE_URL}/api/v1/trust/my-score`, {
         headers: { 'Authorization': `Bearer ${token}` }
@@ -73,9 +74,12 @@ export default function TrustScorePage() {
       if (response.ok) {
         const d = await response.json()
         setData(d.data)
+      } else {
+        toast.error(`Gagal memuatkan skor kepercayaan (HTTP ${response.status})`)
       }
     } catch (err) {
       console.error('Error:', err)
+      toast.error('Gagal memuatkan skor kepercayaan')
     } finally {
       setLoading(false)
     }

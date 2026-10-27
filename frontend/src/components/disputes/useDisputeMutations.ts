@@ -9,7 +9,9 @@ import type {
   DisputeStatus,
 } from '@/types'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || ''
+// Same fallback as the rest of the app — there is no Next rewrite for /api/v1,
+// so an empty base would send every request to the Vercel origin (404).
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://binaapp-backend.onrender.com'
 
 export type SubscriberCategoryKey =
   | 'poor_design'
@@ -76,11 +78,9 @@ export function useDisputeMutations() {
           body: JSON.stringify(payload),
         })
         if (!res.ok) {
-          // Treat backend non-OK as still under_review per legacy behavior
-          return {
-            status: 'under_review',
-            message: 'Aduan anda telah dihantar untuk semakan lanjut',
-          }
+          // Nothing was created — surface the real error (NewDisputeForm
+          // shows it inline) instead of a fake "under review" success.
+          throw new DisputeApiError(await parseError(res), res.status)
         }
         const data = await res.json()
         const status = data.status || data.ai_decision || 'under_review'

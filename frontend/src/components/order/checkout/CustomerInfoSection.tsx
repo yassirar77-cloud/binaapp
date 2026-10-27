@@ -3,7 +3,13 @@
 import { Phone, User } from 'lucide-react'
 import { useState } from 'react'
 import { Input } from '../primitives'
-import { fromStorageFormat, formatPhoneDisplay, toStorageFormat } from '../phone'
+import {
+  digitsOnly,
+  fromStorageFormat,
+  formatPhoneDisplay,
+  isValidTyped,
+  toStorageFormat,
+} from '../phone'
 import type { Customer } from '../types'
 
 interface CustomerInfoSectionProps {
@@ -22,7 +28,11 @@ export function CustomerInfoSection({ customer, onUpdate }: CustomerInfoSectionP
   const [draftName, setDraftName] = useState(customer.name || '')
   const [draftPhone, setDraftPhone] = useState(fromStorageFormat(customer.phone))
 
+  // Same rule as the identify page's PhoneInput: 9 digits after the +60 prefix.
+  const phoneValid = isValidTyped(draftPhone)
+
   const save = () => {
+    if (!phoneValid) return
     const next: Partial<Customer> = {}
     const trimmedName = draftName.trim()
     if (trimmedName !== customer.name) next.name = trimmedName
@@ -42,7 +52,7 @@ export function CustomerInfoSection({ customer, onUpdate }: CustomerInfoSectionP
           Maklumat pelanggan
         </h2>
         {editing ? (
-          <button type="button" className="edit" onClick={save}>
+          <button type="button" className="edit" onClick={save} disabled={!phoneValid}>
             Simpan
           </button>
         ) : (
@@ -62,7 +72,7 @@ export function CustomerInfoSection({ customer, onUpdate }: CustomerInfoSectionP
             <Input
               style={{ height: 36, marginTop: 4 }}
               value={formatPhoneDisplay(draftPhone)}
-              onChange={(e) => setDraftPhone(e.target.value)}
+              onChange={(e) => setDraftPhone(digitsOnly(e.target.value).slice(0, 9))}
               type="tel"
               inputMode="numeric"
               aria-label="Nombor telefon"

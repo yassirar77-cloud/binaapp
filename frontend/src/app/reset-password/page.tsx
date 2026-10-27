@@ -27,16 +27,24 @@ export default function ResetPasswordPage() {
       return
     }
 
+    // A late session (slow PKCE code exchange) must also undo a timeout that
+    // already flagged the link as invalid, otherwise the form never appears.
+    const markReady = () => {
+      clearTimeout(timeout)
+      setReady(true)
+      setInvalid(false)
+    }
+
     // Supabase fires PASSWORD_RECOVERY once it parses the recovery token from
     // the URL. If a session already exists (token already exchanged), accept that too.
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'PASSWORD_RECOVERY' || event === 'SIGNED_IN') {
-        setReady(true)
+        markReady()
       }
     })
 
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) setReady(true)
+      if (session) markReady()
     })
 
     // If neither the event nor a session arrives within a few seconds, the link is bad.

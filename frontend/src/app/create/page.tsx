@@ -159,6 +159,11 @@ export default function CreatePage() {
   const [whatsappNumber, setWhatsappNumber] = useState('')
   const [language, setLanguage] = useState<'ms' | 'en'>('ms')
   const [loading, setLoading] = useState(false)
+  // Double-submit guard: handleGenerate awaits the limit check and the
+  // listening call BEFORE loading flips on, so a second click in that
+  // window used to start a second job.
+  const [submitting, setSubmitting] = useState(false)
+  const generateLockRef = useRef(false)
   const [generatedHtml, setGeneratedHtml] = useState('')
   const [detectedFeatures, setDetectedFeatures] = useState<string[]>([])
   const [templateUsed, setTemplateUsed] = useState('')
@@ -252,6 +257,10 @@ export default function CreatePage() {
   const [lastProgress, setLastProgress] = useState<number>(0)
   const [staleWarning, setStaleWarning] = useState<boolean>(false)
   const staleCheckRef = useRef<number>(0) // Count of polls with same progress
+  // The poll interval's callback is created once, so React state read
+  // inside it is frozen; these refs are what the stale check compares.
+  const lastProgressRef = useRef<number>(0)
+  const staleWarningRef = useRef(false)
 
   // Upgrade/Addon modal states
   const [showUpgradeModal, setShowUpgradeModal] = useState(false)
@@ -485,6 +494,20 @@ export default function CreatePage() {
     setSubdomain('')
     setProjectName('')
     publishedWebsiteIdRef.current = ''
+  }
+
+  // Both "Create Another" buttons (variations view and preview view)
+  // go through here, so the form is blank either way.
+  const startOver = () => {
+    setGeneratedHtml('')
+    setStyleVariations([])
+    setSelectedStyle(null)
+    setError('')
+    setPublishedUrl('')
+    setHeroVideoJob(null)
+    setHeroVideoError(null)
+    rememberPreparedHeroVideoJob(null)
+    resetMerchantInputs()
   }
 
   // Social media states
@@ -926,15 +949,18 @@ export default function CreatePage() {
         // STALE PROGRESS DETECTION: warn if progress has not changed for 40 polls
         // (2 minutes). One AI image takes ~80s, so 30s of the same number is
         // normal; giving up is the liveness check above, not this banner.
-        if (newProgress === lastProgress && newProgress > 0 && newProgress < 100) {
+        if (newProgress === lastProgressRef.current && newProgress > 0 && newProgress < 100) {
           staleCheckRef.current += 1;
-          if (staleCheckRef.current >= 40 && !staleWarning) {
+          if (staleCheckRef.current >= 40 && !staleWarningRef.current) {
             console.warn(`⚠️ Progress stuck at ${newProgress}% for ${staleCheckRef.current * 3} seconds`);
+            staleWarningRef.current = true;
             setStaleWarning(true);
           }
         } else {
           staleCheckRef.current = 0;
+          staleWarningRef.current = false;
           setStaleWarning(false);
+          lastProgressRef.current = newProgress;
           setLastProgress(newProgress);
           setLastProgressUpdate(new Date());
         }
@@ -1010,7 +1036,7 @@ export default function CreatePage() {
     }, GENERATION_POLL_INTERVAL_MS);
   };
 
-  const handleGenerate = async (opts?: { skipListening?: boolean; descriptionOverride?: string; locationResolution?: Record<string, 'story' | 'address'> } | unknown) => {
+  const runGenerate = async (opts?: { skipListening?: boolean; descriptionOverride?: string; locationResolution?: Record<string, 'story' | 'address'> } | unknown) => {
     // The button passes its click event; only a plain options object counts.
     const o = (opts && typeof opts === 'object' && !('nativeEvent' in (opts as object)))
       ? (opts as { skipListening?: boolean; descriptionOverride?: string; locationResolution?: Record<string, 'story' | 'address'> })
@@ -1107,6 +1133,8 @@ export default function CreatePage() {
     setLastProgress(0);
     setStaleWarning(false);
     staleCheckRef.current = 0;
+    lastProgressRef.current = 0;
+    staleWarningRef.current = false;
 
     setLoading(true);
     setError('');
@@ -1228,7 +1256,7 @@ export default function CreatePage() {
       });
 
       if (!startResponse.ok) {
-        const errorData = await startResponse.json();
+        const errorData = await startResponse.json().catch(() => ({}));
         if (startResponse.status === 409 && errorData.error === 'location_conflict' && Array.isArray(errorData.location_conflicts)) {
           setLocationConflicts(errorData.location_conflicts)
           setShowLocationModal(true)
@@ -1295,6 +1323,20 @@ export default function CreatePage() {
     }
   };
 
+  // One generation at a time: the lock is a ref so two clicks in the same
+  // tick cannot both pass, and `submitting` disables the buttons meanwhile.
+  const handleGenerate = async (opts?: { skipListening?: boolean; descriptionOverride?: string; locationResolution?: Record<string, 'story' | 'address'> } | unknown) => {
+    if (generateLockRef.current) return
+    generateLockRef.current = true
+    setSubmitting(true)
+    try {
+      await runGenerate(opts)
+    } finally {
+      generateLockRef.current = false
+      setSubmitting(false)
+    }
+  }
+
   const handleSelectVariation = async (variation: StyleVariation) => {
     // A multi-style preview carries its design plan: the pick starts a
     // fresh full-pipeline job (images, critique loop, widgets) on exactly
@@ -1346,8 +1388,12 @@ export default function CreatePage() {
       }
     } else {
       const shareUrl = publishedUrl || window.location.href
-      navigator.clipboard.writeText(shareUrl)
-      toast.success('Link copied to clipboard!')
+      try {
+        await navigator.clipboard.writeText(shareUrl)
+        toast.success('Link copied to clipboard!')
+      } catch {
+        toast.error('Gagal menyalin pautan. Salin dari bar alamat.')
+      }
     }
   }
 
@@ -1507,9 +1553,16 @@ export default function CreatePage() {
   const handleCopyHtml = async () => {
     const picked = await fetchLiveHtml()
     warnIfNotLive(picked)
-    navigator.clipboard.writeText(picked.html + exportStamp(picked))
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    // The clipboard write happens after an await: on WebKit the click's
+    // user activation may have expired, so it can reject. Say so instead
+    // of showing "Copied!" over an empty clipboard.
+    try {
+      await navigator.clipboard.writeText(picked.html + exportStamp(picked))
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      toast.error('Gagal menyalin HTML. Gunakan "Download HTML".')
+    }
   }
 
   const handlePublish = async (options?: { replaceExisting?: boolean }) => {
@@ -1613,13 +1666,19 @@ export default function CreatePage() {
           ? crypto.randomUUID()
           : `${Date.now()}-${Math.random().toString(16).slice(2)}`
 
+      // A photo is optional for the ordering menu: a row with a name and a
+      // valid price is an item even without one (image_url null). Rows
+      // with a photo are kept as before.
       const menuItemsForDelivery = (uploadedImages?.gallery || [])
-        .filter(g => !!g?.url)
-        .map((g, idx) => ({
-          name: g.name || `Menu Item ${idx + 1}`,
-          image_url: g.url,
-          price: g.price ? parseFloat(g.price) : null
-        }))
+        .filter(g => !!g?.url || (!!(g?.name || '').trim() && !!normalizePriceInput(g?.price || '')))
+        .map((g, idx) => {
+          const parsed = parseFloat(normalizePriceInput(g.price || ''))
+          return {
+            name: (g.name || '').trim() || `Menu Item ${idx + 1}`,
+            image_url: g.url || null,
+            price: Number.isFinite(parsed) ? parsed : null
+          }
+        })
 
       const response = await fetch(`${API_BASE_URL}/api/publish`, {
         method: 'POST',
@@ -1675,7 +1734,7 @@ export default function CreatePage() {
       })
 
       if (!response.ok) {
-        const errorData = await response.json()
+        const errorData = await response.json().catch(() => ({}))
 
         // A live site already answers on this subdomain and it is not this
         // one. Publishing used to replace it silently, and the first site
@@ -1748,8 +1807,9 @@ export default function CreatePage() {
       // so we no longer duplicate inserts from the client.
       toast.success('Website berjaya diterbitkan!')
 
+      // The modal stays open: with publishedUrl set it renders its success
+      // state (live URL, share, QR, dashboard). Closing it here hid that.
       setPublishedUrl(publishedWebsiteUrl)
-      setShowPublishModal(false)
 
       // The website row now exists — the hero video can be generated against it.
       heroVideoWebsiteId.current = publishedWebsiteId
@@ -1863,7 +1923,7 @@ export default function CreatePage() {
           style: heroVideoStyle,
           prompt: heroVideoPrompt.trim() || undefined,
           image_url: uploadedImages.hero || undefined,
-          business_name: projectName.trim() || undefined,
+          business_name: businessName.trim() || undefined,
           business_type: businessType === 'auto' ? undefined : businessType,
           description: description,
           hero_image_prompt: heroImagePrompt.trim() || undefined,
@@ -2518,21 +2578,7 @@ export default function CreatePage() {
                     </div>
                     <div style={{ minWidth: 0 }}>
                       <div style={{ fontSize: 13, fontWeight: 500 }}>Generate AI</div>
-                      <div style={{ fontSize: 11, color: '#86869A' }}>Premium · 1 credit</div>
-                    </div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => toast('Stock library — coming soon')}
-                    className="cr-btn cr-btn-ghost"
-                    style={{ justifyContent: 'flex-start', height: 52, gap: 10, padding: '0 12px', textAlign: 'left' }}
-                  >
-                    <div style={{ width: 30, height: 30, borderRadius: 8, background: 'rgba(255,255,255,.04)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#86869A', flexShrink: 0 }}>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></svg>
-                    </div>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 500 }}>Stock library</div>
-                      <div style={{ fontSize: 11, color: '#86869A' }}>2,400+ free</div>
+                      <div style={{ fontSize: 11, color: '#86869A' }}>Percuma · AI pilih gambar</div>
                     </div>
                   </button>
                 </div>
@@ -3067,7 +3113,7 @@ export default function CreatePage() {
               </div>
               <button
                 onClick={handleGenerate}
-                disabled={loading || description.length < 10 || !businessName.trim() || isAtLimit}
+                disabled={loading || submitting || description.length < 10 || !businessName.trim() || isAtLimit}
                 className="cr-gen-btn cr-pulse-glow"
                 style={{ width: 'auto', height: 48, padding: '0 20px', fontSize: 15, marginTop: 0, flexShrink: 0 }}
               >
@@ -3248,7 +3294,7 @@ export default function CreatePage() {
                     type="button"
                     className={'cr-gen-btn ' + (completeness > 50 && !loading ? 'cr-pulse-glow' : '')}
                     onClick={handleGenerate}
-                    disabled={loading || description.length < 10 || !businessName.trim() || isAtLimit}
+                    disabled={loading || submitting || description.length < 10 || !businessName.trim() || isAtLimit}
                     style={{ height: 60, fontSize: 16, padding: 0, borderRadius: 16, marginTop: 0 }}
                   >
                     {loading ? (
@@ -3299,7 +3345,7 @@ export default function CreatePage() {
             </div>
 
             <button
-              onClick={() => { setStyleVariations([]); setGeneratedHtml(''); setError(''); setPublishedUrl(''); rememberPreparedHeroVideoJob(null); setHeroVideoJob(null); }}
+              onClick={startOver}
               className="cr-btn cr-btn-ghost"
               style={{ marginBottom: 24 }}
             >
@@ -3483,7 +3529,7 @@ export default function CreatePage() {
                 </div>
               </div>
 
-              <button onClick={() => { setGeneratedHtml(''); setStyleVariations([]); setSelectedStyle(null); setError(''); setPublishedUrl(''); setHeroVideoJob(null); setHeroVideoError(null); rememberPreparedHeroVideoJob(null); resetMerchantInputs() }} className="cr-btn cr-btn-ghost">Create Another</button>
+              <button onClick={startOver} className="cr-btn cr-btn-ghost">Create Another</button>
             </div>
 
             {previewMode === 'single' ? (

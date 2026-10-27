@@ -364,6 +364,8 @@ export default function EditorPage() {
       );
 
       if (response.status === 401) {
+        setApplying(false);
+        setAssistantMode(null);
         router.push('/login');
         return;
       }
@@ -430,6 +432,8 @@ export default function EditorPage() {
       });
 
       if (response.status === 401) {
+        setApplying(false);
+        setAssistantMode(null);
         router.push('/login');
         return;
       }
@@ -498,6 +502,8 @@ export default function EditorPage() {
       );
 
       if (response.status === 401) {
+        setApplying(false);
+        setAssistantMode(null);
         router.push('/login');
         return;
       }
@@ -574,7 +580,7 @@ export default function EditorPage() {
             setAssistantError(msg);
             toast.error(msg);
           } else {
-            toast.success('Website baru siap. Tekan Simpan untuk kekal.');
+            toast.success('Website baru siap dan telah disimpan.');
           }
         } catch (pollErr) {
           console.warn('Poll error:', pollErr);

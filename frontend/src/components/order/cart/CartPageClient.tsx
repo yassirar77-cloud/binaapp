@@ -11,7 +11,6 @@ import { CartSummary } from './CartSummary'
 import { CheckoutCTA } from './CheckoutCTA'
 import { EmptyCart } from './EmptyCart'
 import { KitchenNotesInput } from './KitchenNotesInput'
-import { PromoCodeInput } from './PromoCodeInput'
 
 /**
  * Cart page orchestrator.
@@ -99,9 +98,11 @@ export function CartPageClient() {
 
       <KitchenNotesInput />
 
-      <div className="promo-section">
-        <PromoCodeInput />
-      </div>
+      {/*
+        PromoCodeInput intentionally not mounted: the promo is client-only
+        (the order API has no promo field, the server recomputes the total),
+        so showing a discount here would not match what the customer pays.
+      */}
 
       <CartSummary />
 

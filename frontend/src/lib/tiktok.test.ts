@@ -122,6 +122,20 @@ describe('limits', () => {
     expect(checkDraft(draft({ mode: 'inbox' }), INFO, LIMITS, true).ok).toBe(true);
     expect(checkDraft(draft({ mode: 'inbox' }), INFO, LIMITS, false).ok).toBe(false);
   });
+
+  it('only direct posts wait for creator_info', () => {
+    expect(checkDraft(draft({ mode: 'inbox' }), null, LIMITS, true).ok).toBe(true);
+    expect(checkDraft(draft({ privacy_level: 'SELF_ONLY' }), null, LIMITS, true).problems).toContain(
+      'Creator settings have not loaded yet.',
+    );
+  });
+
+  it('only direct posts wait for creator_info', () => {
+    expect(checkDraft(draft({ mode: 'inbox' }), null, LIMITS, true).ok).toBe(true);
+    expect(checkDraft(draft({ privacy_level: 'SELF_ONLY' }), null, LIMITS, true).problems).toContain(
+      'Creator settings have not loaded yet.',
+    );
+  });
 });
 
 describe('status + errors', () => {

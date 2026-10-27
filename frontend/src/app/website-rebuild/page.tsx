@@ -54,14 +54,15 @@ export default function WebsiteRebuildPage() {
   const loadWebsites = async () => {
     try {
       const token = getStoredToken()
-      if (!token) { router.push('/auth/login'); return }
+      if (!token) { router.push('/login'); return }
 
       const response = await fetch(`${API_BASE_URL}/api/v1/websites`, {
         headers: { 'Authorization': `Bearer ${token}` }
       })
       if (response.ok) {
         const data = await response.json()
-        const sites = data.websites || data.data || []
+        // GET /api/v1/websites returns a bare array.
+        const sites = Array.isArray(data) ? data : (data.websites || data.data || [])
         setWebsites(sites)
         if (!selectedWebsite && sites.length > 0) {
           setSelectedWebsite(sites[0].id)

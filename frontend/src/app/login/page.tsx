@@ -13,10 +13,16 @@ import AuthLayout from '@/components/auth/AuthLayout'
 import AuthLogo from '@/components/auth/AuthLogo'
 import AuthInput from '@/components/auth/AuthInput'
 
+/** Only a same-origin path may be used as a post-auth redirect (rejects absolute URLs and `//host`). */
+function safeRedirect(value: string | null): string | null {
+  if (!value || !value.startsWith('/') || value.startsWith('//')) return null
+  return value
+}
+
 function LoginPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const redirectUrl = searchParams.get('redirect')
+  const redirectUrl = safeRedirect(searchParams.get('redirect'))
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)

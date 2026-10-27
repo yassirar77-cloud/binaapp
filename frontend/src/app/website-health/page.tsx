@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import toast from 'react-hot-toast'
 import { getStoredToken } from '@/lib/supabase'
 import HealthScoreCard from '@/components/website-health/HealthScoreCard'
 import FixPreview from '@/components/website-health/FixPreview'
@@ -140,9 +141,12 @@ export default function WebsiteHealthPage() {
       if (data.scan_id) {
         const scanDetail = await apiFetch(`/api/v1/website-health/scan/${data.scan_id}`)
         setSelectedScan(scanDetail)
+        const fixData = await apiFetch(`/api/v1/website-health/fixes/${data.scan_id}`)
+        setFixes(fixData.fixes || [])
       }
     } catch (err) {
       console.error('Scan failed:', err)
+      toast.error(err instanceof Error ? err.message : 'Imbasan gagal. Sila cuba lagi.')
     } finally {
       setScanning(false)
     }
@@ -158,38 +162,25 @@ export default function WebsiteHealthPage() {
     }
   }
 
-  const handleApplyFix = async (fixId: string) => {
-    await apiFetch(`/api/v1/website-health/fix/${fixId}/apply`, { method: 'POST' })
-    // Refresh fixes
-    if (selectedScan) {
-      const data = await apiFetch(`/api/v1/website-health/fixes/${selectedScan.id}`)
-      setFixes(data.fixes || [])
+  // One path for the per-fix actions: call the endpoint, refresh the list,
+  // and say so when it fails (these used to reject silently).
+  const runFixAction = async (fixId: string, action: 'apply' | 'reject' | 'revert' | 'generate', failMsg: string) => {
+    try {
+      await apiFetch(`/api/v1/website-health/fix/${fixId}/${action}`, { method: 'POST' })
+      if (selectedScan) {
+        const data = await apiFetch(`/api/v1/website-health/fixes/${selectedScan.id}`)
+        setFixes(data.fixes || [])
+      }
+    } catch (err) {
+      console.error(`Fix ${action} failed:`, err)
+      toast.error(err instanceof Error && err.message !== 'Request failed' ? err.message : failMsg)
     }
   }
 
-  const handleRejectFix = async (fixId: string) => {
-    await apiFetch(`/api/v1/website-health/fix/${fixId}/reject`, { method: 'POST' })
-    if (selectedScan) {
-      const data = await apiFetch(`/api/v1/website-health/fixes/${selectedScan.id}`)
-      setFixes(data.fixes || [])
-    }
-  }
-
-  const handleRevertFix = async (fixId: string) => {
-    await apiFetch(`/api/v1/website-health/fix/${fixId}/revert`, { method: 'POST' })
-    if (selectedScan) {
-      const data = await apiFetch(`/api/v1/website-health/fixes/${selectedScan.id}`)
-      setFixes(data.fixes || [])
-    }
-  }
-
-  const handleGenerateFix = async (fixId: string) => {
-    await apiFetch(`/api/v1/website-health/fix/${fixId}/generate`, { method: 'POST' })
-    if (selectedScan) {
-      const data = await apiFetch(`/api/v1/website-health/fixes/${selectedScan.id}`)
-      setFixes(data.fixes || [])
-    }
-  }
+  const handleApplyFix = (fixId: string) => runFixAction(fixId, 'apply', 'Gagal menerapkan pembetulan.')
+  const handleRejectFix = (fixId: string) => runFixAction(fixId, 'reject', 'Gagal menolak pembetulan.')
+  const handleRevertFix = (fixId: string) => runFixAction(fixId, 'revert', 'Gagal mengembalikan pembetulan.')
+  const handleGenerateFix = (fixId: string) => runFixAction(fixId, 'generate', 'Gagal menjana pembetulan.')
 
   const handleAutoFix = async () => {
     if (!selectedScan || autoFixing) return
@@ -200,6 +191,7 @@ export default function WebsiteHealthPage() {
       setFixes(data.fixes || [])
     } catch (err) {
       console.error('Auto-fix failed:', err)
+      toast.error(err instanceof Error ? err.message : 'Auto-fix gagal. Sila cuba lagi.')
     } finally {
       setAutoFixing(false)
     }
@@ -239,7 +231,7 @@ export default function WebsiteHealthPage() {
             <h1 className="text-lg font-bold text-gray-800">Kesihatan Laman Web</h1>
             <p className="text-xs text-gray-500">AI Auto-Fix &amp; Monitoring</p>
           </div>
-          <Link href="/profil" className="text-sm text-blue-600 hover:underline">
+          <Link href="/dashboard" className="text-sm text-blue-600 hover:underline">
             Kembali ke Dashboard
           </Link>
         </div>

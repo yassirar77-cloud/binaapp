@@ -107,7 +107,6 @@ interface TemplateGalleryProps {
 const FILTERS = [
   { id: 'semua', labelMs: 'Semua', labelEn: 'All' },
   { id: 'gelap', labelMs: 'Gelap', labelEn: 'Dark' },
-  { id: 'cerah', labelMs: 'Cerah', labelEn: 'Light' },
   { id: 'ceria', labelMs: 'Ceria', labelEn: 'Vibrant' },
   { id: 'minimal', labelMs: 'Minimal', labelEn: 'Minimal' },
   { id: 'premium', labelMs: 'Premium', labelEn: 'Premium' },

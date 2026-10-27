@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
+import toast from 'react-hot-toast'
 import { API_BASE_URL } from '@/lib/env'
 import { getStoredToken } from '@/lib/supabase'
 
@@ -72,7 +73,7 @@ export default function FounderDashboard() {
   const loadData = async () => {
     try {
       const token = getStoredToken()
-      if (!token) { router.push('/auth/login'); return }
+      if (!token) { router.push('/login'); return }
       const headers = { 'Authorization': `Bearer ${token}` }
 
       const [ovResp, revResp, usrResp, aiResp, credResp] = await Promise.all([
@@ -93,6 +94,13 @@ export default function FounderDashboard() {
       if (usrResp.ok) { const d = await usrResp.json(); setUsers(d.data) }
       if (aiResp.ok) { const d = await aiResp.json(); setAiPerf(d.data) }
       if (credResp.ok) { const d = await credResp.json(); setCredits(d.data) }
+
+      const failed = [ovResp, revResp, usrResp, aiResp, credResp].filter((r) => !r.ok)
+      if (failed.length === 5) {
+        setError(`Gagal memuatkan data (HTTP ${ovResp.status})`)
+      } else if (failed.length > 0) {
+        toast.error(`${failed.length} bahagian data gagal dimuatkan (HTTP ${failed[0].status})`)
+      }
     } catch (err) {
       console.error('Error:', err)
       setError('Gagal memuatkan data')
@@ -114,9 +122,13 @@ export default function FounderDashboard() {
         a.href = url
         a.download = `binaapp_${type}.csv`
         a.click()
+        setTimeout(() => window.URL.revokeObjectURL(url), 1000)
+      } else {
+        toast.error(`Export ${type} gagal (HTTP ${response.status})`)
       }
     } catch (err) {
       console.error('Export error:', err)
+      toast.error(`Export ${type} gagal`)
     }
   }
 

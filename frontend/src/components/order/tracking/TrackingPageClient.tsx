@@ -65,6 +65,10 @@ export function TrackingPageClient({ orderNumber }: TrackingPageClientProps) {
   const [data, setData] = useState<TrackedOrderDetail | null>(null)
   const [notFound, setNotFound] = useState(false)
   const [loading, setLoading] = useState(true)
+  // Non-404 failure before we have any data — rendered with a retry button
+  // instead of a blank page.
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [retryKey, setRetryKey] = useState(0)
   const intervalRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
@@ -90,6 +94,7 @@ export function TrackingPageClient({ orderNumber }: TrackingPageClientProps) {
         if (!alive || controller.signal.aborted) return
         setData(next)
         setNotFound(false)
+        setLoadError(null)
         setLoading(false)
       } catch (err) {
         if (!alive || controller.signal.aborted) return
@@ -101,6 +106,9 @@ export function TrackingPageClient({ orderNumber }: TrackingPageClientProps) {
         // Transient — log and let the next tick try again.
         // eslint-disable-next-line no-console
         console.error('[order/track] poll failed:', err)
+        setLoadError(
+          err instanceof TrackOrderError ? err.message : 'Tidak dapat memuatkan pesanan.'
+        )
         setLoading(false)
       }
     }
@@ -124,7 +132,7 @@ export function TrackingPageClient({ orderNumber }: TrackingPageClientProps) {
       if (intervalRef.current) clearInterval(intervalRef.current)
       abortRef.current?.abort()
     }
-  }, [orderNumber, data?.order.status])
+  }, [orderNumber, data?.order.status, retryKey])
 
   // ---- Render branches.
   if (loading && !data && !notFound) {
@@ -149,6 +157,29 @@ export function TrackingPageClient({ orderNumber }: TrackingPageClientProps) {
         <div style={{ maxWidth: 220, margin: '0 auto' }}>
           <Button onClick={() => (window.location.href = '/order/menu')}>
             Lihat menu
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  if (!data && loadError) {
+    return (
+      <div className="tk-not-found" role="alert">
+        <div className="ic">
+          <FileQuestion size={28} strokeWidth={1.5} aria-hidden="true" />
+        </div>
+        <h2>Tidak dapat memuatkan pesanan</h2>
+        <p>{loadError} Sila semak sambungan internet anda dan cuba lagi.</p>
+        <div style={{ maxWidth: 220, margin: '0 auto' }}>
+          <Button
+            onClick={() => {
+              setLoadError(null)
+              setLoading(true)
+              setRetryKey((k) => k + 1)
+            }}
+          >
+            Cuba lagi
           </Button>
         </div>
       </div>

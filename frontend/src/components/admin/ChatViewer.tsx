@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState } from 'react'
+import toast from 'react-hot-toast'
 
 interface Message {
   id: string
@@ -36,6 +37,9 @@ export default function ChatViewer({
     try {
       await onAdminRespond(chatId, adminMessage.trim())
       setAdminMessage('')
+    } catch (err) {
+      console.error('Admin reply failed:', err)
+      toast.error((err as Error).message || 'Gagal menghantar balasan')
     } finally {
       setSending(false)
     }

@@ -228,9 +228,11 @@ export function checkDraft(
 ): DraftCheck {
   const problems: string[] = [];
   if (!hasMedia) problems.push('Add a video or photos first.');
-  if (!info) problems.push('Creator settings have not loaded yet.');
 
   if (draft.mode === 'direct') {
+    // Inbox (draft) uploads carry no privacy/interaction settings, so they do
+    // not depend on creator_info having loaded.
+    if (!info) problems.push('Creator settings have not loaded yet.');
     if (!draft.privacy_level) problems.push('Choose who can view this post.');
     else if (info && !info.privacy_level_options.includes(draft.privacy_level)) {
       problems.push('That privacy option is not available for this account.');

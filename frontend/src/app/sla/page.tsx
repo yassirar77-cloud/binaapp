@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import toast from 'react-hot-toast'
 import { API_BASE_URL } from '@/lib/env'
 import { getStoredToken } from '@/lib/supabase'
 
@@ -52,7 +53,7 @@ export default function SLAPage() {
   const loadData = async () => {
     try {
       const token = getStoredToken()
-      if (!token) { router.push('/auth/login'); return }
+      if (!token) { router.push('/login'); return }
 
       const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
 
@@ -74,8 +75,13 @@ export default function SLAPage() {
         const d = await breachResp.json()
         setBreaches(d.data || [])
       }
+      const failed = [slaResp, compResp, breachResp].find((r) => !r.ok)
+      if (failed) {
+        toast.error(`Gagal memuatkan data SLA (HTTP ${failed.status})`)
+      }
     } catch (err) {
       console.error('Error loading SLA data:', err)
+      toast.error('Gagal memuatkan data SLA')
     } finally {
       setLoading(false)
     }

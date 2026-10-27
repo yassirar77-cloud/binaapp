@@ -57,7 +57,7 @@ export default function WebhooksPage() {
   const loadEndpoints = async () => {
     try {
       const token = getStoredToken()
-      if (!token) { router.push('/auth/login'); return }
+      if (!token) { router.push('/login'); return }
 
       const response = await fetch(`${API_BASE_URL}/api/v1/webhooks`, {
         headers: { 'Authorization': `Bearer ${token}` }
@@ -65,9 +65,12 @@ export default function WebhooksPage() {
       if (response.ok) {
         const d = await response.json()
         setEndpoints(d.data || [])
+      } else {
+        toast.error(`Gagal memuatkan webhook (HTTP ${response.status})`)
       }
     } catch (err) {
       console.error('Error:', err)
+      toast.error('Gagal memuatkan webhook')
     } finally {
       setLoading(false)
     }
@@ -94,11 +97,12 @@ export default function WebhooksPage() {
         setNewDesc('')
         loadEndpoints()
       } else {
-        const err = await response.json()
+        const err = await response.json().catch(() => ({}))
         toast.error(err.detail || 'Gagal mencipta webhook')
       }
     } catch (err) {
       console.error('Error:', err)
+      toast.error('Gagal mencipta webhook')
     } finally {
       setCreating(false)
     }
@@ -116,13 +120,19 @@ export default function WebhooksPage() {
 
     try {
       const token = getStoredToken()
-      await fetch(`${API_BASE_URL}/api/v1/webhooks/${id}`, {
+      const response = await fetch(`${API_BASE_URL}/api/v1/webhooks/${id}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       })
+      if (!response.ok) {
+        toast.error(`Gagal memadam webhook (HTTP ${response.status})`)
+        return
+      }
+      toast.success('Webhook dipadam')
       loadEndpoints()
     } catch (err) {
       console.error('Error:', err)
+      toast.error('Gagal memadam webhook')
     }
   }
 
@@ -135,9 +145,12 @@ export default function WebhooksPage() {
       })
       if (response.ok) {
         toast.success('Webhook ujian dihantar!')
+      } else {
+        toast.error(`Gagal menghantar webhook ujian (HTTP ${response.status})`)
       }
     } catch (err) {
       console.error('Error:', err)
+      toast.error('Gagal menghantar webhook ujian')
     }
   }
 
@@ -151,9 +164,12 @@ export default function WebhooksPage() {
         const d = await response.json()
         setLogs(d.data || [])
         setSelectedEndpoint(endpointId)
+      } else {
+        toast.error(`Gagal memuatkan log (HTTP ${response.status})`)
       }
     } catch (err) {
       console.error('Error:', err)
+      toast.error('Gagal memuatkan log')
     }
   }
 
@@ -265,7 +281,19 @@ export default function WebhooksPage() {
           ) : (
             <div className="divide-y">
               {endpoints.map((ep) => {
-                const events = typeof ep.events === 'string' ? JSON.parse(ep.events) : ep.events
+                // `events` arrives as an array or a JSON string; a malformed
+                // string must not take the whole page down.
+                let events: string[] = []
+                if (Array.isArray(ep.events)) {
+                  events = ep.events
+                } else if (typeof ep.events === 'string') {
+                  try {
+                    const parsed = JSON.parse(ep.events)
+                    if (Array.isArray(parsed)) events = parsed
+                  } catch {
+                    events = []
+                  }
+                }
                 return (
                   <div key={ep.id} className="p-4">
                     <div className="flex items-start justify-between">
@@ -276,7 +304,7 @@ export default function WebhooksPage() {
                         </div>
                         {ep.description && <p className="text-xs text-gray-500 mb-2">{ep.description}</p>}
                         <div className="flex flex-wrap gap-1">
-                          {(events || []).map((e: string) => (
+                          {events.map((e: string) => (
                             <span key={e} className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded text-xs">{e}</span>
                           ))}
                         </div>

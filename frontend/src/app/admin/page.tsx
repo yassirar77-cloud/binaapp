@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import toast from 'react-hot-toast'
 import { getStoredToken } from '@/lib/supabase'
 import { promptDialog } from '@/components/ui/popups'
 import AdminStatCard from '@/components/admin/AdminStatCard'
@@ -186,6 +187,7 @@ export default function AdminPage() {
         setStats(data)
       } catch (err) {
         console.error('Failed to load dashboard:', err)
+        toast.error((err as Error).message || 'Gagal memuatkan dashboard')
       } finally {
         setLoading(false)
       }
@@ -216,6 +218,7 @@ export default function AdminPage() {
         }
       } catch (err) {
         console.error(`Failed to load ${activeTab}:`, err)
+        toast.error((err as Error).message || 'Gagal memuatkan data')
       }
     }
     if (!loading && !accessDenied) {
@@ -254,6 +257,7 @@ export default function AdminPage() {
       setChatMessages(data.messages || [])
     } catch (err) {
       console.error('Failed to load chat:', err)
+      toast.error((err as Error).message || 'Gagal memuatkan chat')
     }
   }
 
@@ -285,6 +289,9 @@ export default function AdminPage() {
       })
       const data = await apiFetch('/api/v1/admin/restaurants')
       setRestaurants(data.restaurants || [])
+    } catch (err) {
+      console.error('Failed to suspend restaurant:', err)
+      toast.error((err as Error).message || 'Gagal menggantung restoran')
     } finally {
       setPendingAction(null)
     }
@@ -300,6 +307,9 @@ export default function AdminPage() {
       })
       const data = await apiFetch('/api/v1/admin/restaurants')
       setRestaurants(data.restaurants || [])
+    } catch (err) {
+      console.error('Failed to unsuspend restaurant:', err)
+      toast.error((err as Error).message || 'Gagal mengaktifkan restoran')
     } finally {
       setPendingAction(null)
     }
@@ -313,6 +323,7 @@ export default function AdminPage() {
       setDisputeMessages(data.messages || [])
     } catch (err) {
       console.error('Failed to load dispute messages:', err)
+      toast.error((err as Error).message || 'Gagal memuatkan mesej aduan')
     }
   }
 
@@ -330,6 +341,7 @@ export default function AdminPage() {
       setDisputeMessages(data.messages || [])
     } catch (err) {
       console.error('Failed to send dispute message:', err)
+      toast.error((err as Error).message || 'Gagal menghantar mesej')
     } finally {
       setSendingDisputeMsg(false)
     }
@@ -358,6 +370,7 @@ export default function AdminPage() {
       }
     } catch (err) {
       console.error('Failed to resolve dispute:', err)
+      toast.error((err as Error).message || 'Gagal menyelesaikan aduan')
     } finally {
       setPendingAction(null)
     }
@@ -379,6 +392,7 @@ export default function AdminPage() {
       setDisputeMessages(data.messages || [])
     } catch (err) {
       console.error('Failed to award credit:', err)
+      toast.error((err as Error).message || 'Gagal memberi kredit')
     } finally {
       setPendingAction(null)
     }
@@ -396,6 +410,7 @@ export default function AdminPage() {
       )
     } catch (err) {
       console.error('Failed to toggle AI:', err)
+      toast.error((err as Error).message || 'Gagal menukar AI auto-reply')
     } finally {
       setPendingAction(null)
     }
@@ -419,7 +434,7 @@ export default function AdminPage() {
           <p className="text-2xl mb-2">🔒</p>
           <h2 className="text-lg font-semibold text-gray-700 mb-2">Akses Ditolak</h2>
           <p className="text-sm text-gray-500 mb-4">Anda tidak mempunyai akses admin.</p>
-          <Link href="/profil" className="text-sm text-blue-600 hover:underline">
+          <Link href="/dashboard" className="text-sm text-blue-600 hover:underline">
             Kembali ke Dashboard
           </Link>
         </div>
@@ -451,7 +466,7 @@ export default function AdminPage() {
             <Link href="/admin/tiktok" className="text-sm text-blue-600 hover:underline">
               TikTok Publishing
             </Link>
-            <Link href="/profile" className="text-sm text-blue-600 hover:underline">
+            <Link href="/dashboard" className="text-sm text-blue-600 hover:underline">
               Kembali ke Dashboard
             </Link>
           </div>

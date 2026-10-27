@@ -1,11 +1,6 @@
 'use client'
 
-import {
-  useCartDiscount,
-  useCartGrandTotal,
-  useCartTotal,
-  usePromoCode,
-} from '../cart-store'
+import { useCartTotal } from '../cart-store'
 
 /**
  * Summary block at the bottom of the cart sheet (above the checkout
@@ -19,9 +14,9 @@ import {
  */
 export function CartSummary() {
   const subtotal = useCartTotal()
-  const discount = useCartDiscount()
-  const total = useCartGrandTotal()
-  const promoCode = usePromoCode()
+  // Promo discount is client-only (order API has no promo field; server
+  // recomputes the total) so it is not applied to the payable total.
+  const total = subtotal
 
   return (
     <div className="summary">
@@ -33,12 +28,6 @@ export function CartSummary() {
         <span>Yuran penghantaran</span>
         <span className="v">Akan dihitung di checkout</span>
       </div>
-      {discount > 0 && (
-        <div className="sum-row discount">
-          <span>Diskaun ({promoCode})</span>
-          <span className="v">−RM {discount.toFixed(2)}</span>
-        </div>
-      )}
       <div className="sum-total">
         <span className="l">Jumlah</span>
         <span className="v">

@@ -19,10 +19,16 @@ import AuthInput from '@/components/auth/AuthInput'
 
 const RESEND_COOLDOWN_SECONDS = 30
 
+/** Only a same-origin path may be used as a post-auth redirect (rejects absolute URLs and `//host`). */
+function safeRedirect(value: string | null): string | null {
+  if (!value || !value.startsWith('/') || value.startsWith('//')) return null
+  return value
+}
+
 function VerifyEmailContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const redirectUrl = searchParams.get('redirect') || '/dashboard'
+  const redirectUrl = safeRedirect(searchParams.get('redirect')) || '/dashboard'
   const email = searchParams.get('email') || ''
 
   const [code, setCode] = useState('')

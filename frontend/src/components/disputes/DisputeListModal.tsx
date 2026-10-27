@@ -1,7 +1,7 @@
 'use client'
 
 import { ChevronRight } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Pill } from '@/app/profile/components/primitives/Pill'
 import type { Dispute, DisputeStatus } from '@/types'
 import { DisputeModalShell } from './DisputeModalShell'
@@ -63,6 +63,12 @@ export function DisputeListModal({
   const [tab, setTab] = useState<Tab>('active')
   const [all, setAll] = useState<Dispute[] | null>(null)
   const [loading, setLoading] = useState(false)
+  // Parents pass inline arrows for onShowToast; keeping it in a ref stops the
+  // fetch effect from re-running (and looping on error) on every parent render.
+  const toastRef = useRef(onShowToast)
+  useEffect(() => {
+    toastRef.current = onShowToast
+  }, [onShowToast])
 
   useEffect(() => {
     if (!open) return
@@ -73,12 +79,12 @@ export function DisputeListModal({
       .catch((err) => {
         if (!cancelled) {
           setAll([])
-          onShowToast(err instanceof Error ? err.message : 'Gagal muat aduan', 'error')
+          toastRef.current(err instanceof Error ? err.message : 'Gagal muat aduan', 'error')
         }
       })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [open, refreshKey, onShowToast])
+  }, [open, refreshKey])
 
   const filtered = useMemo(() => {
     if (!all) return null

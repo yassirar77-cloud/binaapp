@@ -10,6 +10,8 @@ export type CoverageStatus =
   | 'covered'
   | 'uncovered'
   | 'error'
+  /** Saved address text could not be geocoded (not a coverage verdict). */
+  | 'saved_unresolved'
 
 interface CoverageStatusSectionProps {
   status: CoverageStatus
@@ -100,6 +102,16 @@ export function CoverageStatusSection({
         <div className="zone-error" role="alert">
           <AlertCircle size={14} aria-hidden="true" />
           <span>Maaf, lokasi anda di luar kawasan penghantaran restoran ini.</span>
+        </div>
+      )}
+
+      {status === 'saved_unresolved' && (
+        <div className="zone-error" role="alert">
+          <AlertCircle size={14} aria-hidden="true" />
+          <span>
+            Alamat tersimpan anda tidak dapat dikesan di peta. Sila semak alamat
+            di bawah atau gunakan lokasi semasa.
+          </span>
         </div>
       )}
 

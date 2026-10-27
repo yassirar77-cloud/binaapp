@@ -72,7 +72,7 @@ function LandingPageContent() {
   function handleSelectPlan(tier: 'starter' | 'pro') {
     if (!user) {
       // Not logged in - redirect to login with return URL
-      router.push(`/login?redirect=/?tier=${tier}`)
+      router.push(`/login?redirect=${encodeURIComponent(`/?tier=${tier}`)}`)
       return
     }
 
