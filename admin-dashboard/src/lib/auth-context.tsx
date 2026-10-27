@@ -1,11 +1,7 @@
 'use client'
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
-import { FOUNDER_EMAIL } from './supabase'
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://binaapp-backend.onrender.com'
-const TOKEN_KEY = 'binaapp_admin_token'
-const USER_KEY = 'binaapp_admin_user'
+import { API_BASE, FOUNDER_EMAIL, TOKEN_KEY, USER_KEY } from './founder'
 
 type UserInfo = {
   email: string
@@ -28,6 +24,11 @@ const AuthContext = createContext<AuthState>({
   signOut: async () => {},
 })
 
+function clearStoredSession() {
+  localStorage.removeItem(USER_KEY)
+  localStorage.removeItem(TOKEN_KEY)
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserInfo | null>(null)
   const [loading, setLoading] = useState(true)
@@ -35,18 +36,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isFounder = user?.email === FOUNDER_EMAIL
 
   useEffect(() => {
-    // Restore session from localStorage
-    try {
-      const storedUser = localStorage.getItem(USER_KEY)
-      const storedToken = localStorage.getItem(TOKEN_KEY)
-      if (storedUser && storedToken) {
-        setUser(JSON.parse(storedUser))
+    // Restore session from localStorage, but only trust it after the backend
+    // confirms the stored token is still valid for that user.
+    let cancelled = false
+    const restore = async () => {
+      let storedToken: string | null = null
+      try {
+        storedToken = localStorage.getItem(TOKEN_KEY)
+        if (!storedToken || !localStorage.getItem(USER_KEY)) {
+          clearStoredSession()
+          return
+        }
+        const res = await fetch(`${API_BASE}/api/v1/me`, {
+          headers: { Authorization: `Bearer ${storedToken}` },
+        })
+        if (!res.ok) {
+          clearStoredSession()
+          return
+        }
+        const me = await res.json()
+        if (typeof me?.email !== 'string') {
+          clearStoredSession()
+          return
+        }
+        const userInfo: UserInfo = { ...me, email: me.email }
+        localStorage.setItem(USER_KEY, JSON.stringify(userInfo))
+        if (!cancelled) setUser(userInfo)
+      } catch {
+        // Network error or bad storage: do not trust the stored session
+        try { clearStoredSession() } catch { /* ignore */ }
+      } finally {
+        if (!cancelled) setLoading(false)
       }
-    } catch {
-      localStorage.removeItem(USER_KEY)
-      localStorage.removeItem(TOKEN_KEY)
     }
-    setLoading(false)
+    restore()
+    return () => { cancelled = true }
   }, [])
 
   const signIn = async (email: string, password: string) => {
@@ -60,6 +84,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!response.ok) {
         return { error: data.detail || data.error || 'Login failed' }
       }
+      if (!data.access_token) {
+        return { error: 'Login failed: no token returned' }
+      }
       const userInfo = data.user ?? { email }
       localStorage.setItem(TOKEN_KEY, data.access_token)
       localStorage.setItem(USER_KEY, JSON.stringify(userInfo))
@@ -71,8 +98,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const signOut = async () => {
-    localStorage.removeItem(TOKEN_KEY)
-    localStorage.removeItem(USER_KEY)
+    clearStoredSession()
     setUser(null)
   }
 

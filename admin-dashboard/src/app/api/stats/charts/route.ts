@@ -1,34 +1,30 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { requireFounder } from '@/lib/require-founder'
+import { getRevenueRows } from '@/lib/revenue-rows'
 
 export const dynamic = 'force-dynamic'
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const denied = await requireFounder(request)
+  if (denied) return denied
+
   try {
     const thirtyDaysAgo = new Date()
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
     const since = thirtyDaysAgo.toISOString()
 
-    const [usersRes, paymentsRes, addonRes] = await Promise.all([
+    const [usersRes, revenueRows] = await Promise.all([
       supabaseAdmin.from('profiles').select('created_at')
         .gte('created_at', since)
         .order('created_at', { ascending: true }),
-      // Use payments table instead of transactions
-      supabaseAdmin.from('payments').select('amount, created_at')
-        .eq('status', 'paid')
-        .gte('created_at', since)
-        .order('created_at', { ascending: true }),
-      // Also include addon_purchases for complete revenue picture
-      supabaseAdmin.from('addon_purchases').select('amount, created_at')
-        .eq('status', 'paid')
-        .gte('created_at', since)
-        .order('created_at', { ascending: true }),
+      // Paid revenue rows (payments + transactions + addon_purchases)
+      getRevenueRows({ since }),
     ])
 
     // Log query results for debugging
     console.log('[Charts] profiles rows:', usersRes.data?.length, 'error:', usersRes.error?.message)
-    console.log('[Charts] payments rows:', paymentsRes.data?.length, 'error:', paymentsRes.error?.message)
-    console.log('[Charts] addon_purchases rows:', addonRes.data?.length, 'error:', addonRes.error?.message)
+    console.log('[Charts] revenue rows:', revenueRows.length)
 
     // Group users by day
     const usersByDay: Record<string, number> = {}
@@ -37,15 +33,11 @@ export async function GET() {
       usersByDay[day] = (usersByDay[day] || 0) + 1
     }
 
-    // Group revenue by day (combine payments + addon_purchases)
+    // Group revenue by day
     const revenueByDay: Record<string, number> = {}
-    for (const t of paymentsRes.data ?? []) {
-      const day = t.created_at.split('T')[0]
-      revenueByDay[day] = (revenueByDay[day] || 0) + (Number(t.amount) || 0)
-    }
-    for (const t of addonRes.data ?? []) {
-      const day = t.created_at.split('T')[0]
-      revenueByDay[day] = (revenueByDay[day] || 0) + (Number(t.amount) || 0)
+    for (const r of revenueRows) {
+      const day = r.created_at.split('T')[0]
+      revenueByDay[day] = (revenueByDay[day] || 0) + r.amount
     }
 
     // Generate full 30 day range

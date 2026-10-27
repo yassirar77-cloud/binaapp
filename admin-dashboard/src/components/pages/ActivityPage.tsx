@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import toast from 'react-hot-toast'
 import { Card, LoadingSpinner, EmptyState } from '@/components/ui/Card'
 import { formatTime, timeAgo } from '@/lib/utils'
-import { supabase } from '@/lib/supabase'
+import { apiFetch } from '@/lib/api-fetch'
 
 type ActivityItem = {
   id: string
@@ -23,6 +23,8 @@ const typeConfig: Record<string, { icon: string; color: string }> = {
   generation: { icon: '\u{1F310}', color: 'text-blue-400' },
 }
 
+const POLL_MS = 30000
+
 export function ActivityPage() {
   const [activities, setActivities] = useState<ActivityItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -31,7 +33,8 @@ export function ActivityPage() {
 
   const fetchActivities = useCallback(async () => {
     try {
-      const res = await fetch('/api/activity')
+      const res = await apiFetch('/api/activity')
+      if (!res.ok) throw new Error(`Activity request failed (${res.status})`)
       const data = await res.json()
       setActivities(data.activities ?? [])
     } catch (err) {
@@ -42,94 +45,30 @@ export function ActivityPage() {
     }
   }, [])
 
+  // Initial load
   useEffect(() => {
     fetchActivities()
-
-    // Set up Supabase Realtime subscriptions
-    const channel = supabase
-      .channel('admin-activity')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'profiles' }, (payload) => {
-        const newActivity: ActivityItem = {
-          id: `user-${payload.new.id}-${Date.now()}`,
-          type: 'user',
-          message: 'New user registered',
-          detail: payload.new.full_name || 'Unknown user',
-          created_at: payload.new.created_at || new Date().toISOString(),
-          severity: 'success',
-        }
-        setActivities(prev => [newActivity, ...prev].slice(0, 50))
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'websites' }, (payload) => {
-        if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-          const w = payload.new
-          let message = 'Website updated'
-          let severity: ActivityItem['severity'] = 'info'
-          if (w.status === 'published') {
-            message = 'Website published'
-            severity = 'success'
-          } else if (w.status === 'generating') {
-            message = 'Website generating...'
-            severity = 'info'
-          } else if (w.status === 'failed') {
-            message = 'Website generation failed'
-            severity = 'error'
-          }
-          const newActivity: ActivityItem = {
-            id: `web-${w.id}-${Date.now()}`,
-            type: w.status === 'failed' ? 'error' : 'website',
-            message,
-            detail: `${w.subdomain || w.business_name || 'Unknown'}.binaapp.my`,
-            created_at: w.updated_at || w.created_at || new Date().toISOString(),
-            severity,
-          }
-          setActivities(prev => [newActivity, ...prev].slice(0, 50))
-        }
-      })
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'generation_jobs' }, (payload) => {
-        const j = payload.new
-        if (j.status === 'failed') {
-          const newActivity: ActivityItem = {
-            id: `job-${j.id}-${Date.now()}`,
-            type: 'error',
-            message: 'Generation failed',
-            detail: `${j.error?.substring(0, 80) || 'Unknown error'} (Job: ${j.job_id?.substring(0, 8)})`,
-            created_at: j.created_at || new Date().toISOString(),
-            severity: 'error',
-          }
-          setActivities(prev => [newActivity, ...prev].slice(0, 50))
-        }
-      })
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'transactions' }, (payload) => {
-        const t = payload.new
-        const newActivity: ActivityItem = {
-          id: `pay-${t.transaction_id}-${Date.now()}`,
-          type: 'payment',
-          message: t.payment_status === 'success' ? 'Payment received' : 'Payment pending',
-          detail: `RM ${t.amount} - ${t.item_description || 'Transaction'}`,
-          created_at: t.created_at || new Date().toISOString(),
-          severity: t.payment_status === 'success' ? 'success' : 'info',
-        }
-        setActivities(prev => [newActivity, ...prev].slice(0, 50))
-      })
-      .subscribe()
-
-    // Also poll every 30 seconds as backup
-    const interval = setInterval(fetchActivities, 30000)
-
-    return () => {
-      supabase.removeChannel(channel)
-      clearInterval(interval)
-    }
   }, [fetchActivities])
+
+  // Poll while LIVE is on; the LIVE button pauses/resumes this interval.
+  // (The previous Supabase Realtime channel never delivered events: the anon
+  // client has no session and the tables are RLS-protected / not published.)
+  useEffect(() => {
+    if (!isLive) return
+    fetchActivities()
+    const interval = setInterval(fetchActivities, POLL_MS)
+    return () => clearInterval(interval)
+  }, [isLive, fetchActivities])
 
   if (loading) return <LoadingSpinner />
 
   return (
     <div className="space-y-4 px-4 py-4">
-      {/* Live indicator */}
+      {/* Live indicator / pause toggle */}
       <div className="flex items-center justify-center gap-2">
         <button
           onClick={() => setIsLive(!isLive)}
+          title={isLive ? 'Pause auto-refresh' : 'Resume auto-refresh'}
           className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-colors ${
             isLive
               ? 'bg-red-500/20 text-red-400 border border-red-500/30'
@@ -137,7 +76,7 @@ export function ActivityPage() {
           }`}
         >
           <span className={`w-2 h-2 rounded-full ${isLive ? 'bg-red-500 animate-pulse' : 'bg-gray-600'}`} />
-          LIVE
+          {isLive ? 'LIVE' : 'PAUSED'}
         </button>
       </div>
 

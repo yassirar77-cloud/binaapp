@@ -1,5 +1,7 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { requireFounder } from '@/lib/require-founder'
+import { uniqueUuids } from '@/lib/uuid'
 
 export const dynamic = 'force-dynamic'
 
@@ -12,7 +14,10 @@ type ActivityItem = {
   severity?: 'info' | 'success' | 'warning' | 'error'
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const denied = await requireFounder(request)
+  if (denied) return denied
+
   try {
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
 
@@ -50,12 +55,13 @@ export async function GET() {
     console.log('[Activity] payments:', paymentsRes.data?.length, 'error:', paymentsRes.error?.message)
 
     // Get user names for website owners, jobs, and payments
-    const allUserIds = [
+    // generation_jobs.user_id is TEXT (can be 'anonymous'); profiles.id is UUID,
+    // so only pass real UUIDs or Postgres rejects the whole lookup
+    const uniqueIds = uniqueUuids([
       ...(websitesRes.data ?? []).map(w => w.user_id),
       ...(jobsRes.data ?? []).map(j => j.user_id),
       ...(paymentsRes.data ?? []).map(t => t.user_id),
-    ].filter(Boolean)
-    const uniqueIds = [...new Set(allUserIds)]
+    ])
 
     const nameMap: Record<string, string> = {}
     if (uniqueIds.length > 0) {

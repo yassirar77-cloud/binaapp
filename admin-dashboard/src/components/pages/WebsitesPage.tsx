@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import toast from 'react-hot-toast'
 import { Card, SearchInput, FilterChip, Badge, LoadingSpinner, EmptyState } from '@/components/ui/Card'
 import { formatDate } from '@/lib/utils'
+import { apiFetch } from '@/lib/api-fetch'
 
 type Website = {
   id: string
@@ -35,32 +36,51 @@ const statusConfig: Record<string, { color: 'green' | 'yellow' | 'red' | 'blue' 
 export function WebsitesPage() {
   const [websites, setWebsites] = useState<Website[]>([])
   const [counts, setCounts] = useState<Counts>({ total: 0, published: 0, draft: 0, failed: 0 })
+  const [filteredTotal, setFilteredTotal] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  const [page, setPage] = useState(1)
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (pageToLoad: number) => {
     try {
       const params = new URLSearchParams()
       if (search) params.set('search', search)
       if (statusFilter) params.set('status', statusFilter)
-      const res = await fetch(`/api/websites?${params}`)
+      if (pageToLoad > 1) params.set('page', String(pageToLoad))
+      const res = await apiFetch(`/api/websites?${params}`)
+      if (!res.ok) throw new Error(`Websites request failed (${res.status})`)
       const data = await res.json()
-      setWebsites(data.websites ?? [])
+      const rows: Website[] = data.websites ?? []
+      setWebsites(prev => (pageToLoad > 1 ? [...prev, ...rows] : rows))
+      setFilteredTotal(data.total ?? 0)
       setCounts(data.counts ?? { total: 0, published: 0, draft: 0, failed: 0 })
     } catch (err) {
       console.error('Failed to fetch websites:', err)
       toast.error('Failed to load websites')
     } finally {
       setLoading(false)
+      setLoadingMore(false)
     }
   }, [search, statusFilter])
 
+  // Search / filter changes reset to page 1 (debounced)
   useEffect(() => {
     setLoading(true)
-    const timeout = setTimeout(fetchData, 300)
+    setPage(1)
+    const timeout = setTimeout(() => fetchData(1), 300)
     return () => clearTimeout(timeout)
   }, [fetchData])
+
+  const hasMore = websites.length < filteredTotal
+
+  const loadMore = () => {
+    const next = page + 1
+    setPage(next)
+    setLoadingMore(true)
+    fetchData(next)
+  }
 
   const successRate = counts.total > 0
     ? (((counts.total - counts.failed) / counts.total) * 100).toFixed(1)
@@ -161,6 +181,16 @@ export function WebsitesPage() {
               </Card>
             )
           })}
+
+          {hasMore && (
+            <button
+              onClick={loadMore}
+              disabled={loadingMore}
+              className="w-full bg-gray-900 hover:bg-gray-800 border border-gray-800 text-gray-300 text-sm font-medium py-3 rounded-xl transition-colors disabled:opacity-50"
+            >
+              {loadingMore ? 'Loading...' : `Load more (${websites.length} of ${filteredTotal})`}
+            </button>
+          )}
         </div>
       )}
     </div>

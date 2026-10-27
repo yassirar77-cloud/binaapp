@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import toast from 'react-hot-toast'
 import { StatCard, Card, LoadingSpinner } from '@/components/ui/Card'
 import { formatCurrency } from '@/lib/utils'
+import { apiFetch } from '@/lib/api-fetch'
 import {
   LineChart, Line, BarChart, Bar,
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
@@ -34,13 +35,16 @@ export function HomePage() {
   const fetchData = useCallback(async () => {
     try {
       const [statsRes, chartsRes] = await Promise.all([
-        fetch('/api/stats'),
-        fetch('/api/stats/charts'),
+        apiFetch('/api/stats'),
+        apiFetch('/api/stats/charts'),
       ])
+      if (!statsRes.ok) throw new Error(`Stats request failed (${statsRes.status})`)
+      if (!chartsRes.ok) throw new Error(`Charts request failed (${chartsRes.status})`)
       const statsData = await statsRes.json()
       const chartsData = await chartsRes.json()
+      if (typeof statsData?.totalUsers !== 'number') throw new Error('Unexpected stats payload')
       setStats(statsData)
-      setCharts(chartsData)
+      setCharts(Array.isArray(chartsData?.signupChart) ? chartsData : null)
     } catch (err) {
       console.error('Failed to fetch data:', err)
       toast.error('Failed to load data')
@@ -68,33 +72,33 @@ export function HomePage() {
         <StatCard
           icon="&#x1F465;"
           label="Total Users"
-          value={stats.totalUsers.toLocaleString()}
-          subValue={`+${stats.weekUsers} this week`}
+          value={(stats.totalUsers ?? 0).toLocaleString()}
+          subValue={`+${stats.weekUsers ?? 0} this week`}
           subColor="text-green-400"
         />
         <StatCard
           icon="&#x1F4B0;"
           label="Revenue (MTD)"
-          value={formatCurrency(stats.revenueMTD)}
-          subValue={`+${formatCurrency(stats.revenueWeek)} this week`}
+          value={formatCurrency(Number(stats.revenueMTD) || 0)}
+          subValue={`+${formatCurrency(Number(stats.revenueWeek) || 0)} this week`}
           subColor="text-green-400"
         />
         <StatCard
           icon="&#x1F310;"
           label="Websites Made"
-          value={stats.totalWebsites.toLocaleString()}
-          subValue={`${stats.successRate}% success rate`}
+          value={(stats.totalWebsites ?? 0).toLocaleString()}
+          subValue={`${stats.successRate ?? '0'}% success rate`}
         />
         <StatCard
           icon="&#x274C;"
           label="Errors Today"
-          value={stats.errorsToday}
+          value={stats.errorsToday ?? 0}
           subValue={
-            stats.errorsToday > 0
-              ? `${stats.deepseekFails} DeepSeek, ${stats.qwenFails} Qwen`
+            (stats.errorsToday ?? 0) > 0
+              ? `${stats.deepseekFails ?? 0} DeepSeek, ${stats.qwenFails ?? 0} Qwen`
               : 'All clear'
           }
-          subColor={stats.errorsToday > 0 ? 'text-red-400' : 'text-green-400'}
+          subColor={(stats.errorsToday ?? 0) > 0 ? 'text-red-400' : 'text-green-400'}
         />
       </div>
 

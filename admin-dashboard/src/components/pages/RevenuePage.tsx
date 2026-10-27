@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import toast from 'react-hot-toast'
 import { Card, Badge, LoadingSpinner, EmptyState } from '@/components/ui/Card'
 import { formatCurrency, formatDateTime } from '@/lib/utils'
+import { apiFetch } from '@/lib/api-fetch'
 import {
   PieChart, Pie, Cell,
   ResponsiveContainer, Tooltip, Legend,
@@ -40,9 +41,16 @@ export function RevenuePage() {
 
   const fetchData = useCallback(async () => {
     try {
-      const res = await fetch('/api/revenue')
+      const res = await apiFetch('/api/revenue')
+      if (!res.ok) throw new Error(`Revenue request failed (${res.status})`)
       const json = await res.json()
-      setData(json)
+      if (!json || typeof json !== 'object' || !Array.isArray(json.transactions)) {
+        throw new Error('Unexpected revenue payload')
+      }
+      setData({
+        ...json,
+        byPlan: json.byPlan && typeof json.byPlan === 'object' ? json.byPlan : {},
+      })
     } catch (err) {
       console.error('Failed to fetch revenue:', err)
       toast.error('Failed to load revenue data')
@@ -58,17 +66,20 @@ export function RevenuePage() {
   if (loading) return <LoadingSpinner />
   if (!data) return <EmptyState message="Failed to load revenue data" />
 
-  const pieData = Object.entries(data.byPlan)
-    .filter(([, v]) => v > 0)
+  const pieData = Object.entries(data.byPlan ?? {})
+    .filter(([, v]) => Number(v) > 0)
     .map(([plan, amount]) => ({
       name: plan.charAt(0).toUpperCase() + plan.slice(1),
       value: amount,
       color: PLAN_COLORS[plan] || PLAN_COLORS.other,
     }))
 
+  // payments: 'paid'/'successful'; transactions: 'success'; addon credits: 'active'/'depleted'
+  const PAID_STATUSES = ['paid', 'successful', 'success', 'active', 'depleted']
+
   const statusColor = (s: string): 'green' | 'yellow' | 'red' | 'gray' => {
+    if (PAID_STATUSES.includes(s)) return 'green'
     switch (s) {
-      case 'success': return 'green'
       case 'pending': return 'yellow'
       case 'failed': return 'red'
       default: return 'gray'
@@ -76,8 +87,8 @@ export function RevenuePage() {
   }
 
   const statusLabel = (s: string): string => {
+    if (PAID_STATUSES.includes(s)) return 'Paid'
     switch (s) {
-      case 'success': return 'Paid'
       case 'pending': return 'Pending'
       case 'failed': return 'Failed'
       default: return s
@@ -94,19 +105,19 @@ export function RevenuePage() {
         <div className="space-y-3">
           <div className="flex justify-between">
             <span className="text-sm text-gray-400">Today</span>
-            <span className="text-sm font-semibold text-white">{formatCurrency(data.today)}</span>
+            <span className="text-sm font-semibold text-white">{formatCurrency(Number(data.today) || 0)}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-sm text-gray-400">This Week</span>
-            <span className="text-sm font-semibold text-white">{formatCurrency(data.week)}</span>
+            <span className="text-sm font-semibold text-white">{formatCurrency(Number(data.week) || 0)}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-sm text-gray-400">This Month</span>
-            <span className="text-sm font-semibold text-white">{formatCurrency(data.month)}</span>
+            <span className="text-sm font-semibold text-white">{formatCurrency(Number(data.month) || 0)}</span>
           </div>
           <div className="flex justify-between border-t border-gray-800 pt-3">
             <span className="text-sm text-gray-400">All Time</span>
-            <span className="text-lg font-bold text-brand-orange">{formatCurrency(data.allTime)}</span>
+            <span className="text-lg font-bold text-brand-orange">{formatCurrency(Number(data.allTime) || 0)}</span>
           </div>
         </div>
       </Card>
@@ -153,16 +164,16 @@ export function RevenuePage() {
       {/* Payment History */}
       <div>
         <h3 className="text-sm font-semibold text-gray-300 mb-3">Payment History</h3>
-        {data.transactions.length === 0 ? (
+        {(data.transactions ?? []).length === 0 ? (
           <EmptyState message="No transactions yet" />
         ) : (
           <div className="space-y-2">
-            {data.transactions.map(t => (
+            {(data.transactions ?? []).map(t => (
               <Card key={t.id}>
                 <div className="flex items-start justify-between">
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-semibold text-white">
-                      {formatCurrency(t.amount)} &mdash; {t.user_name}
+                      {formatCurrency(Number(t.amount) || 0)} &mdash; {t.user_name}
                     </p>
                     <p className="text-xs text-gray-400 mt-0.5">
                       {t.description || t.type} &bull; {formatDateTime(t.created_at)}

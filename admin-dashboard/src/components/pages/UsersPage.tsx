@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import toast from 'react-hot-toast'
 import { Card, SearchInput, FilterChip, Badge, LoadingSpinner, EmptyState } from '@/components/ui/Card'
 import { formatDate } from '@/lib/utils'
+import { apiFetch } from '@/lib/api-fetch'
 
 type User = {
   id: string
@@ -36,32 +37,49 @@ export function UsersPage() {
   const [users, setUsers] = useState<User[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [search, setSearch] = useState('')
   const [planFilter, setPlanFilter] = useState('')
+  const [page, setPage] = useState(1)
   const [expandedUser, setExpandedUser] = useState<string | null>(null)
 
-  const fetchUsers = useCallback(async () => {
+  const fetchUsers = useCallback(async (pageToLoad: number) => {
     try {
       const params = new URLSearchParams()
       if (search) params.set('search', search)
       if (planFilter) params.set('plan', planFilter)
-      const res = await fetch(`/api/users?${params}`)
+      if (pageToLoad > 1) params.set('page', String(pageToLoad))
+      const res = await apiFetch(`/api/users?${params}`)
+      if (!res.ok) throw new Error(`Users request failed (${res.status})`)
       const data = await res.json()
-      setUsers(data.users ?? [])
+      const rows: User[] = data.users ?? []
+      setUsers(prev => (pageToLoad > 1 ? [...prev, ...rows] : rows))
       setTotal(data.total ?? 0)
     } catch (err) {
       console.error('Failed to fetch users:', err)
       toast.error('Failed to load users')
     } finally {
       setLoading(false)
+      setLoadingMore(false)
     }
   }, [search, planFilter])
 
+  // Search / filter changes reset to page 1 (debounced)
   useEffect(() => {
     setLoading(true)
-    const timeout = setTimeout(fetchUsers, 300) // Debounce search
+    setPage(1)
+    const timeout = setTimeout(() => fetchUsers(1), 300) // Debounce search
     return () => clearTimeout(timeout)
   }, [fetchUsers])
+
+  const hasMore = users.length < total
+
+  const loadMore = () => {
+    const next = page + 1
+    setPage(next)
+    setLoadingMore(true)
+    fetchUsers(next)
+  }
 
   return (
     <div className="space-y-4">
@@ -147,6 +165,16 @@ export function UsersPage() {
               )}
             </Card>
           ))}
+
+          {hasMore && (
+            <button
+              onClick={loadMore}
+              disabled={loadingMore}
+              className="w-full bg-gray-900 hover:bg-gray-800 border border-gray-800 text-gray-300 text-sm font-medium py-3 rounded-xl transition-colors disabled:opacity-50"
+            >
+              {loadingMore ? 'Loading...' : `Load more (${users.length} of ${total})`}
+            </button>
+          )}
         </div>
       )}
     </div>

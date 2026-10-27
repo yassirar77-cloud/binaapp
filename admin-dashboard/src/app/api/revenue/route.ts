@@ -1,9 +1,15 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { requireFounder } from '@/lib/require-founder'
+import { getRevenueRows, sumRows } from '@/lib/revenue-rows'
+import { uniqueUuids } from '@/lib/uuid'
 
 export const dynamic = 'force-dynamic'
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const denied = await requireFounder(request)
+  if (denied) return denied
+
   try {
     const now = new Date()
     const startOfDay = now.toISOString().split('T')[0] + 'T00:00:00.000Z'
@@ -15,77 +21,18 @@ export async function GET() {
     })()
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
 
-    // Query payments table (replaces non-existent transactions table)
-    // Also query addon_purchases for complete revenue
-    const [allPayRes, todayPayRes, weekPayRes, monthPayRes, recentPayRes, allAddonRes, todayAddonRes, weekAddonRes, monthAddonRes, recentAddonRes] = await Promise.all([
-      // All time payments
-      supabaseAdmin.from('payments').select('amount, tier, type')
-        .eq('status', 'paid'),
-      // Today payments
-      supabaseAdmin.from('payments').select('amount')
-        .eq('status', 'paid')
-        .gte('created_at', startOfDay),
-      // This week payments
-      supabaseAdmin.from('payments').select('amount')
-        .eq('status', 'paid')
-        .gte('created_at', startOfWeek),
-      // This month payments
-      supabaseAdmin.from('payments').select('amount')
-        .eq('status', 'paid')
-        .gte('created_at', startOfMonth),
-      // Recent payments with details
-      supabaseAdmin.from('payments').select('id, transaction_id, amount, tier, type, status, created_at, user_id')
-        .order('created_at', { ascending: false })
-        .limit(40),
-      // All time addon purchases
-      supabaseAdmin.from('addon_purchases').select('amount, addon_type')
-        .eq('status', 'paid'),
-      // Today addon purchases
-      supabaseAdmin.from('addon_purchases').select('amount')
-        .eq('status', 'paid')
-        .gte('created_at', startOfDay),
-      // This week addon purchases
-      supabaseAdmin.from('addon_purchases').select('amount')
-        .eq('status', 'paid')
-        .gte('created_at', startOfWeek),
-      // This month addon purchases
-      supabaseAdmin.from('addon_purchases').select('amount')
-        .eq('status', 'paid')
-        .gte('created_at', startOfMonth),
-      // Recent addon purchases with details
-      supabaseAdmin.from('addon_purchases').select('id, transaction_id, amount, addon_type, status, created_at, user_id')
-        .order('created_at', { ascending: false })
-        .limit(10),
-    ])
+    // All rows (any status) from payments + transactions + addon_purchases,
+    // newest first. Totals only count paid rows; the history shows every status.
+    const allRows = (await getRevenueRows({ paidOnly: false }))
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    const paid = allRows.filter(r => r.paid)
 
-    // Log query results for debugging
-    console.log('[Revenue] payments all:', allPayRes.data?.length, 'error:', allPayRes.error?.message)
-    console.log('[Revenue] payments today:', todayPayRes.data?.length, 'error:', todayPayRes.error?.message)
-    console.log('[Revenue] payments week:', weekPayRes.data?.length, 'error:', weekPayRes.error?.message)
-    console.log('[Revenue] payments month:', monthPayRes.data?.length, 'error:', monthPayRes.error?.message)
-    console.log('[Revenue] payments recent:', recentPayRes.data?.length, 'error:', recentPayRes.error?.message)
-    console.log('[Revenue] addons all:', allAddonRes.data?.length, 'error:', allAddonRes.error?.message)
-    console.log('[Revenue] addons recent:', recentAddonRes.data?.length, 'error:', recentAddonRes.error?.message)
+    console.log('[Revenue] rows:', allRows.length, 'paid:', paid.length)
 
-    const sum = (data: { amount: number }[] | null) =>
-      (data ?? []).reduce((s, t) => s + (Number(t.amount) || 0), 0)
-
-    // Combine recent payments and addon purchases for the transaction list
-    const allRecent = [
-      ...(recentPayRes.data ?? []).map(p => ({
-        ...p,
-        source: 'payment' as const,
-        description: p.tier ? `${p.tier} subscription` : (p.type || 'Subscription'),
-      })),
-      ...(recentAddonRes.data ?? []).map(a => ({
-        ...a,
-        source: 'addon' as const,
-        description: `Add-on: ${a.addon_type || 'Unknown'}`,
-      })),
-    ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    const recent = allRows.slice(0, 50)
 
     // Get user names for recent transactions
-    const userIds = [...new Set(allRecent.map(t => t.user_id).filter(Boolean))]
+    const userIds = uniqueUuids(recent.map(t => t.user_id))
     let profileMap: Record<string, { full_name: string; business_name: string }> = {}
 
     if (userIds.length > 0) {
@@ -101,38 +48,27 @@ export async function GET() {
       }
     }
 
-    // Revenue by plan type (from payments.tier column)
+    // Revenue by plan type
     const byPlan: Record<string, number> = {}
-    for (const t of allPayRes.data ?? []) {
-      const tier = t.tier?.toLowerCase() || 'other'
-      let plan = 'other'
-      if (tier.includes('starter')) plan = 'starter'
-      else if (tier.includes('basic')) plan = 'basic'
-      else if (tier.includes('pro')) plan = 'pro'
-      else if (tier !== 'other') plan = tier
-      byPlan[plan] = (byPlan[plan] || 0) + (Number(t.amount) || 0)
-    }
-    // Add addon revenue
-    const addonTotal = sum(allAddonRes.data)
-    if (addonTotal > 0) {
-      byPlan['addon'] = addonTotal
+    for (const r of paid) {
+      byPlan[r.plan] = (byPlan[r.plan] || 0) + r.amount
     }
 
-    const transactions = allRecent.slice(0, 50).map(t => ({
-      id: t.transaction_id || t.id,
+    const transactions = recent.map(t => ({
+      id: t.id,
       amount: t.amount,
       description: t.description,
       type: t.source,
       status: t.status,
       created_at: t.created_at,
-      user_name: profileMap[t.user_id]?.full_name || profileMap[t.user_id]?.business_name || 'Unknown',
+      user_name: (t.user_id && (profileMap[t.user_id]?.full_name || profileMap[t.user_id]?.business_name)) || 'Unknown',
     }))
 
     return NextResponse.json({
-      today: sum(todayPayRes.data) + sum(todayAddonRes.data),
-      week: sum(weekPayRes.data) + sum(weekAddonRes.data),
-      month: sum(monthPayRes.data) + sum(monthAddonRes.data),
-      allTime: sum(allPayRes.data) + sum(allAddonRes.data),
+      today: sumRows(paid.filter(r => r.created_at >= startOfDay)),
+      week: sumRows(paid.filter(r => r.created_at >= startOfWeek)),
+      month: sumRows(paid.filter(r => r.created_at >= startOfMonth)),
+      allTime: sumRows(paid),
       byPlan,
       transactions,
     })

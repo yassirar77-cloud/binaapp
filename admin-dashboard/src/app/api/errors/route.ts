@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { requireFounder } from '@/lib/require-founder'
+import { uniqueUuids } from '@/lib/uuid'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
+  const denied = await requireFounder(request)
+  if (denied) return denied
+
   try {
     const { searchParams } = new URL(request.url)
     const since = searchParams.get('since') || ''
@@ -63,11 +68,9 @@ export async function GET(request: NextRequest) {
       e => e.error?.toLowerCase().includes('stability')
     ).length
 
-    // Get user names - note: generation_jobs.user_id is TEXT, profiles.id is UUID
-    // Need to filter valid UUIDs before querying profiles
-    const userIds = [...new Set(
-      (failedJobs ?? []).map(j => j.user_id).filter(Boolean)
-    )]
+    // Get user names - note: generation_jobs.user_id is TEXT (can be 'anonymous'),
+    // profiles.id is UUID, so only pass real UUIDs or Postgres rejects the query
+    const userIds = uniqueUuids((failedJobs ?? []).map(j => j.user_id))
 
     const profileMap: Record<string, string> = {}
     if (userIds.length > 0) {

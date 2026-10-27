@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@/lib/auth-context'
+import { apiFetch } from '@/lib/api-fetch'
 import { HomePage } from './pages/HomePage'
 import { UsersPage } from './pages/UsersPage'
 import { RevenuePage } from './pages/RevenuePage'
@@ -75,7 +76,8 @@ export function Dashboard() {
   const fetchErrorCount = useCallback(async () => {
     try {
       const today = new Date().toISOString().split('T')[0] + 'T00:00:00.000Z'
-      const res = await fetch(`/api/errors?since=${today}&count_only=true`)
+      const res = await apiFetch(`/api/errors?since=${today}&count_only=true`)
+      if (!res.ok) return
       const data = await res.json()
       setErrorCount(data.count ?? 0)
     } catch {

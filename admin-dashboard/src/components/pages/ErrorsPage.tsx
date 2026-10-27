@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import toast from 'react-hot-toast'
 import { Card, Badge, LoadingSpinner, EmptyState } from '@/components/ui/Card'
 import { formatDateTime, timeAgo } from '@/lib/utils'
+import { apiFetch } from '@/lib/api-fetch'
 
 type ErrorItem = {
   id: string
@@ -38,7 +39,8 @@ export function ErrorsPage() {
 
   const fetchData = useCallback(async () => {
     try {
-      const res = await fetch('/api/errors')
+      const res = await apiFetch('/api/errors')
+      if (!res.ok) throw new Error(`Errors request failed (${res.status})`)
       const data = await res.json()
       setErrors(data.errors ?? [])
       setSummary(data.todaySummary ?? { total: 0, deepseek: 0, qwen: 0, stability: 0 })

@@ -1,25 +1,58 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { requireFounder } from '@/lib/require-founder'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
+  const denied = await requireFounder(request)
+  if (denied) return denied
+
   try {
     const { searchParams } = new URL(request.url)
-    const search = searchParams.get('search') || ''
+    // Strip PostgREST filter syntax characters so the .or() string cannot break
+    const search = (searchParams.get('search') || '').replace(/[,().]/g, '').trim()
     const plan = searchParams.get('plan') || ''
     const sort = searchParams.get('sort') || 'newest'
     const page = parseInt(searchParams.get('page') || '1')
     const limit = 50
 
+    // Resolve the plan filter BEFORE pagination (subscriptions has no FK to profiles)
+    let planIds: string[] | null = null   // restrict to these ids
+    let excludeIds: string[] = []         // 'free' = no subscription row, or tier 'free'
+    if (plan === 'free') {
+      const { data: paidSubs, error: paidErr } = await supabaseAdmin
+        .from('subscriptions')
+        .select('user_id')
+        .neq('tier', 'free')
+      console.log('[Users] non-free subscriptions:', paidSubs?.length, 'error:', paidErr?.message)
+      excludeIds = (paidSubs ?? []).map(s => s.user_id)
+    } else if (plan) {
+      const { data: subs, error: subErr } = await supabaseAdmin
+        .from('subscriptions')
+        .select('user_id')
+        .eq('tier', plan)
+      console.log('[Users] plan subscriptions:', subs?.length, 'error:', subErr?.message)
+      planIds = (subs ?? []).map(s => s.user_id)
+      if (planIds.length === 0) {
+        return NextResponse.json({ users: [], total: 0, page })
+      }
+    }
+
     // Query profiles directly (no embedded join with subscriptions
     // since there's no direct FK between profiles and subscriptions)
     let query = supabaseAdmin
       .from('profiles')
-      .select('id, full_name, business_name, phone, created_at')
+      .select('id, full_name, business_name, phone, created_at', { count: 'exact' })
 
     if (search) {
       query = query.or(`full_name.ilike.%${search}%,business_name.ilike.%${search}%`)
+    }
+    if (planIds) {
+      query = query.in('id', planIds)
+    }
+    if (excludeIds.length > 0) {
+      query = query.not('id', 'in', `(${excludeIds.join(',')})`)
     }
 
     if (sort === 'newest') {
@@ -30,9 +63,9 @@ export async function GET(request: NextRequest) {
 
     query = query.range((page - 1) * limit, page * limit - 1)
 
-    const { data: users, error } = await query
+    const { data: users, error, count: totalCount } = await query
 
-    console.log('[Users] profiles:', users?.length, 'error:', error?.message)
+    console.log('[Users] profiles:', users?.length, 'total:', totalCount, 'error:', error?.message)
 
     if (error) throw error
 
@@ -68,13 +101,6 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Get total count
-    const { count: totalCount, error: countError } = await supabaseAdmin
-      .from('profiles')
-      .select('id', { count: 'exact', head: true })
-
-    console.log('[Users] total count:', totalCount, 'error:', countError?.message)
-
     const result = (users ?? []).map(u => ({
       id: u.id,
       full_name: u.full_name || 'No name',
@@ -86,13 +112,8 @@ export async function GET(request: NextRequest) {
       website_count: countMap[u.id] || 0,
     }))
 
-    // Filter by plan client-side if needed
-    const filtered = plan
-      ? result.filter(u => u.plan === plan)
-      : result
-
     return NextResponse.json({
-      users: filtered,
+      users: result,
       total: totalCount ?? 0,
       page,
     })
