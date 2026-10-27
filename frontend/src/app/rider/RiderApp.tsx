@@ -355,7 +355,10 @@ export default function RiderApp() {
       next: OrderStatus,
       paymentReceived?: boolean | null,
     ) => {
-      const prev = order.status;
+      const r = riderRef.current;
+      if (!r && !demoMode) return;
+      // Full snapshot so a failed request rolls back payment_received too.
+      const snapshot: RiderOrder = { ...order };
       setPendingOrderId(order.id);
       setOrders((list) =>
         list.map((o) =>
@@ -371,14 +374,12 @@ export default function RiderApp() {
         ),
       );
 
-      if (demoMode) {
+      if (demoMode || !r) {
         setTimeout(() => setPendingOrderId(null), 250);
         toast.success(`Pesanan #${order.order_number} dikemas kini.`);
         return;
       }
 
-      const r = riderRef.current;
-      if (!r) return;
       try {
         await apiUpdateStatus(r.id, order.id, next, {
           payment_received:
@@ -388,7 +389,11 @@ export default function RiderApp() {
         void refreshOrders(true);
       } catch (e) {
         setOrders((list) =>
-          list.map((o) => (o.id === order.id ? { ...o, status: prev } : o)),
+          list.map((o) =>
+            o.id === order.id
+              ? { ...o, status: snapshot.status, payment_received: snapshot.payment_received }
+              : o,
+          ),
         );
         const msg =
           e instanceof ApiError ? e.message : 'Gagal kemas kini status.';

@@ -56,12 +56,18 @@ export default function MapPanel({
     };
   }, []);
 
-  // Create map once Leaflet is loaded
+  // Create map once Leaflet is loaded. Deliberately NOT keyed on `outlet`:
+  // recreating the map on every outlet-object change orphaned the zone
+  // polygons / postcode pin (their effects didn't re-run). The recenter
+  // effect below handles outlet moves. `outletRef` gives the initial center.
+  const outletRef = useRef(outlet);
+  outletRef.current = outlet;
   useEffect(() => {
     if (!LRef || !containerRef.current || mapRef.current) return;
     const L = LRef;
+    const initial = outletRef.current;
     const center: [number, number] =
-      outlet?.lat && outlet?.lng ? [outlet.lat, outlet.lng] : DEFAULT_CENTER;
+      initial?.lat && initial?.lng ? [initial.lat, initial.lng] : DEFAULT_CENTER;
     const map = L.map(containerRef.current, {
       center,
       zoom: DEFAULT_ZOOM,
@@ -78,7 +84,7 @@ export default function MapPanel({
       map.remove();
       mapRef.current = null;
     };
-  }, [LRef, outlet]);
+  }, [LRef]);
 
   // Outlet pin
   useEffect(() => {

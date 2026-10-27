@@ -39,6 +39,32 @@ def _normalize_phone(raw: str) -> str:
     return re.sub(r"\D", "", raw or "")
 
 
+def _phone_candidates(normalized: str) -> list[str]:
+    """Every stored spelling a Malaysian number may have.
+
+    The order flow validates `customer_phone` into `+60XXXXXXXXX`
+    (OrderCreate.validate_phone) and stores that in both
+    `delivery_orders.customer_phone` and `website_customers.phone`,
+    while the chat flow stores the local `0XXXXXXXXX` form. A lookup
+    that compared only the digits-only string therefore never matched a
+    returning customer. Match all spellings of the same national number.
+    """
+    national = normalized
+    if national.startswith("60") and len(national) > 10:
+        national = national[2:]
+    national = national.lstrip("0")
+    if not national:
+        return [normalized]
+    candidates = {
+        normalized,
+        national,
+        "0" + national,
+        "60" + national,
+        "+60" + national,
+    }
+    return sorted(candidates)
+
+
 @router.get("/lookup")
 async def lookup_customer(
     website_id: str = Query(..., description="UUID of the restaurant website"),
@@ -87,7 +113,7 @@ async def lookup_customer(
             supabase.table("website_customers")
             .select("id, name, address, phone")
             .eq("website_id", website_id.strip())
-            .eq("phone", normalized)
+            .in_("phone", _phone_candidates(normalized))
             .execute()
         )
 
@@ -152,7 +178,7 @@ async def get_active_orders(
             supabase.table("delivery_orders")
             .select("order_number, status, total_amount, created_at, website_id")
             .eq("website_id", website_id.strip())
-            .eq("customer_phone", normalized)
+            .in_("customer_phone", _phone_candidates(normalized))
             .not_.in_("status", list(terminal_statuses))
             .order("created_at", desc=True)
             .limit(5)

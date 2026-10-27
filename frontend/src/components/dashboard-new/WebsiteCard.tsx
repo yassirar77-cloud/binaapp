@@ -151,7 +151,9 @@ export default function WebsiteCard({
         <div className="flex gap-1.5">
           <button
             onClick={onView}
-            className="flex-1 flex items-center justify-center gap-1.5 bg-white/[0.04] text-white border border-white/[0.08] font-geist text-[12.5px] py-2 px-2.5 rounded-[9px] cursor-pointer font-medium hover:bg-white/[0.08] transition-colors"
+            disabled={!onView}
+            title={onView ? undefined : 'Website ini belum ada alamat awam'}
+            className="flex-1 flex items-center justify-center gap-1.5 bg-white/[0.04] text-white border border-white/[0.08] font-geist text-[12.5px] py-2 px-2.5 rounded-[9px] cursor-pointer font-medium hover:bg-white/[0.08] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <ExternalLink size={12} /> Lihat
           </button>

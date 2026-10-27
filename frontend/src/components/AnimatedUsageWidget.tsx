@@ -427,7 +427,7 @@ export default function AnimatedUsageWidget({
       {/* Action Buttons */}
       <div className="px-6 pb-6 flex gap-3">
         <Link
-          href="/pricing"
+          href="/dashboard/billing"
           className="flex-1 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white text-center rounded-lg text-sm font-semibold hover:from-blue-600 hover:to-blue-700 transition-all shadow-sm hover:shadow-md"
         >
           💎 Upgrade Plan

@@ -17,6 +17,8 @@ export interface WebsiteItem {
   subdomain: string
   status: WebsiteStatus
   templateImage?: string
+  /** Public URL; omit when the site has no address yet (disables "Lihat"). */
+  url?: string
   orders: number
   views: string
 }
@@ -53,11 +55,11 @@ const NAV_ITEMS: {
   requiresRiders?: boolean
 }[] = [
   { label: 'Papan Pemuka', href: '/dashboard', active: true },
-  { label: 'Website Saya', href: '/websites' },
-  { label: 'Pesanan', href: '/orders', hasBadge: true },
-  { label: 'Penghantar', href: '/delivery', requiresRiders: true },
-  { label: 'Menu', href: '/menu' },
-  { label: 'Analitik', href: '/analytics' },
+  { label: 'Website Saya', href: '/my-projects' },
+  { label: 'Pesanan', href: '/pesanan', hasBadge: true },
+  { label: 'Penghantar', href: '/rider', requiresRiders: true },
+  { label: 'Menu', href: '/menu-designer' },
+  { label: 'Analitik', href: '/dashboard/analitik' },
 ]
 
 const ACCOUNT_ITEMS = [
@@ -200,7 +202,7 @@ export default function MobileDashboard({
               views={site.views}
               isDeleteConfirm={deleteConfirmId === site.id}
               isDeleting={deletingId === site.id}
-              onView={() => onView(site)}
+              onView={site.url ? () => onView(site) : undefined}
               onEdit={() => onEdit(site)}
               onDelete={() => onDelete(site.id)}
               onDeleteConfirm={() => onDeleteConfirm(site.id)}

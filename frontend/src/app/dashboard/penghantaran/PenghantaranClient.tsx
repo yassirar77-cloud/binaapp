@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { confirmDialog } from '@/components/ui/popups';
-import { getCurrentUser } from '@/lib/supabase';
+import { getCurrentUser, signOut } from '@/lib/supabase';
 import DashboardHeader from '@/components/dashboard-new/DashboardHeader';
 import {
   createZone,
@@ -212,11 +212,8 @@ export default function PenghantaranClient({
     };
   }, []);
 
-  const handleLogout = useCallback(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('binaapp_token');
-      localStorage.removeItem('binaapp_user');
-    }
+  const handleLogout = useCallback(async () => {
+    await signOut();
     router.push('/');
   }, [router]);
 

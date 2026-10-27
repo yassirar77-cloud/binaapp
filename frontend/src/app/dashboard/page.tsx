@@ -39,10 +39,13 @@ interface Project {
   id: string
   name: string
   subdomain: string
+  /** Public URL; empty string when the site has no address yet. */
   url: string
   created_at: string
-  published_at?: string
+  published_at?: string | null
   published_url?: string
+  /** websites.status — 'draft' | 'generating' | 'published' | 'failed' */
+  status?: string | null
 }
 
 export default function DashboardPage() {
@@ -136,12 +139,20 @@ export default function DashboardPage() {
       // Transform to Project interface
       const transformedProjects: Project[] = (data || []).map((website: any) => ({
         id: website.id,
-        name: website.name || 'Untitled Project',
+        name: website.name || website.business_name || 'Untitled Project',
         subdomain: website.subdomain || '',
-        url: website.published_url || `https://${website.subdomain}.binaapp.my`,
+        // Prefer the stored public address; only fall back to the subdomain
+        // URL when a subdomain actually exists (otherwise "https://.binaapp.my").
+        url:
+          website.published_url ||
+          website.public_url ||
+          (website.subdomain ? `https://${website.subdomain}.binaapp.my` : ''),
         created_at: website.created_at,
-        published_at: website.updated_at,
-        published_url: website.published_url
+        // Real publish timestamp — updated_at is set on every row and made
+        // every draft read as "Hidup".
+        published_at: website.published_at ?? null,
+        published_url: website.published_url || website.public_url,
+        status: website.status ?? null,
       }))
 
       setProjects(transformedProjects)
@@ -166,25 +177,48 @@ export default function DashboardPage() {
   const handleDelete = async (projectId: string) => {
     // The card's inline "Pasti?" confirm is the single confirmation step —
     // this handler only runs after the user has confirmed there.
-    if (!supabase) return
-
+    // Delete goes through the backend (service role) like /my-projects: the
+    // anon Supabase client has no auth.uid(), so a direct RLS-filtered
+    // DELETE silently removes 0 rows and the site reappears on reload.
     setDeleting(projectId)
     setError('')
 
     try {
-      const { error: deleteError } = await supabase
-        .from('websites')
-        .delete()
-        .eq('id', projectId)
+      const token = getStoredToken()
+      if (!token) {
+        router.push('/login')
+        return
+      }
 
-      if (deleteError) throw deleteError
+      const response = await fetch(`${API_BASE_URL}/api/v1/websites/${projectId}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      })
 
-      // Remove from list
-      setProjects(projects.filter(p => p.id !== projectId))
+      if (response.status === 401) {
+        router.push('/login')
+        return
+      }
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: `HTTP ${response.status}` }))
+        const detail = errorData?.detail
+        throw new Error(
+          typeof detail === 'string' ? detail : detail?.message || `HTTP ${response.status}`
+        )
+      }
+
+      // Remove from list only once the backend confirms the delete
+      setProjects(prev => prev.filter(p => p.id !== projectId))
       setDeleteConfirm(null)
     } catch (err: any) {
       console.error('Delete error:', err)
-      setError(err.message || 'Failed to delete project')
+      const message = err?.message || 'Gagal memadam website'
+      setError(message)
+      toast.error(`Ralat memadam website: ${message}`)
     } finally {
       setDeleting(null)
     }
@@ -266,11 +300,18 @@ export default function DashboardPage() {
   const websiteItems: WebsiteItem[] = projects.map((p) => ({
     id: p.id,
     name: p.name,
-    subdomain: `${p.subdomain}.binaapp.my`,
-    status: p.published_at ? 'published' : 'draft',
+    subdomain: p.subdomain ? `${p.subdomain}.binaapp.my` : 'Belum diterbitkan',
+    status: p.status === 'published' || !!p.published_at ? 'published' : 'draft',
+    url: p.url || undefined,
     orders: 0,   // TODO: wire real order counts per website
     views: '—',  // TODO: wire real analytics per website
   }))
+
+  // "Lihat" only when the site has a public address; the card disables the
+  // button when no handler is passed.
+  const handleView = (w: WebsiteItem) => {
+    if (w.url) window.open(w.url, '_blank', 'noopener,noreferrer')
+  }
 
   // TODO: Replace mock data below with real Supabase queries
   const mockSales: SalesData = {
@@ -410,7 +451,7 @@ export default function DashboardPage() {
         deleteConfirmId={deleteConfirm}
         deletingId={deleting}
         onCreateNew={handleCreateWebsiteClick}
-        onView={(w) => window.open(`https://${w.subdomain}`, '_blank')}
+        onView={handleView}
         onEdit={(w) => router.push(`/editor/${w.id}`)}
         onDelete={(id) => setDeleteConfirm(id)}
         onDeleteConfirm={(id) => handleDelete(id)}
@@ -446,7 +487,7 @@ export default function DashboardPage() {
           deleteConfirmId={deleteConfirm}
           deletingId={deleting}
           onCreateNew={handleCreateWebsiteClick}
-          onView={(w) => window.open(`https://${w.subdomain}`, '_blank')}
+          onView={handleView}
           onEdit={(w) => router.push(`/editor/${w.id}`)}
           onDelete={(id) => setDeleteConfirm(id)}
           onDeleteConfirm={(id) => handleDelete(id)}

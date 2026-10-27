@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
-import { getStoredToken } from '@/lib/supabase';
+import { getStoredToken, backupAuthState } from '@/lib/supabase';
 import './SubscriptionExpiredBanner.css';
 
 interface SubscriptionStatus {
@@ -87,6 +87,7 @@ export function SubscriptionExpiredBanner({ onRenewClick }: SubscriptionExpiredB
 
       if (data.success && data.payment_url) {
         localStorage.setItem('pending_renewal', 'true');
+        backupAuthState();
         window.location.href = data.payment_url;
       } else {
         toast.error('Ralat: ' + (data.detail || 'Gagal mencipta pembayaran'));

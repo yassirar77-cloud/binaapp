@@ -71,11 +71,11 @@ const UsageBar: React.FC<{
         <span className="usage-label">{label}</span>
         <span className="usage-value">{getLimitText()}</span>
       </div>
-      {addonCredits && addonCredits > 0 && !blocked && !unlimited && (
+      {(addonCredits ?? 0) > 0 && !blocked && !unlimited ? (
         <div className="usage-breakdown">
           (Asas: {limit}, Tambahan: {addonCredits})
         </div>
-      )}
+      ) : null}
       <div className="usage-bar-track">
         <div
           className="usage-bar-fill"

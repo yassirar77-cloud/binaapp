@@ -1,6 +1,6 @@
 'use client';
 
-import { Bell, ChevronDown, RefreshCw, Store } from 'lucide-react';
+import { ChevronDown, RefreshCw, Store } from 'lucide-react';
 import type { Order, Website } from '../lib/types';
 
 interface Props {
@@ -122,17 +122,6 @@ export default function TopBar({
           </div>
 
           <div className="flex items-center gap-1.5 sm:ml-2">
-            <button
-              type="button"
-              aria-label="Notifikasi"
-              className="relative inline-flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-white/[0.04] border border-white/[0.08] text-white/70 hover:text-white hover:bg-white/[0.08] transition-colors"
-            >
-              <Bell size={14} strokeWidth={1.5} className="sm:hidden" />
-              <Bell size={16} strokeWidth={1.5} className="hidden sm:block" />
-              {pendingCount > 0 && (
-                <span className="absolute top-1 right-1 sm:top-1.5 sm:right-1.5 h-2 w-2 rounded-full bg-amber-400 ring-2 ring-[#0a0e1a]" />
-              )}
-            </button>
             <button
               type="button"
               onClick={onRefresh}

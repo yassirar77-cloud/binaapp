@@ -63,7 +63,11 @@ export default function ProfileScreen({
   const [stats, setStats] = useState<TodayStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
 
-  const [online, setOnline] = useState<boolean>(() => loadOnlinePref());
+  // Server state wins when the login payload carries it (owner can force a
+  // rider offline from Penghantar Live); the local pref is only a fallback.
+  const [online, setOnline] = useState<boolean>(() =>
+    typeof rider.is_online === 'boolean' ? rider.is_online : loadOnlinePref(),
+  );
   const [sound, setSound] = useState<boolean>(() => loadSoundPref());
   const [batterySaver, setBatterySaver] = useState<boolean>(() =>
     loadBatterySaverPref(),
@@ -115,7 +119,10 @@ export default function ProfileScreen({
       return;
     }
     setRiderOnline(rider.id, next)
-      .then(() => {
+      .then((resolved) => {
+        // Persist whatever the server actually recorded.
+        setOnline(resolved);
+        saveOnlinePref(resolved);
         toast(
           next
             ? 'Anda kini Online — boleh terima pesanan.'

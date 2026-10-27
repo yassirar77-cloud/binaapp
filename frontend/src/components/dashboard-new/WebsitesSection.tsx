@@ -10,6 +10,8 @@ export interface WebsiteItem {
   subdomain: string
   status: WebsiteStatus
   templateImage?: string
+  /** Public URL; omit when the site has no address yet (disables "Lihat"). */
+  url?: string
   orders: number
   views: string
 }
@@ -90,7 +92,7 @@ export default function WebsitesSection({
               views={site.views}
               isDeleteConfirm={deleteConfirmId === site.id}
               isDeleting={deletingId === site.id}
-              onView={() => onView(site)}
+              onView={site.url ? () => onView(site) : undefined}
               onEdit={() => onEdit(site)}
               onDelete={() => onDelete(site.id)}
               onDeleteConfirm={() => onDeleteConfirm(site.id)}

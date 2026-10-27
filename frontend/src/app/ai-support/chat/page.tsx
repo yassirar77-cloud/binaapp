@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { getStoredToken } from '@/lib/supabase'
+import toast from 'react-hot-toast'
 import ChatBubble from '@/components/ai-chat/ChatBubble'
 import ChatInput from '@/components/ai-chat/ChatInput'
 
@@ -105,6 +106,7 @@ export default function AIChatPage() {
       setChats((prev) => [{ id: data.chat_id, status: 'active', messages_count: 1 }, ...prev])
     } catch (err) {
       console.error('Failed to start chat:', err)
+      toast.error(err instanceof Error && err.message ? err.message : 'Gagal mulakan chat. Sila cuba lagi.')
     }
   }
 
@@ -116,6 +118,7 @@ export default function AIChatPage() {
       setMessages(data.messages || [])
     } catch (err) {
       console.error('Failed to load messages:', err)
+      toast.error('Gagal memuatkan mesej. Sila cuba lagi.')
     }
   }
 
@@ -155,6 +158,7 @@ export default function AIChatPage() {
       setMessages((prev) => [...prev, aiMsg])
     } catch (err) {
       console.error('Failed to send message:', err)
+      toast.error(err instanceof Error && err.message ? err.message : 'Gagal hantar mesej.')
       const errorMsg: Message = {
         id: `err-${Date.now()}`,
         role: 'assistant',
@@ -193,6 +197,7 @@ export default function AIChatPage() {
       setShowRating(true)
     } catch (err) {
       console.error('Failed to close chat:', err)
+      toast.error('Gagal tutup chat. Sila cuba lagi.')
     }
   }
 

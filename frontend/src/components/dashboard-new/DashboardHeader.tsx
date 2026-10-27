@@ -20,7 +20,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { label: 'Papan Pemuka', href: '/dashboard' },
   { label: 'Website Saya', href: '/my-projects' },
-  { label: 'Pesanan', href: '/pesanan', badge: 3 },
+  { label: 'Pesanan', href: '/pesanan' },
   { label: 'Chat', href: '/chat' },
   { label: 'Penghantar', href: '/rider', requiresRiders: true },
   { label: 'Penghantaran', href: '/dashboard/penghantaran' },
@@ -151,26 +151,19 @@ export default function DashboardHeader({
             <InstallAppButton appName="BinaApp" compact />
           </span>
 
-          {/* Search placeholder */}
-          <button className="hidden lg:flex items-center gap-2 rounded-lg bg-white/[0.05] border border-white/[0.08] px-3 py-1.5 text-xs text-white/40 hover:bg-white/[0.08] transition-colors">
-            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-            Cari...
-            <kbd className="ml-2 rounded border border-white/[0.12] bg-white/[0.05] px-1 py-0.5 text-[10px] text-white/30">
-              ⌘K
-            </kbd>
-          </button>
-
           {/* Notification bell */}
-          <button className="relative rounded-lg p-2 text-white/50 hover:text-white hover:bg-white/[0.05] transition-colors">
+          <Link
+            href="/notifications"
+            aria-label="Pemberitahuan"
+            className="relative rounded-lg p-2 text-white/50 hover:text-white hover:bg-white/[0.05] transition-colors"
+          >
             <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
             </svg>
             {notificationCount > 0 && (
               <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-[#C7FF3D]" />
             )}
-          </button>
+          </Link>
 
           {/* Avatar dropdown */}
           <div className="relative">

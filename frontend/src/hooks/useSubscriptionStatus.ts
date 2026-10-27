@@ -185,7 +185,11 @@ export function useSubscriptionStatus(): UseSubscriptionStatusReturn {
     daysRemaining: data?.days_remaining ?? null,
     graceDaysRemaining: data?.grace_days_remaining ?? null,
     canUseDashboard: data?.can_use_dashboard ?? true,
-    tier: data?.tier || 'starter',
+    // The live /subscription/status handler returns `plan_name`, not `tier`
+    // (the subscription_status router that emits `tier` is shadowed by
+    // route order) — accept either so Basic/Pro merchants are not treated
+    // as starter.
+    tier: String(data?.tier ?? (data as any)?.plan_name ?? 'starter').toLowerCase(),
     lockReason: data?.lock_reason ?? null,
     paymentUrl: data?.payment_url || '/dashboard/billing',
     error,

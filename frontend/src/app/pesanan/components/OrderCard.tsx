@@ -24,6 +24,7 @@ interface Props {
   website: Website | null;
   /** When the order has a rider assigned, parent should pass phone for WA. */
   riderPhone?: string | null;
+  riderName?: string | null;
   selected: boolean;
   acceptingId: string | null;
   pickerOpen: boolean;
@@ -42,6 +43,12 @@ function waUrl(phone: string, name: string, shop: string, orderNumber: string) {
   return `https://wa.me/${cleaned}?text=${encodeURIComponent(text)}`;
 }
 
+function waRiderUrl(phone: string, riderName: string | null | undefined, shop: string, orderNumber: string) {
+  const cleaned = phone.replace(/^0/, '60').replace(/[^0-9]/g, '');
+  const text = `Hi ${riderName || 'rider'}, ini dari ${shop} mengenai pesanan ${orderNumber} yang anda hantar`;
+  return `https://wa.me/${cleaned}?text=${encodeURIComponent(text)}`;
+}
+
 /** Tiny helper so inner button/link clicks don't bubble to card-select. */
 function stop(e: MouseEvent) {
   e.stopPropagation();
@@ -51,6 +58,7 @@ export default function OrderCard({
   order,
   website,
   riderPhone,
+  riderName,
   selected,
   acceptingId,
   pickerOpen,
@@ -202,10 +210,7 @@ export default function OrderCard({
             </span>
             {riderPhone && (
               <a
-                href={waUrl(order.customer_phone, order.customer_name, shopName, order.order_number).replace(
-                  /wa\.me\/\d+/,
-                  `wa.me/${riderPhone.replace(/^0/, '60').replace(/[^0-9]/g, '')}`,
-                )}
+                href={waRiderUrl(riderPhone, riderName, shopName, order.order_number)}
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={stop}

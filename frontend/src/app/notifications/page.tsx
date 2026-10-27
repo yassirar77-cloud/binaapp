@@ -63,7 +63,7 @@ export default function NotificationsPage() {
   const loadData = async () => {
     try {
       const token = getStoredToken()
-      if (!token) { router.push('/auth/login'); return }
+      if (!token) { router.push('/login'); return }
 
       const headers = { 'Authorization': `Bearer ${token}` }
       const filterParam = filter ? `&type_filter=${filter}` : ''

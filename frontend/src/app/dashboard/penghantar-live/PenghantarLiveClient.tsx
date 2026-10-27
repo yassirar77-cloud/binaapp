@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
-import { getCurrentUser } from '@/lib/supabase';
+import { getCurrentUser, signOut } from '@/lib/supabase';
 import DashboardHeader from '@/components/dashboard-new/DashboardHeader';
 import { getActiveOrders, getRiders, getZones, setRiderPresence } from './lib/api';
 import {
@@ -147,11 +147,8 @@ export default function PenghantarLiveClient({ outlets }: Props) {
     };
   }, []);
 
-  const handleLogout = useCallback(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('binaapp_token');
-      localStorage.removeItem('binaapp_user');
-    }
+  const handleLogout = useCallback(async () => {
+    await signOut();
     router.push('/');
   }, [router]);
 

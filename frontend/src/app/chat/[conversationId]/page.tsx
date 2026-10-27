@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import BinaChat from '@/components/BinaChat';
 
 /**
@@ -14,6 +14,7 @@ import BinaChat from '@/components/BinaChat';
  */
 export default function CustomerChatPage() {
     const params = useParams();
+    const router = useRouter();
     const searchParams = useSearchParams();
 
     const conversationId = params?.conversationId as string;
@@ -70,7 +71,17 @@ export default function CustomerChatPage() {
                 <div className="max-w-4xl mx-auto px-4 py-3">
                     <div className="flex items-center gap-3">
                         <button
-                            onClick={() => window.close()}
+                            type="button"
+                            onClick={() => {
+                                // window.close() is ignored unless this tab was
+                                // script-opened; fall back to navigating away.
+                                window.close();
+                                setTimeout(() => {
+                                    if (window.closed) return;
+                                    if (window.history.length > 1) router.back();
+                                    else router.push('/');
+                                }, 150);
+                            }}
                             className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
                             title="Tutup"
                         >

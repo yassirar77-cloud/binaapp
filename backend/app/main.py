@@ -141,6 +141,19 @@ app.include_router(menu_designer_router, prefix="/api", tags=["Menu Designer"]) 
 from app.api.v2.generate_test import router as v2_generate_test_router
 app.include_router(v2_generate_test_router)
 
+# AI Control System Phase 2 + 3 routers (website-health, monitor, ai-chat,
+# admin dashboard, sla, referrals, ai-chat-settings, order-verify,
+# notifications, website-rebuild, founder, penalties, trust, webhooks).
+# Each module ships a `setup_phaseN_routes(app)` helper that was never
+# called, so every frontend page built on these endpoints (/admin, /founder,
+# /monitor, /webhooks, /sla, /trust-score, /notifications, /referrals,
+# /ai-support, /ai-chat-settings, /website-health, /website-rebuild)
+# received 404s for every request.
+from app.api.v1.endpoints.ai_phase2_router import setup_phase2_routes
+from app.api.v1.endpoints.ai_phase3_router import setup_phase3_routes
+setup_phase2_routes(app)
+setup_phase3_routes(app)
+
 # Mount static files for widgets (chat, delivery, etc.)
 # Files are accessible at /static/widgets/chat-widget.js, etc.
 # Use pathlib for reliable path resolution

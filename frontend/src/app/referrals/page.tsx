@@ -34,7 +34,7 @@ export default function ReferralsPage() {
   const loadData = async () => {
     try {
       const token = getStoredToken()
-      if (!token) { router.push('/auth/login'); return }
+      if (!token) { router.push('/login'); return }
 
       const response = await fetch(`${API_BASE_URL}/api/v1/referrals/stats`, {
         headers: { 'Authorization': `Bearer ${token}` }

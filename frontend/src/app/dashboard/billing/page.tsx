@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { backupAuthState, getStoredToken } from '@/lib/supabase';
+import { backupAuthState, getStoredToken, signOut } from '@/lib/supabase';
 import DashboardHeader from '@/components/dashboard-new/DashboardHeader';
 import AddonsGrid from './components/AddonsGrid';
 import BillingSubnav from './components/BillingSubnav';
@@ -183,11 +183,11 @@ export default function BillingPage() {
     [processing]
   );
 
-  const handleLogout = useCallback(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('binaapp_token');
-      localStorage.removeItem('binaapp_user');
-    }
+  const handleLogout = useCallback(async () => {
+    // signOut clears the real token key (binaapp_auth_token), the auth
+    // cookie and any Supabase session — the old manual removal used the
+    // wrong key and left the user logged in.
+    await signOut();
     router.push('/');
   }, [router]);
 

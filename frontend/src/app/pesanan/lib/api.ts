@@ -81,9 +81,34 @@ interface OrdersMyResponse {
 
 /** GET /api/v1/delivery/orders/my returns `{orders, total, limit, offset}`;
  *  we unwrap to `Order[]` so callers don't have to. */
+interface RawOrderItem {
+  id?: string | null;
+  item_name?: string;
+  name?: string;
+  quantity?: number;
+  unit_price?: number | string;
+  price?: number | string;
+  total_price?: number | string;
+}
+
+/** The backend joins `order_items(item_name, quantity, unit_price, …)`; the UI
+ *  reads `items[{name, price, quantity}]`. Normalise here so both shapes work. */
+function normalizeOrder(raw: Order & { order_items?: RawOrderItem[] }): Order {
+  const existing = Array.isArray(raw.items) ? raw.items : null;
+  const source = existing && existing.length > 0 ? existing : raw.order_items;
+  const items = (source ?? []).map((it) => ({
+    name: it.name ?? it.item_name ?? '',
+    price: Number(it.price ?? it.unit_price ?? 0) || 0,
+    quantity: Number(it.quantity ?? 0) || 0,
+  }));
+  return { ...raw, items };
+}
+
 export async function getOrders(): Promise<Order[]> {
   const res = await authFetch<OrdersMyResponse>('/api/v1/delivery/orders/my');
-  return res?.orders ?? [];
+  return (res?.orders ?? []).map((o) =>
+    normalizeOrder(o as Order & { order_items?: RawOrderItem[] }),
+  );
 }
 
 /** GET /api/v1/websites/ returns an array with `business_name`; we normalize

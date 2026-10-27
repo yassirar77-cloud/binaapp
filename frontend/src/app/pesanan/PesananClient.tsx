@@ -5,9 +5,9 @@
 // TabBar / FilterBar) and the card list + detail panel + modals.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
-import { getCurrentUser } from '@/lib/supabase';
+import { getCurrentUser, signOut } from '@/lib/supabase';
 import DashboardHeader from '@/components/dashboard-new/DashboardHeader';
 import {
   ApiError,
@@ -37,6 +37,9 @@ import { useIsMobile } from './lib/useIsMobile';
 
 export default function PesananClient() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  // Deep link from /chat ("Lihat Pesanan"): /pesanan?highlight=<order_id>
+  const highlightOrderId = searchParams?.get('highlight') ?? null;
 
   // ----- Data -----
   const [orders, setOrders] = useState<Order[]>([]);
@@ -53,7 +56,9 @@ export default function PesananClient() {
   /** Debounced (300ms) mirror of searchQuery; used for the actual filter so
    *  typing doesn't recompute the list on every keystroke. */
   const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [dateRange, setDateRange] = useState<DateRange>('today');
+  const [dateRange, setDateRange] = useState<DateRange>(
+    highlightOrderId ? '30days' : 'today',
+  );
 
   // ----- Selection state -----
   /** Selected card → drives the detail panel + click-outside close. */
@@ -161,11 +166,8 @@ export default function PesananClient() {
     };
   }, []);
 
-  const handleLogout = useCallback(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('binaapp_token');
-      localStorage.removeItem('binaapp_user');
-    }
+  const handleLogout = useCallback(async () => {
+    await signOut();
     router.push('/');
   }, [router]);
 
@@ -218,6 +220,15 @@ export default function PesananClient() {
     const hasPending = orders.some((o) => o.status === 'pending');
     if (hasPending) setTab('baru');
   }, [loading, orders]);
+
+  // Highlight deep link: once orders arrive, select the requested order (one-shot).
+  const highlightAppliedRef = useRef(false);
+  useEffect(() => {
+    if (!highlightOrderId || highlightAppliedRef.current) return;
+    if (!orders.some((o) => o.id === highlightOrderId)) return;
+    highlightAppliedRef.current = true;
+    setSelectedOrderId(highlightOrderId);
+  }, [highlightOrderId, orders]);
 
   // Search debounce — collapses keystroke bursts inside a 300ms window.
   useEffect(() => {
@@ -514,6 +525,9 @@ export default function PesananClient() {
                     website={websiteById.get(o.website_id) ?? null}
                     riderPhone={
                       o.rider_id ? riderById.get(o.rider_id)?.phone ?? null : null
+                    }
+                    riderName={
+                      o.rider_id ? riderById.get(o.rider_id)?.name ?? null : null
                     }
                     selected={selectedOrderId === o.id}
                     acceptingId={acceptingId}

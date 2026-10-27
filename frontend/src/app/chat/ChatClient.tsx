@@ -7,13 +7,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
-import { getCurrentUser } from '@/lib/supabase';
+import { getCurrentUser, signOut } from '@/lib/supabase';
 import DashboardHeader from '@/components/dashboard-new/DashboardHeader';
 import {
   ApiError,
   closeConversation,
   getConversations,
   getWebsites,
+  markMessagesRead,
   verifyPayment,
 } from './lib/api';
 import type { Conversation, Message, TabKey, Website } from './lib/types';
@@ -128,11 +129,8 @@ export default function ChatClient() {
     };
   }, []);
 
-  const handleLogout = useCallback(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('binaapp_token');
-      localStorage.removeItem('binaapp_user');
-    }
+  const handleLogout = useCallback(async () => {
+    await signOut();
     router.push('/');
   }, [router]);
 
@@ -282,6 +280,16 @@ export default function ChatClient() {
 
   const handleSelectConversation = useCallback((id: string) => {
     setSelectedConversationId(id);
+    // Optimistically clear the unread badge for this thread and tell the
+    // backend; the next poll reconciles if the call fails.
+    setConversations((prev) =>
+      prev.map((c) =>
+        c.id === id && (c.unread_owner ?? 0) > 0 ? { ...c, unread_owner: 0 } : c,
+      ),
+    );
+    void markMessagesRead(id, 'owner').catch(() => {
+      /* non-fatal — badge comes back on next poll if it truly failed */
+    });
   }, []);
 
   const handleBackToList = useCallback(() => {

@@ -710,10 +710,18 @@ async def get_transactions(
             "offset": str(offset)
         }
 
+        # PostgREST takes one `created_at=` filter per bound. A dict key
+        # can only hold one value, so setting both overwrote the lower
+        # bound with the upper one and "Dari" was silently ignored
+        # whenever "Hingga" was also set. httpx sends a list value as
+        # repeated query params, which is what PostgREST expects.
+        created_at_filters = []
         if from_date:
-            params["created_at"] = f"gte.{from_date}"
+            created_at_filters.append(f"gte.{from_date}")
         if to_date:
-            params["created_at"] = f"lte.{to_date}"
+            created_at_filters.append(f"lte.{to_date}")
+        if created_at_filters:
+            params["created_at"] = created_at_filters
         if transaction_type and transaction_type != "all":
             params["transaction_type"] = f"eq.{transaction_type}"
 

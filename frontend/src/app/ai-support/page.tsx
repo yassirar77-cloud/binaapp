@@ -13,7 +13,7 @@ export default function AISupportPage() {
             <h1 className="text-lg font-bold text-gray-800">Bantuan AI</h1>
             <p className="text-xs text-gray-500">Pilih cara untuk mendapatkan bantuan</p>
           </div>
-          <Link href="/profil" className="text-sm text-blue-600 hover:underline">
+          <Link href="/dashboard" className="text-sm text-blue-600 hover:underline">
             Kembali ke Dashboard
           </Link>
         </div>

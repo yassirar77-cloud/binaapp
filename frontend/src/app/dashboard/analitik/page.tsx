@@ -215,7 +215,13 @@ export default function AnalitikPage() {
     <div className="dash-bg min-h-screen font-geist">
       <div className="dash-dotgrid" />
       <div className="dash-glow-top" />
-      <DashboardHeader userName={userName} onLogout={() => signOut()} />
+      <DashboardHeader
+        userName={userName}
+        onLogout={async () => {
+          await signOut()
+          router.push('/')
+        }}
+      />
 
       <main className="relative mx-auto max-w-7xl px-4 lg:px-6 py-6 space-y-5">
         {/* Page header */}

@@ -106,6 +106,7 @@ export default function OrdersListScreen({
         hasNewOrder={!!newOrder}
         refreshing={refreshing}
         onRefresh={onRefresh}
+        onBellClick={() => onTab('baru')}
       />
 
       {/* Filter tabs */}

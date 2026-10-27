@@ -133,6 +133,9 @@ export default function BinaChat({
     const paymentInputRef = useRef<HTMLInputElement>(null);
     const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    // Set by the effect cleanup so a socket closed by us (unmount / conversation
+    // switch) never schedules a reconnect for the old conversation.
+    const disposedRef = useRef(false);
 
     // API URL
     const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://binaapp-backend.onrender.com';
@@ -168,6 +171,7 @@ export default function BinaChat({
     // =====================================================
 
     const connectWebSocket = useCallback(() => {
+        if (disposedRef.current) return;
         if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
         const ws = new WebSocket(`${WS_URL}/api/v1/chat/ws/${conversationId}/${userType}/${userId}`);
@@ -245,10 +249,12 @@ export default function BinaChat({
 
         ws.onclose = () => {
             console.log('[BinaChat] Disconnected');
+            if (disposedRef.current || wsRef.current !== ws) return;
             setIsConnected(false);
 
             // Reconnect after 3 seconds
             reconnectTimeoutRef.current = setTimeout(() => {
+                if (disposedRef.current) return;
                 console.log('[BinaChat] Reconnecting...');
                 connectWebSocket();
             }, 3000);
@@ -342,19 +348,30 @@ export default function BinaChat({
     // =====================================================
 
     useEffect(() => {
+        disposedRef.current = false;
         loadMessages();
         connectWebSocket();
 
         return () => {
-            if (wsRef.current) {
-                wsRef.current.close();
-            }
+            disposedRef.current = true;
             if (reconnectTimeoutRef.current) {
                 clearTimeout(reconnectTimeoutRef.current);
+                reconnectTimeoutRef.current = null;
             }
             if (typingTimeoutRef.current) {
                 clearTimeout(typingTimeoutRef.current);
             }
+            const ws = wsRef.current;
+            wsRef.current = null;
+            if (ws) {
+                // Detach handlers first so the async close event can't schedule
+                // a reconnect or setState on a torn-down instance.
+                ws.onclose = null;
+                ws.onmessage = null;
+                ws.onerror = null;
+                ws.close();
+            }
+            setIsConnected(false);
         };
     }, [loadMessages, connectWebSocket]);
 

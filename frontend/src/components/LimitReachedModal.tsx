@@ -5,7 +5,7 @@ import toast from 'react-hot-toast';
 import { AlertTriangle, Check, Minus, Plus } from 'lucide-react';
 import { Modal } from '@/components/ui/popups';
 import { cn } from '@/lib/utils';
-import { getCurrentUser, getStoredToken } from '@/lib/supabase';
+import { getCurrentUser, getStoredToken, backupAuthState } from '@/lib/supabase';
 
 interface LimitReachedModalProps {
   show: boolean;
@@ -106,6 +106,7 @@ export function LimitReachedModal({
 
       if (data.success && data.payment_url) {
         localStorage.setItem('pending_upgrade_tier', tier);
+        backupAuthState();
         window.location.href = data.payment_url;
       } else {
         toast.error('Ralat: ' + (data.detail?.message || data.detail || 'Gagal mencipta pembayaran'));
@@ -152,6 +153,7 @@ export function LimitReachedModal({
       if (data.success && data.payment_url) {
         localStorage.setItem('pending_addon_type', addonType);
         localStorage.setItem('pending_addon_quantity', String(addonQuantity));
+        backupAuthState();
         window.location.href = data.payment_url;
       } else {
         toast.error('Ralat: ' + (data.detail?.message || data.detail || 'Gagal mencipta pembayaran'));

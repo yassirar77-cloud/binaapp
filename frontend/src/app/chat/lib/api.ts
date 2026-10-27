@@ -115,11 +115,15 @@ export async function getWebsites(): Promise<Website[]> {
   }));
 }
 
-/** POST /api/v1/chat/messages/mark-read — mark inbound messages as read. */
-export function markMessagesRead(conversationId: string): Promise<unknown> {
+/** POST /api/v1/chat/messages/mark-read — mark inbound messages as read.
+ *  Backend MarkReadRequest requires `user_type` (customer|owner|rider). */
+export function markMessagesRead(
+  conversationId: string,
+  userType: 'owner' | 'customer' | 'rider' = 'owner',
+): Promise<unknown> {
   return authFetch('/api/v1/chat/messages/mark-read', {
     method: 'POST',
-    body: JSON.stringify({ conversation_id: conversationId }),
+    body: JSON.stringify({ conversation_id: conversationId, user_type: userType }),
   });
 }
 
