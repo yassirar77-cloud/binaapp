@@ -4071,9 +4071,59 @@ header .grid {
 </style>
 """
 
+    # Runtime contrast guard for the navigation bar. Served with the layout
+    # guard on every page, so it reaches already-published sites too.
+    #
+    # WHY: the colour-mode repaint (and the model itself) sets the nav's text
+    # from the page palette, but a nav background written as a literal
+    # (`.nav-blur{background:rgba(43,30,26,0.9)}`) is not a palette token and
+    # stays dark on a light page — jojokitchen shipped #1C1917 links on a
+    # dark-brown bar: 1.3:1, invisible. No static pass can see a background
+    # the page sets in its own stylesheet; the browser can. This reads each
+    # nav text's COMPUTED colour against the first opaque background above
+    # it and repaints only what fails 3:1 (WCAG AA for UI text). A control
+    # that paints its own surface (the green WhatsApp pill) is a designed
+    # unit and is left alone, label included. A nav that paints no
+    # background at all (transparent over the hero) is not judged.
+    NAV_CONTRAST_GUARD_JS = r"""
+<!-- BinaApp Nav Contrast Guard -->
+<script id="binaapp-nav-contrast">
+(function(){
+  var MIN=3,LIGHT='#FFFFFF',DARK='#1C1917',ATTR='data-binaapp-contrast';
+  function parse(c){var m=/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+))?\s*\)/.exec(c||'');if(!m)return null;return{r:+m[1],g:+m[2],b:+m[3],a:m[4]===undefined?1:parseFloat(m[4])};}
+  function ch(v){v/=255;return v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4);}
+  function lum(c){return 0.2126*ch(c.r)+0.7152*ch(c.g)+0.0722*ch(c.b);}
+  function ratio(a,b){var x=lum(a),y=lum(b);if(x<y){var t=x;x=y;y=t;}return(x+0.05)/(y+0.05);}
+  function own(el){var c=parse(getComputedStyle(el).backgroundColor);return c&&c.a>=0.5?c:null;}
+  function backdrop(el){for(var e=el;e;e=e.parentElement){var c=own(e);if(c)return c;if(e===document.body)break;}return null;}
+  function hasText(el){for(var n=el.firstChild;n;n=n.nextSibling){if(n.nodeType===3&&n.nodeValue.trim())return true;}return(el.tagName==='A'||el.tagName==='BUTTON')&&!!el.querySelector('i,svg')&&!el.textContent.trim();}
+  function fix(root){
+    var rootBg=backdrop(root);if(!rootBg)return;
+    var nodes=root.querySelectorAll('a,button,span,p,li,h1,h2,h3,h4,h5,h6,strong,em,small,label,div');
+    for(var i=0;i<nodes.length;i++){
+      var el=nodes[i];if(!hasText(el))continue;
+      var bg=null,control=false;
+      for(var e=el;e&&e!==root.parentElement;e=e.parentElement){var c=own(e);if(c){control=(e.tagName==='A'||e.tagName==='BUTTON');bg=c;break;}}
+      if(control)continue;
+      if(!bg)bg=rootBg;
+      var color=parse(getComputedStyle(el).color);
+      if(!color||color.a<0.5)continue;
+      if(ratio(color,bg)>=MIN)continue;
+      el.style.setProperty('color',lum(bg)<0.5?LIGHT:DARK,'important');
+      el.setAttribute(ATTR,'fixed');
+    }
+  }
+  function run(){try{var roots=document.querySelectorAll('header,body>nav');for(var i=0;i<roots.length;i++)fix(roots[i]);}catch(e){}}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',run);else run();
+  window.addEventListener('load',run);
+  setTimeout(run,1500);
+})();
+</script>
+"""
+
     def apply_layout_safety_guard(self, html: str) -> str:
         """
-        Inject the layout safety CSS into <head>.
+        Inject the layout safety CSS (and the nav contrast script) into <head>.
 
         Idempotent AND self-upgrading: if an older copy of the guard is already
         baked into the HTML (e.g. injected at generation time and stored), the
@@ -4100,8 +4150,15 @@ header .grid {
             html,
             flags=re.DOTALL,
         )
+        html = re.sub(
+            r'\s*(?:<!-- BinaApp Nav Contrast Guard -->\s*)?'
+            r'<script id="binaapp-nav-contrast">.*?</script>',
+            '',
+            html,
+            flags=re.DOTALL,
+        )
 
-        css = self.LAYOUT_SAFETY_CSS
+        css = self.LAYOUT_SAFETY_CSS + self.NAV_CONTRAST_GUARD_JS
 
         if "</head>" in html:
             return html.replace("</head>", css + "\n</head>", 1)

@@ -55,7 +55,9 @@ from app.services.templates import template_service
 # Same shape as the strip in template_service.apply_layout_safety_guard.
 _LAYOUT_GUARD_BLOCK_RE = re.compile(
     r'\s*(?:<!-- BinaApp Layout Safety Guard -->\s*)?'
-    r'<style id="binaapp-layout-safety">.*?</style>\s*',
+    r'<style id="binaapp-layout-safety">.*?</style>\s*'
+    r'|\s*(?:<!-- BinaApp Nav Contrast Guard -->\s*)?'
+    r'<script id="binaapp-nav-contrast">.*?</script>\s*',
     re.DOTALL,
 )
 

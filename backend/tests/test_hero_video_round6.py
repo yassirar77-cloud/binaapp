@@ -182,15 +182,20 @@ class TestTheClipsOwnLuminance:
         assert _settings(poster_luminance=0.5).clip_tone() == ""
         assert _settings(poster_luminance=None).clip_tone() == ""
 
-    def test_the_page_still_outranks_the_clip(self):
-        # A dark clip on a genuinely light page keeps the light scrim: that
-        # is what makes the page's dark copy readable over the footage.
+    def test_a_dark_clip_on_a_light_page_gets_the_dark_scrim_and_light_copy(self):
+        # Round 7 (jojokitchen): the white veil that makes dark copy readable
+        # over a dark or mid-tone clip is a milky wash over the whole frame.
+        # The page's dark copy is made light instead, on a dark gradient.
         light = (
             "<html><head><style>:root{--bg-color:#FFFFFF}"
             "body{color:#1C1917}</style></head><body>"
             '<section id="home"><div><h1>Kedai</h1></div></section></body></html>'
         )
-        assert _settings(poster_luminance=0.2).resolved_overlay(light) == "light"
+        assert _settings(poster_luminance=0.2).resolved_overlay(light) == "dark"
+        assert _settings(poster_luminance=0.2).resolved_text_mode(light) == "light"
+        # An unmeasured clip gives the page nothing to overrule it with.
+        assert _settings(poster_luminance=None).resolved_overlay(light) == "light"
+        assert _settings(poster_luminance=None).resolved_text_mode(light) == "keep"
 
 
 class TestTheScrimNeverHidesTheCopy:
