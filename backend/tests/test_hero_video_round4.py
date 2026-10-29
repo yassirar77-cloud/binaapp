@@ -24,6 +24,7 @@ from app.services.hero_video_patcher import (
     hero_own_veil,
     needs_style_upgrade,
     remove_hero_video,
+    scrim_gradient,
 )
 
 #: Site A as published: a light page carrying a dark editorial hero, with a
@@ -85,7 +86,14 @@ class TestTheHeroDecidesNotThePage:
             "<footer>f</footer></body></html>"
         )
         assert detect_hero_tone(quiet) == ""
-        assert _settings().resolved_overlay(quiet) == "light"
+        # The page says light; with the clip unmeasured that is the verdict.
+        assert _settings(poster_luminance=None).resolved_overlay(quiet) == "light"
+        # A measured mid-tone clip (0.463) on that light page is the one
+        # case the page does NOT win: the white veil dark copy needs over it
+        # washes the footage out, so the scrim goes dark and the copy light
+        # (see round 7 / jojokitchen).
+        assert _settings().resolved_overlay(quiet) == "dark"
+        assert _settings().resolved_text_mode(quiet) == "light"
 
     def test_an_explicit_pick_still_beats_everything(self):
         settings = _settings(overlay="light")
@@ -111,7 +119,7 @@ class TestOneScrimNotTwo:
         style = _style(apply_hero_video(thin, _settings()).html)
         # 0.52 wanted over 0.20 already there -> 0.40 on top composites back
         # to 0.52, instead of stacking to 0.62.
-        assert "rgba(0,0,0,0.4)" in style
+        assert scrim_gradient("dark", 0.4, "center") in style
 
     def test_alpha_over_composites_to_the_target(self):
         added = alpha_over(0.52, 0.20)

@@ -927,6 +927,10 @@ class AIService:
         # Senior-Designer-mode generation, for logs/diagnostics. None when
         # the last build ran guided or the concept step was skipped/failed.
         self._last_design_concept: Optional[Dict] = None
+        #: The colour mode the current generation's prompt was built with
+        #: ("light"/"dark"), after the design plan and template have had
+        #: their say. _enforce_design_constraints holds the output to it.
+        self._last_color_mode: str = ""
         # The validated design PLAN (Pass 1) from the most recent two-pass
         # generation, plus its critique/lint results once the gate has run.
         self._last_design_plan: Optional[Dict] = None
@@ -7921,7 +7925,22 @@ IMPORTANT RULES:
         if not html:
             return html
 
-        color_mode = str(getattr(request, "color_mode", "") or "").lower()
+        # The mode the PROMPT was built with, not the raw toggle. The design
+        # plan may overrule the toggle (the brief beats it; a gallery
+        # template carries its own), and the generate path records that
+        # resolution in _last_color_mode before the prompt is built. Reading
+        # the toggle here instead is what split jojokitchen in two: plan →
+        # dark, prompt → dark, model → a coherent dark page, guard → "the
+        # merchant chose light" → neutrals repainted light under a dark nav,
+        # dark hero scrims and white hairlines the repaint cannot see.
+        requested = str(getattr(request, "color_mode", "") or "").lower()
+        resolved = str(getattr(self, "_last_color_mode", "") or "").lower()
+        color_mode = resolved if resolved in ("light", "dark") else requested
+        if resolved in ("light", "dark") and requested in ("light", "dark") and resolved != requested:
+            logger.info(
+                f"🎨 Colour mode: toggle said {requested}, the design plan resolved "
+                f"{resolved} — enforcing {resolved}, the mode the page was generated in"
+            )
         if color_mode in ("light", "dark"):
             try:
                 from app.services.color_mode_guard import detect_color_mode, enforce_color_mode
@@ -9240,6 +9259,9 @@ IMPORTANT RULES:
             f"concept: {concept.name if concept else 'none (seeded design system)'}"
         )
 
+        # What the page is being generated IN. _enforce_design_constraints
+        # holds the output to this, never to the raw toggle (see there).
+        self._last_color_mode = color_mode
         prompt = self._build_strict_prompt(
             request.business_name,
             request.description,
@@ -9976,6 +9998,7 @@ IMPORTANT INSTRUCTIONS:
             design_brief=design_brief, language=language, gallery_count=self._gallery_image_count(request),
         )
         color_mode = "dark" if brief.theme == "dark" else "light"
+        self._last_color_mode = color_mode
         plans = await self._direct_design_plan(brief, n_plans=n_plans)
 
         variants: List[Dict] = []
@@ -10064,6 +10087,7 @@ IMPORTANT INSTRUCTIONS:
             color_mode = getattr(request, 'color_mode', 'light') or 'light'
             if color_mode not in ('light', 'dark'):
                 color_mode = 'light'
+            self._last_color_mode = color_mode
 
             # Senior Designer mode on the multi-style path: same freedom
             # mode + brief as generate_website, but no concept step — the

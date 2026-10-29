@@ -37,6 +37,7 @@ ANTI_TEMPLATE_RULES = """===== ANTI-TEMPLATE RULES (HARD RULES — the page is r
 12. CTAs: the nav carries the primary action (WhatsApp / telefon); the hero carries the primary + one secondary; the same CTA text is never repeated a third time on the page.
 13. One hero image only — never a background photo plus an inset photo of the same subject. Hero text sits on a solid or gradient panel when it overlaps a bright photo.
 14. Logo: the full business name in the display font. If you add a letter mark, it is the name's initial in the display font on var(--accent-color) — never a default blue square.
+15. Every surface and the text on it belong to the SAME colour mode. The nav bar paints var(--surface-color) (translucent is fine) and its links use var(--text-color); never a dark nav on a light page or a light nav on a dark page. Copy that sits on a photo or video under a dark gradient is white (#FFFFFF, never var(--text-color) on a light page); copy under a light gradient is var(--text-color). Hairline borders and shadows follow the mode too: no rgba(255,255,255,…) borders on a light page.
 """
 
 

@@ -473,7 +473,8 @@ class TestPoll:
         assert body["settings"]["overlay_opacity"] is None
         assert body["settings"]["poster_luminance"] == 0.9
         patches["luminance"].assert_awaited_once_with(CLOUD_POSTER)
-        assert "rgba(0,0,0,0.7)" in _published_html(patches)
+        # 0.70 at the copy's band, plus the lift the gradient adds there.
+        assert "rgba(0,0,0,0.9)" in _published_html(patches)
 
     def test_an_explicit_overlay_opacity_is_the_merchants_and_is_kept(self, client, auth_headers, patches):
         patches["luminance"].return_value = 0.9

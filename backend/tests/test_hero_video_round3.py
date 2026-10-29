@@ -25,6 +25,7 @@ from app.services.hero_video_patcher import (
     detect_hero_video,
     opacity_for,
     remove_hero_video,
+    scrim_gradient,
 )
 from app.services.templates import TemplateService
 
@@ -104,16 +105,17 @@ class TestScrimFromLuminance:
 
     def test_a_bright_clip_on_a_light_page_is_barely_veiled(self):
         style = _style(apply_hero_video(LIGHT, _settings(poster_luminance=0.9)).html)
-        assert "rgba(255,255,255,0.25)" in style
+        assert scrim_gradient("light", 0.25, "center") in style
         assert "rgba(255,255,255,0.52)" not in style
 
     def test_the_same_clip_on_a_dark_page_gets_the_heavy_dark_scrim(self):
         style = _style(apply_hero_video(DARK, _settings(poster_luminance=0.9)).html)
-        assert "rgba(0,0,0,0.7)" in style
+        assert scrim_gradient("dark", 0.7, "center") in style
+        assert "rgba(0,0,0,0.9) 50%" in style  # the copy's band, 0.7 + the lift
 
     def test_an_explicit_opacity_is_used_as_is(self):
         style = _style(apply_hero_video(LIGHT, _settings(poster_luminance=0.9, overlay_opacity=0.6)).html)
-        assert "rgba(255,255,255,0.6)" in style
+        assert scrim_gradient("light", 0.6, "center") in style
 
     def test_luminance_and_unset_opacity_round_trip_through_detect(self):
         html = apply_hero_video(LIGHT, _settings(poster_luminance=0.9)).html

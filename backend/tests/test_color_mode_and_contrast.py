@@ -144,3 +144,47 @@ class TestContrastRepair:
         )
         out, report = enforce_contrast(html)
         assert out == html and report.ok
+
+
+class TestEnforcementFollowsTheModeThePageWasGeneratedIn:
+    """jojokitchen (2026-10-29): the toggle said light, the design plan
+    resolved dark, the prompt was built dark and the model wrote a coherent
+    dark page — then the guard read the toggle and repainted the neutrals
+    light under a dark nav, dark hero scrims and white hairlines it cannot
+    see. The guard must hold the page to the mode it was generated in."""
+
+    def _service(self, resolved):
+        from app.services.ai_service import AIService
+
+        svc = AIService.__new__(AIService)  # no clients: the method is pure on html
+        svc._last_palette = None
+        svc._last_color_mode = resolved
+        return svc
+
+    def test_the_plans_theme_outranks_the_toggle(self):
+        from types import SimpleNamespace
+
+        dark_page = SHIPPED.replace("#F5F3EF", DARK_NEUTRALS["background"])
+        out = self._service("dark")._enforce_design_constraints(
+            dark_page, SimpleNamespace(color_mode="light")
+        )
+        assert detect_color_mode(out) == "dark"
+        assert 'id="binaapp-color-mode"' not in out  # nothing to repair
+
+    def test_without_a_resolution_the_toggle_still_rules(self):
+        from types import SimpleNamespace
+
+        dark_page = SHIPPED.replace("#F5F3EF", DARK_NEUTRALS["background"])
+        out = self._service("")._enforce_design_constraints(
+            dark_page, SimpleNamespace(color_mode="light")
+        )
+        assert detect_color_mode(out) == "light"
+
+    def test_a_page_that_ignores_the_resolved_mode_is_still_repainted(self):
+        from types import SimpleNamespace
+
+        # Light page delivered for a dark plan: repaint, as before.
+        out = self._service("dark")._enforce_design_constraints(
+            SHIPPED, SimpleNamespace(color_mode="dark")
+        )
+        assert detect_color_mode(out) == "dark"

@@ -113,6 +113,22 @@ def _image_dimensions(tag: str) -> Optional[Tuple[int, int]]:
     return None
 
 
+def _with_attrs(tag: str, attrs: str) -> str:
+    """``tag`` with ``attrs`` appended INSIDE the tag, before its ``>``.
+
+    A generated ``<img … />`` ends in ``/>``; slicing the last character off
+    and appending put the new attribute AFTER the slash (``width="1600"/
+    decoding="async">``), which browsers tolerate but which is malformed
+    markup on every served page. The slash is kept at the end.
+    """
+    body = tag[:-1].rstrip()
+    closer = ">"
+    if body.endswith("/"):
+        body = body[:-1].rstrip()
+        closer = "/>"
+    return f"{body} {attrs}{closer}"
+
+
 def _fix_images(html: str, report: QualityFloorReport) -> str:
     index = {"i": 0, "lazy": 0, "dims": 0}
 
@@ -123,17 +139,17 @@ def _fix_images(html: str, report: QualityFloorReport) -> str:
         new = tag
         if i == 0:
             if "loading=" not in new.lower():
-                new = new[:-1] + ' loading="eager" fetchpriority="high">'
+                new = _with_attrs(new, 'loading="eager" fetchpriority="high"')
         else:
             if "loading=" not in new.lower():
-                new = new[:-1] + ' loading="lazy">'
+                new = _with_attrs(new, 'loading="lazy"')
                 index["lazy"] += 1
             if "decoding=" not in new.lower():
-                new = new[:-1] + ' decoding="async">'
+                new = _with_attrs(new, 'decoding="async"')
         if "width=" not in new.lower() and "height=" not in new.lower():
             dims = _image_dimensions(new)
             if dims:
-                new = new[:-1] + f' width="{dims[0]}" height="{dims[1]}">'
+                new = _with_attrs(new, f'width="{dims[0]}" height="{dims[1]}"')
                 index["dims"] += 1
         return new
 

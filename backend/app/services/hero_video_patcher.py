@@ -209,6 +209,21 @@ LIGHT_SCRIM_MAP = ((0.20, 0.50), (0.75, 0.25))
 DARK_CLIP_MAX_LUMINANCE = 0.35
 LIGHT_CLIP_MIN_LUMINANCE = 0.60
 
+#: How the scrim is SHAPED, by where the hero puts its copy. A flat veil at
+#: the strength dark copy needs over a mid-tone clip is a milky wash over the
+#: whole frame (jojokitchen: rgba(255,255,255,0.36→0.51) over a 0.5 clip —
+#: "the video does not look clear"). The copy sits in one band of the hero,
+#: so the scrim is weighted there and the rest of the frame stays footage.
+#: Stops are (position, multiplier of the resolved opacity); the heaviest
+#: stop is the resolved opacity plus a little, capped below opaque.
+SCRIM_SHAPES: Dict[str, Tuple[Tuple[int, float], ...]] = {
+    "bottom": ((0, 0.30), (45, 0.60), (100, None)),
+    "top": ((0, None), (55, 0.60), (100, 0.30)),
+    "center": ((0, 0.55), (50, None), (100, 0.55)),
+}
+SCRIM_PEAK_LIFT = 0.20
+SCRIM_MAX_ALPHA = 0.92
+
 
 def opacity_for(overlay: str, luminance: Optional[float]) -> float:
     """Scrim opacity for a resolved overlay colour and a measured luminance.
@@ -308,15 +323,37 @@ class HeroVideoSettings:
             except Exception:  # pragma: no cover - a guard must never take the patch down
                 mode = ""
             choice = mode if mode in ("dark", "light") else ""
+        if choice == "light" and self.clip_needs_dark_scrim():
+            # A light hero (dark copy) over footage that is NOT bright. The
+            # only white veil that makes dark copy readable on a mid-tone or
+            # dark clip is one that washes the clip out — jojokitchen shipped
+            # rgba(255,255,255,0.36→0.51) over a 0.5 frame and the merchant
+            # saw a faded video, not a video. The pattern every film hero
+            # uses instead is a dark gradient where the copy sits and the
+            # copy in white; resolved_text_mode recolours it to match. Not
+            # sanity-checked: the copy WILL be recoloured, so dark-on-dark
+            # is not the contradiction that check refuses.
+            return "dark"
         if not choice:
             # Neither the hero nor the page states a colour. The CLIP does:
             # a dark first frame under a white veil is the flat grey smear
             # mimk shipped. The scrim follows the footage rather than a
-            # blanket default. It is consulted only here, below both page
-            # signals: a dark clip on a genuinely light page still needs the
-            # light scrim, because that is what keeps dark copy readable.
+            # blanket default.
             choice = self.clip_tone()
         return self._sanity_checked(choice or "dark", page_html)
+
+    def clip_needs_dark_scrim(self) -> bool:
+        """True when the measured first frame is anything but bright.
+
+        A bright clip (snow, a white kitchen, a cream wall) takes a light
+        scrim well: dark copy reads on it with little veil. Everything
+        below LIGHT_CLIP_MIN needs so much white that the footage goes
+        — those clips get the dark gradient. Unmeasured clips keep the
+        page's own choice: no evidence, no flip.
+        """
+        if self.poster_luminance is None:
+            return False
+        return self.poster_luminance < LIGHT_CLIP_MIN_LUMINANCE
 
     def clip_tone(self) -> str:
         """What the CLIP ITSELF is: "dark", "light" or "" (unmeasured or
@@ -377,6 +414,17 @@ class HeroVideoSettings:
         if overlay not in ("dark", "light"):
             return "keep"
         if self.overlay == "auto":
+            # Auto follows the hero, with one deliberate exception: the dark
+            # gradient chosen for a non-bright clip under a hero written
+            # dark (clip_needs_dark_scrim). That copy would sit dark on
+            # dark; it is made light, which is what the gradient is for.
+            copy = ""
+            try:
+                copy = hero_copy_tone(page_html) if page_html else ""
+            except Exception:  # pragma: no cover - a guard must never take the patch down
+                copy = ""
+            if overlay == "dark" and copy != "light" and self.clip_needs_dark_scrim():
+                return "light"
             return "keep"
         tone = ""
         try:
@@ -1395,6 +1443,57 @@ _TEXT_ELEMENTS = ("h1", "h2", "h3", "h4", "p", "li", "blockquote")
 _INLINE_TEXT_ELEMENTS = ("span", "a", "strong", "em", "small", "label")
 
 
+def scrim_gradient(overlay: str, opacity: float, anchor: str = "center") -> str:
+    """The scrim as a CSS gradient, heaviest where the copy sits.
+
+    ``opacity`` is the strength the luminance map asked for (what a flat
+    veil used to paint everywhere); it is now the strength at the copy's
+    band, and the rest of the frame gets a fraction of it so the footage
+    stays visible. ``anchor`` is "bottom", "top" or "center".
+    """
+    rgb = "0,0,0" if overlay == "dark" else "255,255,255"
+    peak = min(round(opacity + SCRIM_PEAK_LIFT, 2), SCRIM_MAX_ALPHA)
+    stops = []
+    for position, factor in SCRIM_SHAPES.get(anchor, SCRIM_SHAPES["center"]):
+        alpha = peak if factor is None else round(opacity * factor, 2)
+        stops.append(f"rgba({rgb},{alpha}) {position}%")
+    return "linear-gradient(180deg," + ",".join(stops) + ")"
+
+
+#: Alignment utilities that say where a flex/grid hero puts its content.
+_ANCHOR_BOTTOM_RE = re.compile(r"(?:^|\s)(?:md:|lg:|xl:)?(?:items-end|justify-end|self-end|content-end)(?:\s|$)")
+_ANCHOR_TOP_RE = re.compile(r"(?:^|\s)(?:md:|lg:|xl:)?(?:items-start|justify-start|self-start|content-start)(?:\s|$)")
+_ANCHOR_CENTER_RE = re.compile(r"(?:^|\s)(?:md:|lg:|xl:)?(?:items-center|justify-center|self-center|content-center)(?:\s|$)")
+
+
+def hero_copy_anchor(page_html: str) -> str:
+    """Where the hero's copy sits: "bottom", "top" or "center".
+
+    Read from the alignment utilities on the hero and on its direct
+    children (the content wrapper usually carries them). The generator's
+    full-bleed heroes are `flex items-end` (copy at the foot of the
+    picture) or `flex items-center`; a hero that states nothing is
+    treated as centred, the shape whose scrim hurts least when wrong.
+    """
+    span = _hero_span(page_html)
+    if span is None:
+        return "center"
+    start, tag_close, inner_end = span
+    classes = [tag_classes(page_html[start:tag_close])]
+    for c_start, _c_end in direct_children(page_html, tag_close, inner_end):
+        child_close = open_tag_end(page_html, c_start)
+        if child_close != -1:
+            classes.append(tag_classes(page_html[c_start:child_close]))
+    joined = " ".join(str(c) for c in classes)
+    if _ANCHOR_BOTTOM_RE.search(joined):
+        return "bottom"
+    if _ANCHOR_CENTER_RE.search(joined):
+        return "center"
+    if _ANCHOR_TOP_RE.search(joined):
+        return "top"
+    return "center"
+
+
 def _css_string(value: str) -> str:
     """A URL as the body of a double-quoted CSS attribute-selector string."""
     return value.replace("\\", "\\\\").replace('"', '\\"')
@@ -1455,16 +1554,9 @@ def _build_style(
     if opacity <= 0.02:
         overlay = "none"
 
-    if overlay == "dark":
-        scrim = (
-            f"background:linear-gradient(180deg,rgba(0,0,0,{opacity}) 0%,"
-            f"rgba(0,0,0,{min(round(opacity + 0.15, 2), 0.95)}) 100%);"
-        )
-    elif overlay == "light":
-        scrim = (
-            f"background:linear-gradient(180deg,rgba(255,255,255,{opacity}) 0%,"
-            f"rgba(255,255,255,{min(round(opacity + 0.15, 2), 0.95)}) 100%);"
-        )
+    if overlay in ("dark", "light"):
+        anchor = hero_copy_anchor(page_html) if page_html else "center"
+        scrim = f"background:{scrim_gradient(overlay, opacity, anchor)};"
     else:
         scrim = "background:transparent;"
 

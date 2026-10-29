@@ -21,6 +21,7 @@ from app.services.hero_video_patcher import (
     hero_height_floor,
     needs_style_upgrade,
     remove_hero_video,
+    scrim_gradient,
 )
 
 VIDEO = "https://res.cloudinary.com/demo/video/upload/q_auto:good,w_1920,c_limit,ac_none/v1/binaapp/hero-videos/ws-1-abc.mp4"
@@ -141,11 +142,13 @@ class TestApply:
         # here — and only here — the copy is flipped.
         dark = apply_hero_video(TEMPLATE_PAGE, _settings(overlay="dark")).html
         assert "color:#FFFFFF !important" in dark
-        assert "rgba(0,0,0,0.45)" in dark
+        # 0.45 is the strength at the copy's band (this hero is items-center);
+        # the edges of the frame get a fraction of it so the clip stays visible.
+        assert scrim_gradient("dark", 0.45, "center") in dark
 
     def test_an_overlay_that_suits_the_hero_leaves_the_copy_alone(self):
         light = apply_hero_video(TEMPLATE_PAGE, _settings(overlay="light")).html
-        assert "rgba(255,255,255,0.45)" in light
+        assert scrim_gradient("light", 0.45, "center") in light
         assert "color:#0F172A !important" not in light
 
     def test_overlay_none_keeps_everything(self):
