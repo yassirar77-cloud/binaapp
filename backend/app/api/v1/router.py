@@ -5,7 +5,7 @@ Combines all API endpoints
 
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import auth, websites, payments, templates, delivery, delivery_zones, menu_delivery, chat, subscription, scheduled_tasks, email_support, moderation, template_gallery, disputes, customers, penghantar_live, analytics, issue_reports, design_studio, site_qr, promo_kit, business_kit, counter_kit, hero_video, tiktok
+from app.api.v1.endpoints import auth, websites, payments, templates, delivery, delivery_zones, menu_delivery, menu_import, chat, subscription, scheduled_tasks, email_support, moderation, template_gallery, disputes, customers, penghantar_live, analytics, issue_reports, design_studio, site_qr, promo_kit, business_kit, counter_kit, hero_video, tiktok
 from app.api.admin import repair as admin_repair
 from app.api.admin import make_good as admin_make_good
 from app.api.admin import unstick_generation as admin_unstick
@@ -21,6 +21,10 @@ api_router.include_router(delivery.router, tags=["Delivery System"])
 api_router.include_router(delivery_zones.router, tags=["Delivery Zones (Owner)"])
 api_router.include_router(penghantar_live.router, tags=["Penghantar Live (Owner)"])
 api_router.include_router(menu_delivery.router, prefix="/menu", tags=["Menu Management"])
+# Menu Import — the merchant's existing menu (PDF / Word / Excel / photo /
+# pasted text) read by AI into draft rows, then committed in bulk after review.
+# Paths: POST /menu/import/extract, POST /menu/websites/{id}/menu-items/bulk.
+api_router.include_router(menu_import.router, prefix="/menu", tags=["Menu Import"])
 api_router.include_router(chat.router, prefix="/chat", tags=["Chat System"])
 api_router.include_router(subscription.router, prefix="/subscription", tags=["Subscription Management"])
 api_router.include_router(scheduled_tasks.router, prefix="/tasks", tags=["Scheduled Tasks"])

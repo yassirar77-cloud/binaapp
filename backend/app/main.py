@@ -4508,37 +4508,42 @@ async def publish_website(
 
                 # Insert menu items (best-effort)
                 if menu_items_payload and category_id:
-                    items_to_insert = []
-                    from app.services.data_consistency import parse_price as _parse_price
-                    for idx, it in enumerate(menu_items_payload):
-                        if not isinstance(it, dict):
-                            continue
-                        name = it.get("name") or f"Item {idx+1}"
-                        img = it.get("image_url") or it.get("url") or None
-                        # Round 2 (§B6): a price is the merchant's decimal or
-                        # nothing. The old rotating default list invented
-                        # prices for the ordering menu; an item without a
-                        # valid price is left out of it (it can still be
-                        # asked about on WhatsApp) rather than priced by us.
-                        _dec = _parse_price(it.get("price"))
-                        if _dec is None:
-                            logger.warning(f"💸 Menu item '{name}' has no valid price — not added to the ordering menu")
-                            continue
-                        price = float(_dec)
-                        items_to_insert.append({
-                            "website_id": website_id,
-                            "category_id": category_id,
-                            "name": name,
-                            "description": it.get("description") or "Hidangan istimewa dari dapur kami",
-                            "price": price,
-                            "image_url": img,
-                            "is_available": True,
-                            "is_popular": False,
-                            "preparation_time": 15,
-                            "sort_order": idx
-                        })
+                    from app.services.menu_import import plan_publish_menu_rows
+                    items_to_insert, category_names = plan_publish_menu_rows(menu_items_payload, website_id)
+                    # Rows that name a section ("Set Ayam", "Minuman" — the
+                    # create page's menu import carries the printed headings)
+                    # get a menu_categories row each, found or created by
+                    # name; rows without one keep the default category.
+                    category_ids: dict = {}
+                    if category_names:
+                        try:
+                            existing_cats = supabase.table("menu_categories").select("id,name,sort_order").eq("website_id", website_id).execute()
+                            for row in existing_cats.data or []:
+                                if row.get("name"):
+                                    category_ids[str(row["name"]).strip().lower()] = row["id"]
+                            next_sort = 1 + max([int(r.get("sort_order") or 0) for r in (existing_cats.data or [])] or [0])
+                            for cat_name in category_names:
+                                key = cat_name.strip().lower()
+                                if key in category_ids:
+                                    continue
+                                created = supabase.table("menu_categories").insert({
+                                    "website_id": website_id,
+                                    "name": cat_name[:100],
+                                    "name_en": cat_name[:100],
+                                    "sort_order": next_sort,
+                                    "is_active": True,
+                                }).execute()
+                                if created.data:
+                                    category_ids[key] = created.data[0]["id"]
+                                    next_sort += 1
+                        except Exception as cat_err:
+                            logger.warning(f"🍽️ Menu categories from payload skipped: {cat_err}")
+                    for row in items_to_insert:
+                        cat_name = row.pop("_category", None)
+                        row["category_id"] = category_ids.get((cat_name or "").strip().lower(), category_id)
                     if items_to_insert:
                         supabase.table("menu_items").insert(items_to_insert).execute()
+                        logger.info(f"🍽️ Publish: {len(items_to_insert)} menu items inserted ({len(category_ids)} categories)")
 
                 # Insert a default delivery zone + settings
                 if delivery:

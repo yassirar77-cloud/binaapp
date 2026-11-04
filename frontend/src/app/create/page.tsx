@@ -33,6 +33,8 @@ import {
 import { checkCreateWebsiteAllowed } from '@/lib/quota'
 import { GENERATION_POLL_INTERVAL_MS, afterSleep, initialLiveness, observePoll, pollGiveUpMessage, pollVerdict } from '@/lib/generationPoll'
 import { normalizePriceInput } from '@/lib/priceInput'
+import MenuImportPanel from './components/MenuImportPanel'
+import { mergeImportedRows, type MenuRow, type ReviewRow } from '@/lib/menuImport'
 import {
   BRIEF_EXAMPLES,
   DESIGN_BRIEF_MAX,
@@ -203,10 +205,16 @@ export default function CreatePage() {
       document.removeEventListener('keydown', onKey)
     }
   }, [shareMenuOpen])
+  // A gallery row is a menu item: name + price, optionally a photo. Rows
+  // from "Import menu (AI)" also carry description/category/isSignature
+  // (see lib/menuImport.ts); hand-typed rows leave those undefined.
   const [uploadedImages, setUploadedImages] = useState<{
     hero: string | null
-    gallery: { url: string; name: string; price: string }[]
+    gallery: MenuRow[]
   }>({ hero: null, gallery: [] })
+  // Section 06 entry mode: type rows by hand, or import an existing menu
+  // (PDF / Word / Excel / photo / pasted text) and review what the AI read.
+  const [menuEntry, setMenuEntry] = useState<'manual' | 'import'>('manual')
 
   // V3 inline upload UI state (replaces VisualImageUpload sub-component).
   // These are ephemeral UX-only refs — uploadedImages above remains the
@@ -567,7 +575,7 @@ export default function CreatePage() {
   }
 
   // Menu items (uploadedImages.gallery is source of truth)
-  const ensureGalleryRow = (idx: number): { url: string; name: string; price: string }[] => {
+  const ensureGalleryRow = (idx: number): MenuRow[] => {
     const cur = uploadedImages.gallery
     if (idx < cur.length) return cur
     const next = [...cur]
@@ -575,7 +583,7 @@ export default function CreatePage() {
     return next
   }
 
-  const updateMenuField = (idx: number, patch: Partial<{ url: string; name: string; price: string }>) => {
+  const updateMenuField = (idx: number, patch: Partial<MenuRow>) => {
     setUploadedImages(prev => {
       const arr = [...prev.gallery]
       while (arr.length <= idx) arr.push({ url: '', name: '', price: '' })
@@ -601,6 +609,23 @@ export default function CreatePage() {
       return shifted
     })
     setUploadedImages(prev => ({ ...prev, gallery: prev.gallery.filter((_, i) => i !== idx) }))
+  }
+
+  // "Import menu (AI)": merge the rows the merchant ticked in the review
+  // table into the same gallery rows the manual form fills. Duplicates (by
+  // name) are skipped, the blank placeholder row is used up first.
+  const importMenuRows = (rows: ReviewRow[]): { added: number; skipped: string[] } => {
+    const merged = mergeImportedRows(uploadedImages.gallery, rows)
+    setUploadedImages(prev => ({ ...prev, gallery: mergeImportedRows(prev.gallery, rows).gallery }))
+    setMenuPreviews({})
+    if (merged.added > 0) {
+      toast.success(language === 'ms'
+        ? `${merged.added} item ditambah ke menu${merged.skipped.length ? ` · ${merged.skipped.length} sudah ada` : ''}`
+        : `${merged.added} items added to the menu${merged.skipped.length ? ` · ${merged.skipped.length} already there` : ''}`)
+    } else if (merged.skipped.length) {
+      toast(language === 'ms' ? 'Semua item itu sudah ada dalam menu anda.' : 'All of those items are already on your menu.')
+    }
+    return merged
   }
 
   const handleMenuFile = async (idx: number, file: File) => {
@@ -1143,8 +1168,15 @@ export default function CreatePage() {
       // were dropped and the model wrote "Atas permintaan" instead. A row
       // needs only a NAME — an item with no photo and no price is still the
       // merchant telling us what they sell.
+      // Imported rows also carry the printed ingredient line and section
+      // (MenuItemInput.description / .category); hand-typed rows send none.
       const menuItemsForGeneration = uploadedImages.gallery
-        .map(g => ({ name: (g.name || '').trim(), price: normalizePriceInput(g.price) }))
+        .map(g => ({
+          name: (g.name || '').trim(),
+          price: normalizePriceInput(g.price),
+          ...(g.description ? { description: g.description } : {}),
+          ...(g.category ? { category: g.category } : {}),
+        }))
         .filter(it => it.name.length > 0);
 
       // STRICT IMAGE CONTROL: Determine final image choice
@@ -1613,12 +1645,19 @@ export default function CreatePage() {
           ? crypto.randomUUID()
           : `${Date.now()}-${Math.random().toString(16).slice(2)}`
 
+      // Every named row with a price is an orderable item — a photo is
+      // optional. (Before menu import, only rows WITH a photo were sent, so a
+      // 30-item menu typed without pictures never reached the ordering menu.)
+      // Category and ★ travel too; publish groups rows into menu_categories.
       const menuItemsForDelivery = (uploadedImages?.gallery || [])
-        .filter(g => !!g?.url)
+        .filter(g => !!g?.url || ((g?.name || '').trim() && normalizePriceInput(g?.price)))
         .map((g, idx) => ({
           name: g.name || `Menu Item ${idx + 1}`,
-          image_url: g.url,
-          price: g.price ? parseFloat(g.price) : null
+          image_url: g.url || null,
+          price: normalizePriceInput(g.price) ? parseFloat(normalizePriceInput(g.price)) : null,
+          description: g.description || null,
+          category: g.category || null,
+          is_popular: !!g.isSignature,
         }))
 
       const response = await fetch(`${API_BASE_URL}/api/publish`, {
@@ -2654,9 +2693,46 @@ export default function CreatePage() {
                   <span className="dot" />06 — MENU ITEMS
                 </div>
                 <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.025em', margin: 0, color: '#F5F5FA', lineHeight: 1.1 }}>Menu items</h2>
-                <p style={{ color: '#86869A', fontSize: 14, margin: '8px 0 0', maxWidth: 540, lineHeight: 1.5 }}>Tambah signature items anda. AI akan suggest description + format harga.</p>
+                <p style={{ color: '#86869A', fontSize: 14, margin: '8px 0 0', maxWidth: 540, lineHeight: 1.5 }}>{language === 'ms' ? 'Tulis satu-satu, atau import menu sedia ada (PDF, Word, Excel, gambar) dan biar AI isi semuanya.' : 'Type items one by one, or import the menu you already have (PDF, Word, Excel, photo) and let the AI fill it in.'}</p>
               </div>
               <div className="cr-card cr-card-hairline" style={{ padding: 20 }}>
+                {/* Entry mode: type rows one by one, or import the menu the merchant already has. */}
+                <div className="menu-entry-tabs" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap: 8, marginBottom: 16 }}>
+                  {([
+                    { id: 'manual' as const, l: language === 'ms' ? 'Tulis sendiri' : 'Type it in', s: language === 'ms' ? 'Satu-satu: nama, harga, gambar' : 'One by one: name, price, photo', icon: <ListChecks size={15} />, badge: '' },
+                    { id: 'import' as const, l: language === 'ms' ? 'Import menu (AI)' : 'Import menu (AI)', s: language === 'ms' ? 'PDF, Word, Excel atau gambar — AI baca semua' : 'PDF, Word, Excel or a photo — AI reads it all', icon: <Sparkles size={15} />, badge: language === 'ms' ? 'BARU' : 'NEW' },
+                  ]).map(tab => (
+                    <div
+                      key={tab.id}
+                      role="tab"
+                      aria-selected={menuEntry === tab.id}
+                      tabIndex={0}
+                      className={'opt ' + (menuEntry === tab.id ? 'selected' : '')}
+                      onClick={() => setMenuEntry(tab.id)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setMenuEntry(tab.id) } }}
+                      style={{ padding: '11px 12px', display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}
+                    >
+                      <div style={{ width: 30, height: 30, borderRadius: 8, background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#B8B8C8', flexShrink: 0 }}>{tab.icon}</div>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          {tab.l}
+                          {tab.badge && <span className="pill pill-volt" style={{ padding: '1px 6px', fontSize: 9 }}>{tab.badge}</span>}
+                        </div>
+                        <div style={{ fontSize: 11, color: '#86869A', marginTop: 1 }}>{tab.s}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {menuEntry === 'import' ? (
+                  <MenuImportPanel
+                    language={language}
+                    businessType={businessType}
+                    onImport={importMenuRows}
+                    onClose={() => setMenuEntry('manual')}
+                  />
+                ) : (
+                <>
                 <div style={{ marginBottom: 16 }}>
                   <div className="eyebrow" style={{ marginBottom: 10 }}>Image source</div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
@@ -2726,13 +2802,20 @@ export default function CreatePage() {
                           )}
                           <input id={`v3-menu-upload-${i}`} type="file" accept="image/png,image/jpeg,image/jpg,image/webp" onChange={handleMenuInputChange(i)} style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }} />
                         </div>
-                        <input
-                          className="cr-input"
-                          placeholder="Nasi Kandar Daging Crystal"
-                          value={it.name}
-                          onChange={(e) => updateMenuField(i, { name: e.target.value })}
-                          style={{ background: 'transparent', border: '1px solid rgba(255,255,255,.04)', height: 40, padding: '0 12px', minWidth: 0, width: '100%' }}
-                        />
+                        <div style={{ minWidth: 0 }}>
+                          <input
+                            className="cr-input"
+                            placeholder="Nasi Kandar Daging Crystal"
+                            value={it.name}
+                            onChange={(e) => updateMenuField(i, { name: e.target.value })}
+                            style={{ background: 'transparent', border: '1px solid rgba(255,255,255,.04)', height: 40, padding: '0 12px', minWidth: 0, width: '100%' }}
+                          />
+                          {(it.category || it.isSignature) && (
+                            <div style={{ fontSize: 10, color: '#5A5A6E', marginTop: 2, paddingLeft: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {it.isSignature && <span style={{ color: '#C7FF3D' }}>★ </span>}{it.category}
+                            </div>
+                          )}
+                        </div>
                         <div className="menu-row-price" style={{ position: 'relative', minWidth: 0 }}>
                           <span className="num" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: '#5A5A6E', pointerEvents: 'none' }}>RM</span>
                           <input
@@ -2790,6 +2873,8 @@ export default function CreatePage() {
                     <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: '#FFB020' }} />
                     <span style={{ fontSize: 13, color: '#FFB020' }}>Anda belum muat naik gambar. Drop hero image di atas atau pilih pilihan lain.</span>
                   </div>
+                )}
+                </>
                 )}
               </div>
             </section>

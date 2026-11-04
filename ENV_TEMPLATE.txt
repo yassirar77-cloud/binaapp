@@ -186,6 +186,19 @@ ISSUE_REPORT_ENABLED=false
 ISSUE_FREE_REGEN_CAP=2
 
 # ------------------------------
+# Menu Import (AI reads the merchant's existing menu — docs/MENU_IMPORT.md)
+# ------------------------------
+# POST /api/v1/menu/import/extract + /menu/websites/{id}/menu-items/bulk.
+# Default ON; off → both routes 404. Text goes to DEEPSEEK (JSON mode) → GLM
+# → Qwen; photos / scanned PDFs use the same vision chain as the design
+# critique (GLM-4.5V → Qwen-VL). With no model reachable the deterministic
+# parser still answers, so the feature never hard-depends on an API.
+MENU_IMPORT_ENABLED=true
+MENU_IMPORT_MAX_PER_HOUR=30          # per-user cap on extract calls (cost guard, in-memory)
+MENU_IMPORT_AI_TIMEOUT_SECONDS=90    # one model call; on timeout the parser answers instead
+# MENU_IMPORT_TEXT_MODEL=deepseek-v4-flash  # override the text model for extraction only
+
+# ------------------------------
 # Cloudinary (Image Storage)
 # ------------------------------
 # Get from: https://console.cloudinary.com → Dashboard

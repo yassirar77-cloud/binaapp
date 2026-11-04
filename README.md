@@ -50,6 +50,14 @@ BinaApp allows Malaysian SMEs to create fully functional websites by simply desc
   cards with a site QR, cut-out discount vouchers with the merchant's own
   offer, and a "kami bercuti" holiday-closure poster with the reopen date —
   all offline and **free** (see [docs/COUNTER_KIT.md](docs/COUNTER_KIT.md))
+- 📄 **Menu Import (AI)**: drop the menu you already have — PDF, Word,
+  Excel, CSV, a photo of the menu board, or pasted WhatsApp text — and the
+  AI reads every item, price, section, ingredient line and ★ signature mark
+  into the create page's menu rows. Pick *every item*, *signature only*, or
+  say it in your own words ("5 killer menu sahaja", "set ayam dan minuman,
+  kecuali add-on"). Everything comes back as a **draft to review** before it
+  is added; a deterministic parser answers when no model is reachable (see
+  [docs/MENU_IMPORT.md](docs/MENU_IMPORT.md))
 
 ## Tech Stack
 

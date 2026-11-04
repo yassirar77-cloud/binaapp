@@ -51,6 +51,12 @@ cloudinary==1.36.0
 # QR toolkit endpoints build printable posters from the same encoder.
 segno>=1.6.0
 
+# Menu Import (app/services/menu_import.py): pypdf reads a PDF's text layer;
+# pypdfium2 (pure wheels, no system poppler) rasterises scanned pages for the
+# vision model. Word/Excel are read with the stdlib zip + XML parsers.
+pypdf>=4.0
+pypdfium2>=4.30
+
 # Templating
 jinja2
 

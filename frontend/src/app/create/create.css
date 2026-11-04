@@ -126,6 +126,7 @@
   font-family: 'Geist', 'Inter', -apple-system, sans-serif;
 }
 .chip:hover { background: rgba(255,255,255,.08); color: #F5F5FA; border-color: rgba(255,255,255,.14); transform: translateY(-1px); }
+.chip-on { background: rgba(199,255,61,.08); border-color: rgba(199,255,61,.35); color: #F5F5FA; }
 
 /* ------- AI pulse animation ------- */
 @keyframes aipulse {
@@ -764,6 +765,18 @@
     grid-column: 2 / 3 !important;
     grid-row: 2 / 3 !important;
   }
+  /* Import review rows: checkbox + ★ stay on the first line, price drops under the name. */
+  .mi-row {
+    grid-template-columns: 24px 28px minmax(0,1fr) !important;
+    grid-template-rows: auto auto !important;
+    row-gap: 6px !important;
+  }
+  .mi-row .mi-row-price {
+    grid-column: 3 / 4 !important;
+    grid-row: 2 / 3 !important;
+    max-width: 140px;
+  }
+  .menu-entry-tabs { grid-template-columns: 1fr !important; }
   .menu-row .menu-row-trash {
     /* Pin to col 3 explicitly. Without this the trash button (definite row,
      * auto column) is placed in phase 2 of grid auto-placement, claiming
