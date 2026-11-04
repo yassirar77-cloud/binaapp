@@ -2179,11 +2179,16 @@ async def run_generation_task(
                 # refusing to deliver one helps nobody — but it is now
                 # impossible for this to be invisible.
                 _validation_failed = not ai_response.validation_ok
+                # More than 20% of the merchant's items needing a correction
+                # is a run worth a human look, even though the page ships
+                # corrected.
+                _menu_report = getattr(ai_response, "menu_fidelity", None) or {}
+                _menu_severe = bool(_menu_report.get("severe"))
                 diag_update = {
                     "was_truncated": ai_response.was_truncated,
                     "truncation_retries": ai_response.truncation_retries,
                     "needs_manual_review": bool(
-                        ai_response.needs_manual_review or _validation_failed
+                        ai_response.needs_manual_review or _validation_failed or _menu_severe
                     ),
                     "step_timings": ai_response.step_timings or {},
                     "validation": {
@@ -2194,6 +2199,7 @@ async def run_generation_task(
                         # timed out and was discarded is not a completion,
                         # however long it ran.
                         "steps": dict(ai_response.step_outcomes or {}),
+                        "menu_fidelity": _menu_report,
                     },
                     "updated_at": datetime.now().isoformat(),
                 }
@@ -2207,6 +2213,12 @@ async def run_generation_task(
                 if ai_response.needs_manual_review:
                     logger.error(
                         f"🔴 Job {job_id[:8]} flagged for manual review (double truncation)"
+                    )
+                if _menu_severe:
+                    logger.error(
+                        f"🔴 Job {job_id[:8]} MENU FIDELITY: {_menu_report.get('corrections')} correction(s) on "
+                        f"{_menu_report.get('total')} item(s) — removed={_menu_report.get('removed')} "
+                        f"price_fixed={_menu_report.get('price_fixed')} injected={len(_menu_report.get('injected') or [])}"
                     )
             except Exception as diag_err:
                 logger.warning(f"⚠️ Could not persist generation diagnostics: {diag_err}")
