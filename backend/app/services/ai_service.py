@@ -4336,6 +4336,8 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
         payment_methods: Optional[list] = None,
         opening_hours: Optional[str] = None,
         gallery_count: int = 0,
+        logo_url: Optional[str] = None,
+        poster_urls: Optional[list] = None,
     ) -> str:
         """Build the HTML generation prompt.
 
@@ -4618,6 +4620,24 @@ Keep all text consistent in English throughout."""
         address_line = ""
         if location_address and str(location_address).strip():
             address_line = f"✅ Address (use EXACTLY, do not invent): {str(location_address).strip()}"
+
+        # ---- LOGO / POSTER UPLOADS ----
+        if logo_url and str(logo_url).strip():
+            _logo_rule = (
+                f'- The merchant uploaded a LOGO: {str(logo_url).strip()} — render it as <img src="{str(logo_url).strip()}" alt="{name}" class="h-10 md:h-12 w-auto"> '
+                "inside the header brand link (before the business name text) and again in the footer brand block (h-8). "
+                "NEVER render a single-letter badge or an icon as the logo when this image exists."
+            )
+        else:
+            _logo_rule = "- No logo was uploaded: the header brand is the business name as styled text (a small initial badge is acceptable)."
+        _poster_rule = ""
+        if poster_urls:
+            _poster_rule = (
+                "- POSTER / MENU-BOARD UPLOADS (tall, text-heavy): "
+                + ", ".join(str(u) for u in poster_urls)
+                + ". Use these ONLY inside the menu section, shown whole (object-contain, never object-cover) with the "
+                "menu heading — NEVER as the hero, the about/story photo, a background, or a cropped card image."
+            )
 
         # ---- OPENING HOURS ----
         # Hours come from the structured field only. A brief that carried a
@@ -5266,6 +5286,7 @@ ICONS — Font Awesome FREE 6.x ONLY (non-negotiable):
 {icon_glyph_guidance}
 
 BRAND / LOGO (non-negotiable):
+{_logo_rule}
 - The logo and footer brand text MUST be the FULL business name exactly: "{name}".
 - NEVER truncate the name to a single word or a fragment (e.g. do NOT render "kedai." for "Kedai Tomyam"). A styled dot or accent colour is allowed only AFTER the complete name.
 
@@ -5314,6 +5335,7 @@ MUST WRITE REAL CONTENT:
 {_wa_content_line}
 {address_line}
 {hours_line}
+{_poster_rule}
 🚫 DO NOT invent phone numbers, addresses, cities, awards, or opening hours
 
 {wa_rules}
@@ -7780,6 +7802,7 @@ IMPORTANT RULES:
         # Fill-in placeholders and "contoh:" examples never reach the model
         # (the create route strips them too; this covers every caller).
         self._last_placeholder_examples = []
+        self._last_poster_uploads = []
         try:
             from app.services.placeholder_guard import strip_brief_placeholders
             _clean_desc, _ph = strip_brief_placeholders(getattr(request, "description", "") or "")
@@ -9173,6 +9196,27 @@ IMPORTANT RULES:
 
             await update_progress(45, "AI images generated")
 
+        # Which uploads are posters (tall or text-heavy): kept out of the
+        # hero/about roles, fitted rather than filled, shown whole.
+        _poster_uploads: List[str] = []
+        if request.uploaded_images:
+            try:
+                from app.services import image_roles as _roles
+                _text_check = None
+                if self._image_check_available():
+                    async def _text_check(url: str) -> bool:
+                        verdict = await image_vision_check.check_image(
+                            url, "a photo for a business website", call_model=self._call_image_check_model,
+                        )
+                        return bool(verdict.has_text)
+                _shapes = await _roles.classify_uploads(request.uploaded_images, text_check=_text_check)
+                _poster_uploads = _roles.poster_urls(_shapes)
+                self._last_poster_uploads = list(_poster_uploads)
+                if _poster_uploads:
+                    logger.info(f"🖼️ {len(_poster_uploads)} poster-style upload(s) will be fitted, not cropped, and kept out of hero/about")
+            except Exception as _roles_err:
+                logger.warning(f"🖼️ Upload role classification skipped: {_roles_err}")
+
         # Consistent crop ratios per section (§6): hero 16:9, item tiles
         # 4:3 — applied as Cloudinary transforms on every resolved URL (and
         # the request's own list, so the exact-URL validation stays in
@@ -9184,6 +9228,15 @@ IMPORTANT RULES:
                 image_urls = apply_section_crops(image_urls, item_role=_item_role)
                 if request.uploaded_images:
                     request.uploaded_images = crop_uploaded_images(request.uploaded_images, item_role=_item_role)
+                if _poster_uploads:
+                    from app.services.image_roles import fit_transform as _fit, same_image as _same
+                    for _k, _v in list(image_urls.items()):
+                        if isinstance(_v, str) and any(_same(_v, _p) for _p in _poster_uploads):
+                            image_urls[_k] = _fit(_v)
+                    request.uploaded_images = [
+                        ({**_img, "url": _fit(_img["url"])} if isinstance(_img, dict) and _img.get("url") and any(_same(_img["url"], _p) for _p in _poster_uploads) else _img)
+                        for _img in request.uploaded_images
+                    ]
             except Exception as _crop_err:
                 logger.warning(f"🖼️ Section crops skipped: {_crop_err}")
 
@@ -9404,6 +9457,8 @@ IMPORTANT RULES:
             payment_methods=getattr(request, "payment_methods", None),
             opening_hours=getattr(request, "opening_hours", None),
             gallery_count=self._gallery_image_count(request),
+            logo_url=getattr(request, "logo", None),
+            poster_urls=_poster_uploads,
         )
 
         # Add image URLs to prompt with STRONG emphasis.
@@ -9998,6 +10053,30 @@ IMPORTANT INSTRUCTIONS:
                         logger.info(f"🔤 Logo badge restyled to the plan accent ({_n_badge})")
                 except Exception as _badge_err:
                     logger.warning(f"🔤 Logo badge restyle skipped: {_badge_err}")
+            # Brand assets: theme-color = the page's primary, favicon from
+            # the logo (or the primary + initial), the uploaded logo in the
+            # header and footer instead of a letter badge.
+            try:
+                from app.services.branding import apply_branding
+                _tokens = extract_theme_tokens(html)
+                _primary = (plan.palette.get("primary") if plan is not None and isinstance(getattr(plan, "palette", None), dict) else None) or _tokens.get("primary")
+                html, _brand = apply_branding(
+                    html, business_name=request.business_name, primary=_primary, logo_url=getattr(request, "logo", None),
+                )
+                logger.info(f"🏷️ Branding applied: {_brand.as_dict()}")
+            except Exception as _brand_err:
+                logger.warning(f"🏷️ Branding skipped: {_brand_err}")
+            # A poster-style upload that still ended up outside the menu is
+            # shown whole rather than cropped.
+            try:
+                _posters = getattr(self, "_last_poster_uploads", None) or []
+                if _posters:
+                    from app.services.image_roles import fix_poster_images
+                    html, _n_posters = fix_poster_images(html, _posters)
+                    if _n_posters:
+                        logger.info(f"🖼️ {_n_posters} poster image(s) switched to object-contain")
+            except Exception as _poster_err:
+                logger.warning(f"🖼️ Poster fix skipped: {_poster_err}")
             # SEO / social metadata, emitted deterministically from data the
             # pipeline already has. Malaysian SMEs share by pasting the link
             # into WhatsApp; with no OG tags that renders as a bare URL.

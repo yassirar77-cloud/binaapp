@@ -1936,6 +1936,7 @@ async def run_generation_task(
     design_freedom: Optional[str] = None,
     business_type: Optional[str] = None,
     hero_image_prompt: Optional[str] = None,
+    logo: Optional[str] = None,
     menu_items: Optional[list] = None,
     show_prices: bool = True,
     hero_video: bool = False,
@@ -2090,6 +2091,7 @@ async def run_generation_task(
             design_brief=design_brief,
             design_freedom=design_freedom,
             hero_image_prompt=hero_image_prompt,
+            logo=logo,
             menu_items=menu_items or [],
             show_prices=show_prices,
         )
@@ -2761,6 +2763,7 @@ def _input_payload_for_job(body: dict) -> dict:
         "show_prices": body.get("show_prices"),
         "hero_video": body.get("hero_video"),
         "hero_image_prompt": body.get("hero_image_prompt"),
+        "logo": body.get("logo") or body.get("logo_url"),
         "address": body.get("address"),
         "whatsapp_number": body.get("whatsapp_number"),
         "opening_hours": body.get("opening_hours"),
@@ -2989,6 +2992,11 @@ async def _start_generation_from_body(body: dict, preferred_plan: Optional[dict]
     # which is collected separately and applied after publish.
     hero_image_prompt = (body.get("hero_image_prompt") or body.get("heroImagePrompt") or "")
     hero_image_prompt = str(hero_image_prompt).strip()[:400] or None
+    # The merchant's logo (uploaded on the create page): header, footer and
+    # favicon are built from it; without it the page shows a letter badge.
+    logo_url = str(body.get("logo") or body.get("logo_url") or "").strip()[:500] or None
+    if logo_url and not logo_url.lower().startswith(("http://", "https://")):
+        logo_url = None
 
     # ── Merchant-supplied items: names AND prices (the SOURCE OF TRUTH
     # contract already documented on WebsiteGenerationRequest.menu_items and
@@ -3419,6 +3427,7 @@ MANDATORY REQUIREMENTS:
         design_freedom=design_freedom,
         business_type=explicit_business_type,
         hero_image_prompt=hero_image_prompt,
+        logo=logo_url,
         menu_items=supplied_menu_items,
         show_prices=show_prices,
         hero_video=hero_video_wanted,

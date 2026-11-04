@@ -233,6 +233,10 @@ export default function CreatePage() {
   // These are ephemeral UX-only refs — uploadedImages above remains the
   // source of truth that flows to the backend.
   const [heroPreview, setHeroPreview] = useState<string>('')
+  // The merchant's logo: header, footer and favicon are built from it on
+  // the backend. Without it the page shows a letter badge.
+  const [logoUrl, setLogoUrl] = useState<string>('')
+  const [uploadingLogo, setUploadingLogo] = useState(false)
   const [uploadingHero, setUploadingHero] = useState(false)
   const [menuPreviews, setMenuPreviews] = useState<Record<number, string>>({})
   const [uploadingMenuIdx, setUploadingMenuIdx] = useState<number | null>(null)
@@ -495,6 +499,7 @@ export default function CreatePage() {
     setPaymentQRPreview('')
     setUploadedImages({ hero: null, gallery: [] })
     clearMenuRows()
+    setLogoUrl('')
     setHeroPreview('')
     setMenuPreviews({})
     setSelectedFeatures({
@@ -567,6 +572,20 @@ export default function CreatePage() {
       setHeroPreview('')
     } finally {
       setUploadingHero(false)
+    }
+  }
+
+  const handleLogoFile = async (file: File) => {
+    const v = validateImageFile(file)
+    if (v) { toast.error(v); return }
+    setUploadingLogo(true)
+    try {
+      const url = await uploadImageToBackend(file)
+      setLogoUrl(url)
+    } catch (err: any) {
+      toast.error(err.message || 'Gagal muat naik logo')
+    } finally {
+      setUploadingLogo(false)
     }
   }
 
@@ -1229,6 +1248,7 @@ export default function CreatePage() {
           business_type: businessType === 'auto' ? null : businessType,  // Pass business type for dynamic categories
           // Merchant's own hero visual description — overrides the auto-built prompt.
           hero_image_prompt: heroImagePrompt.trim() || undefined,
+          logo: logoUrl || undefined,
           menu_items: menuItemsForGeneration,
           // STRICT IMAGE CONTROL: Send explicit image choice
           image_choice: finalImageChoice,
@@ -2511,6 +2531,33 @@ export default function CreatePage() {
                 </div>
                 <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.025em', margin: 0, color: '#F5F5FA', lineHeight: 1.1 }}>Hero image</h2>
                 <p style={{ color: '#86869A', fontSize: 14, margin: '8px 0 0', maxWidth: 540, lineHeight: 1.5 }}>Image utama untuk header website. Optional — AI boleh suggest dari brief anda.</p>
+              </div>
+              <div className="cr-card cr-card-hairline" style={{ padding: 12, marginBottom: 12, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                <div
+                  onClick={() => document.getElementById('v3-logo-upload')?.click()}
+                  title="Logo kedai"
+                  style={{ width: 56, height: 56, borderRadius: 12, border: logoUrl ? '1px solid rgba(255,255,255,.12)' : '1.5px dashed rgba(255,255,255,.14)', background: logoUrl ? '#fff' : 'rgba(255,255,255,.02)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', overflow: 'hidden', flexShrink: 0, position: 'relative' }}
+                >
+                  {logoUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={logoUrl} alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 4 }} />
+                  ) : (
+                    <Upload size={16} color="#86869A" />
+                  )}
+                  {uploadingLogo && (
+                    <div style={{ position: 'absolute', inset: 0, background: 'rgba(5,5,12,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <div style={{ width: 14, height: 14, border: '1.5px solid rgba(255,255,255,.25)', borderTopColor: '#C7FF3D', borderRadius: '50%', animation: 'spin .8s linear infinite' }} />
+                    </div>
+                  )}
+                  <input id="v3-logo-upload" type="file" accept="image/png,image/jpeg,image/jpg,image/webp" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleLogoFile(f); e.target.value = '' }} style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }} />
+                </div>
+                <div style={{ flex: 1, minWidth: 160 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: '#F5F5FA' }}>Logo kedai <span style={{ color: '#5A5A6E', fontWeight: 400 }}>(optional)</span></div>
+                  <div style={{ fontSize: 11, color: '#86869A', marginTop: 2 }}>Dipaparkan di header, footer dan sebagai favicon. PNG dengan latar lutsinar paling sesuai.</div>
+                </div>
+                {logoUrl && (
+                  <button type="button" className="cr-btn cr-btn-ghost" onClick={() => setLogoUrl('')} style={{ height: 32, padding: '0 10px', fontSize: 12 }}>Buang</button>
+                )}
               </div>
               <div className="cr-card cr-card-hairline" style={{ padding: 16, display: 'flex', gap: 14, alignItems: 'stretch', flexWrap: 'wrap' }}>
                 <div
