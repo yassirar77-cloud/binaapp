@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import html as _html
 import re
-from typing import Optional
+from typing import Optional, Tuple
 from urllib.parse import parse_qs, quote_plus, unquote_plus, urlsplit
 
 from loguru import logger
@@ -77,3 +77,39 @@ def rewrite_map_embeds(html: str, new_src: str) -> str:
 
 def has_map_embed(html: str) -> bool:
     return bool(_MAP_IFRAME_RE.search(html or ""))
+
+
+_GMAPS_LINK_RE = re.compile(
+    r"""<a\b[^>]*href=(['"])(https?://(?:www\.)?google\.[a-z.]+/maps/[^'"]*)\1[^>]*>(?:(?!</a>).)*?</a>""",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def add_waze_beside_maps_links(html: str, address: Optional[str], *, language: str = "ms") -> Tuple[str, int]:
+    """A Waze link next to every Google Maps directions link the page
+    already has (the model writes one when the map feature is off). The
+    merchant's customers navigate with Waze; a page with only Google Maps
+    sends half of them to copy an address. Idempotent. Returns (html, added)."""
+    addr = re.sub(r"\s+", " ", str(address or "")).strip()
+    if not html or not addr or "waze.com/ul" in html:
+        return html, 0
+    label = "Waze" if not str(language or "ms").lower().startswith("en") else "Navigate with Waze"
+    waze_href = _html.escape(f"https://waze.com/ul?q={quote_plus(addr)}&navigate=yes", quote=False)
+    added = 0
+
+    def _sub(m: "re.Match") -> str:
+        nonlocal added
+        if added:
+            return m.group(0)
+        anchor = m.group(0)
+        cls = re.search(r"\bclass=(['\"])(.*?)\1", anchor, re.IGNORECASE)
+        classes = cls.group(2) if cls else ""
+        added += 1
+        return (
+            anchor
+            + f' <a href="{waze_href}" target="_blank" rel="noopener" class="{_html.escape(classes, quote=True)}" '
+            f'style="margin-left:.5rem"><i class="fa-brands fa-waze" aria-hidden="true"></i> {label}</a>'
+        )
+
+    out = _GMAPS_LINK_RE.sub(_sub, html)
+    return out, added

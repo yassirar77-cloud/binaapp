@@ -102,10 +102,25 @@ def _logo_img(logo_url: str, business_name: str, height_class: str) -> str:
     )
 
 
+def _already_shows_logo(block: str, logo_url: str, business_name: str) -> bool:
+    """The model rendered the logo itself (the prompt asks it to): an <img>
+    with the logo's Cloudinary identity, or alt text = the business name."""
+    from app.services.image_roles import same_image
+    name_key = re.sub(r"\s+", " ", (business_name or "").strip().lower())
+    for img in _IMG_RE.findall(block):
+        src = re.search(r"\bsrc\s*=\s*([\"'])(.*?)\1", img, re.IGNORECASE)
+        alt = re.search(r"\balt\s*=\s*([\"'])(.*?)\1", img, re.IGNORECASE)
+        if src and same_image(src.group(2), logo_url):
+            return True
+        if alt and name_key and re.sub(r"\s+", " ", alt.group(2).strip().lower()) == name_key:
+            return True
+    return False
+
+
 def _place_logo(block: str, logo_url: str, business_name: str, height_class: str) -> Tuple[str, bool]:
     """Replace a letter badge with the logo, else put the logo before the
     brand text inside the first link that carries the business name."""
-    if "data-binaapp-logo" in block:
+    if "data-binaapp-logo" in block or _already_shows_logo(block, logo_url, business_name):
         return block, False
     initial = (business_name or "").strip()[:1].upper()
     img = _logo_img(logo_url, business_name, height_class)
@@ -184,13 +199,15 @@ def apply_branding(
             else:
                 report.notes.append("header: no badge or brand link found for the logo")
         fm = _FOOTER_RE.search(out)
-        if fm and "data-binaapp-logo" not in fm.group(0):
+        if fm and "data-binaapp-logo" not in fm.group(0) and not _already_shows_logo(fm.group(0), logo_url, business_name):
             block, placed = _place_logo(fm.group(0), logo_url, business_name, "h-8")
             if not placed:
                 # No brand link in the footer: put the logo before the first
                 # element that carries the business name.
                 name_key = re.sub(r"\s+", " ", business_name.strip().lower())
-                for lm in re.finditer(r"<(p|div|span|h[1-6])\b[^>]*>(?:(?!</\1>).)*?</\1>", block, re.IGNORECASE | re.DOTALL):
+                # Leaf elements only (no nested block inside), so the logo
+                # lands beside the brand text, not before the whole grid.
+                for lm in re.finditer(r"<(p|span|h[1-6]|div)\b[^>]*>(?:(?!<(?:div|p|ul|section)\b).)*?</\1>", block, re.IGNORECASE | re.DOTALL):
                     text = re.sub(r"\s+", " ", _TAG_RE.sub(" ", lm.group(0))).strip().lower()
                     if name_key and name_key in text:
                         block = block[: lm.start()] + _logo_img(logo_url, business_name, "h-8") + "\n" + block[lm.start():]

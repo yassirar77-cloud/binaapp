@@ -67,7 +67,7 @@ STRINGS: Dict[str, Dict[str, str]] = {
         "pickup_available": "Ambil sendiri",
         "menu_placeholder_heading": "Menu Akan Datang",
         "menu_placeholder_body": "Menu penuh akan dikemas kini tidak lama lagi. Hubungi kami untuk pertanyaan.",
-        "wa_prefill": "Assalamualaikum, saya nak pesan",
+        "wa_prefill": "Assalamualaikum, saya nak order",
     },
     "en": {
         "nav_home": "Home",
