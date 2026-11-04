@@ -404,12 +404,12 @@ class TemplateService:
     }
 
     @classmethod
-    def whatsapp_default_message(cls, language: Optional[str] = None) -> str:
-        """Language-appropriate WhatsApp prefill. Defaults to Malay — the
-        product's primary market and the language of the generated pages."""
-        lang = str(language or "ms").lower()
-        key = "en" if lang.startswith("en") else "ms"
-        return cls.WHATSAPP_DEFAULT_MESSAGE[key]
+    def whatsapp_default_message(cls, language: Optional[str] = None, business_type: Optional[str] = None) -> str:
+        """Language- AND vertical-appropriate WhatsApp prefill. Defaults to
+        Malay — the product's primary market. A food business gets order
+        wording ("saya nak order"); everything else keeps the enquiry line."""
+        from app.services.whatsapp_prefill import default_prefill
+        return default_prefill(language, business_type)
 
     @staticmethod
     def wa_me_number(phone_clean: str) -> str:
@@ -431,6 +431,7 @@ class TemplateService:
         default_message: Optional[str] = None,
         theme_tokens: Optional[Dict[str, str]] = None,
         language: Optional[str] = None,
+        business_type: Optional[str] = None,
     ) -> str:
         """
         Inject WhatsApp floating button into HTML.
@@ -445,7 +446,7 @@ class TemplateService:
         """
         _ = theme_tokens  # currently unused; see docstring above
         if not default_message:
-            default_message = self.whatsapp_default_message(language)
+            default_message = self.whatsapp_default_message(language, business_type)
         # Skip if a floating WhatsApp button is already in the page.
         # Re-injecting causes a duplicate that overlaps the contact section.
         if 'id="whatsapp-button"' in html or "id='whatsapp-button'" in html:
@@ -3717,6 +3718,7 @@ __BINAAPP_WIDGET_THEME_VARS__
                 user_data.get("whatsapp_message"),
                 theme_tokens=theme_tokens,
                 language=user_data.get("language"),
+                business_type=user_data.get("business_type"),
             )
 
         # Google Maps
