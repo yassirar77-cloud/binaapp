@@ -134,9 +134,10 @@ def _about_rules() -> str:
 """
 
 
-def _location_rules(S: Dict[str, str], address: Optional[str], include_maps: bool, hours: Optional[str]) -> str:
+def _location_rules(S: Dict[str, str], address: Optional[str], include_maps: bool, hours: Optional[str], language: str = "ms") -> str:
+    from app.services.placeholder_guard import hours_fallback
     if not address:
-        return """LOCATION — no address was supplied: omit the location section entirely (no map, no invented address, no "Jumpa Kami" filler). Keep hours out unless supplied.
+        return f"""LOCATION — no address was supplied: omit the location section entirely (no map, no invented address, no "Jumpa Kami" filler). Hours: {('render exactly "' + hours + '"') if hours else ('not supplied — if the page shows hours anywhere, the text is exactly "' + hours_fallback(language) + '"; never invent or guess hours')}.
 """
     from urllib.parse import quote_plus
     maps_line = (
@@ -144,7 +145,7 @@ def _location_rules(S: Dict[str, str], address: Optional[str], include_maps: boo
         if include_maps else
         f'- Google Maps OFF: address TEXT only plus one link "{S["cta_open_maps"]}" → https://www.google.com/maps/search/?api=1&query={quote_plus(address)}. NO map card, NO decorative map illustration, NO iframe.'
     )
-    hours_line = f"- Hours (supplied — render exactly): {hours}" if hours else "- Hours were NOT supplied: do not render any opening hours."
+    hours_line = f"- Hours (supplied — render exactly): {hours}" if hours else f'- Hours were NOT supplied: render exactly "{hours_fallback(language)}" where hours would go. NEVER invent, guess or copy example hours from the description.'
     return f"""LOCATION & HOURS:
 - Address text exactly: {address}
 {maps_line}
@@ -236,7 +237,7 @@ def section_standards_block(
     if "about" in plan.sections:
         parts.append(_about_rules())
     if "location" in plan.sections or "hubungi" in plan.sections:
-        parts.append(_location_rules(S, address, include_maps, hours))
+        parts.append(_location_rules(S, address, include_maps, hours, language))
     parts.append(_gallery_rules(gallery_count))
     parts.append(_contact_rules(S, has_whatsapp, include_contact_form, include_social, socials))
     parts.append(_footer_rules(S, address, hours, has_whatsapp, payment_methods))

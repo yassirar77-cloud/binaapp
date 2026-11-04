@@ -4619,6 +4619,20 @@ Keep all text consistent in English throughout."""
         if location_address and str(location_address).strip():
             address_line = f"✅ Address (use EXACTLY, do not invent): {str(location_address).strip()}"
 
+        # ---- OPENING HOURS ----
+        # Hours come from the structured field only. A brief that carried a
+        # fill-in ("Waktu operasi: [ISI — contoh: 11 pagi – 10 malam]") had
+        # its example published as the real hours; the placeholder is now
+        # stripped upstream and the page says to ask, never a guess.
+        from app.services.placeholder_guard import hours_fallback as _hours_fallback
+        if opening_hours and str(opening_hours).strip():
+            hours_line = f"✅ Opening hours (use EXACTLY): {str(opening_hours).strip()}"
+        else:
+            hours_line = (
+                f'✅ Opening hours were NOT supplied: wherever hours would appear, render exactly "{_hours_fallback(language)}". '
+                "NEVER invent, guess or copy example hours from the description."
+            )
+
         # ---- IMAGE INSTRUCTIONS ----
         if image_choice == "none":
             image_section = """IMAGE MODE: NO IMAGES
@@ -5299,7 +5313,8 @@ MUST WRITE REAL CONTENT:
 ✅ Real contact message
 {_wa_content_line}
 {address_line}
-🚫 DO NOT invent phone numbers, addresses, cities, awards
+{hours_line}
+🚫 DO NOT invent phone numbers, addresses, cities, awards, or opening hours
 
 {wa_rules}
 
@@ -7762,6 +7777,18 @@ IMPORTANT RULES:
         """
         import time
         start_time = time.time()
+        # Fill-in placeholders and "contoh:" examples never reach the model
+        # (the create route strips them too; this covers every caller).
+        self._last_placeholder_examples = []
+        try:
+            from app.services.placeholder_guard import strip_brief_placeholders
+            _clean_desc, _ph = strip_brief_placeholders(getattr(request, "description", "") or "")
+            if _ph.changed:
+                request.description = _clean_desc
+                self._last_placeholder_examples = list(_ph.examples)
+                logger.warning(f"🧹 Brief placeholders stripped before generation: {_ph.removed[:6]} (dropped lines: {_ph.dropped_lines[:3]})")
+        except Exception as _ph_err:
+            logger.warning(f"🧹 Placeholder strip skipped: {_ph_err}")
 
         async def update_progress(percent: int, message: str):
             if progress_callback:
@@ -9941,6 +9968,24 @@ IMPORTANT INSTRUCTIONS:
                 self._last_fact_guard = _fact_report.as_dict()
             except Exception as _fact_err:
                 logger.warning(f"🧾 Fact guard skipped: {_fact_err}")
+            # Example text from a form placeholder or a stripped brief
+            # fill-in must not be on the page even if the model echoed it.
+            try:
+                from app.services.placeholder_guard import scrub_placeholder_echo
+                html, _ph_hits = scrub_placeholder_echo(html, getattr(self, "_last_placeholder_examples", []) or [], language=language)
+                if _ph_hits:
+                    logger.warning(f"🧹 Placeholder echo removed from the page: {_ph_hits[:6]}")
+            except Exception as _ph_err:
+                logger.warning(f"🧹 Placeholder echo scrub skipped: {_ph_err}")
+            # Nothing empty ships: a section the guards emptied, or a pair
+            # of decorative dividers framing nothing, is removed.
+            try:
+                from app.services.section_hygiene import clean_sections
+                html, _hyg = clean_sections(html)
+                if _hyg.changed:
+                    logger.info(f"🧽 Section hygiene: {_hyg.as_dict()}")
+            except Exception as _hyg_err:
+                logger.warning(f"🧽 Section hygiene skipped: {_hyg_err}")
             # Round 2 (§D14): a single-letter logo badge takes the plan's
             # accent colour and display font, never a default blue square.
             if plan is not None:

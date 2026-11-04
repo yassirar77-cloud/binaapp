@@ -2858,6 +2858,18 @@ async def _start_generation_from_body(body: dict, preferred_plan: Optional[dict]
     /api/generate/refine (a multi-style pick)."""
     # Extract parameters
     description = body.get("description") or body.get("business_description") or ""
+    # A fill-in the merchant never filled ("Waktu operasi: [ISI — contoh:
+    # 11 pagi – 10 malam]") is not information: the placeholder is removed
+    # before anything reads the brief, so its example is never published
+    # as a fact and the hours read as not supplied.
+    from app.services.placeholder_guard import strip_brief_placeholders
+    description, _placeholders = strip_brief_placeholders(description)
+    if _placeholders.changed:
+        logger.warning(
+            f"🧹 Brief placeholders removed: {_placeholders.removed[:6]}"
+            + (f"; dropped lines: {_placeholders.dropped_lines[:3]}" if _placeholders.dropped_lines else "")
+        )
+        body = {**body, "description": description, "business_description": description}
     # Round 2 (§B4): a story that says Seksyen 18 and an address that says
     # Seksyen 7 never both reach the page. Unresolved → 409 with the
     # question; resolved → the losing side is rewritten to the winner and

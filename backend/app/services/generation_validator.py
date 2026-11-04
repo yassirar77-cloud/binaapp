@@ -527,6 +527,29 @@ def _unbalanced_string_literal(source: str) -> str:
     return ""
 
 
+def _check_placeholder_echo(html: str, brief: GenerationBrief) -> List[ValidationIssue]:
+    """5b. No form placeholder or brief fill-in on the page — ERROR.
+
+    "11 pagi – 10 malam, setiap hari" was the EXAMPLE inside a fill-in the
+    merchant never filled; the page published it as the opening hours.
+    A bracketed fill-in ("[ISI — contoh: ...]") copied verbatim, or any of
+    the create form's own input examples, is a placeholder echo."""
+    from app.services.placeholder_guard import FORM_PLACEHOLDER_EXAMPLES, _BRACKET_RE, _BRACKET_WORDS_RE
+    issues: List[ValidationIssue] = []
+    text = visible_text(html)
+    norm = re.sub(r"[–—]", "-", text).lower()
+    for m in _BRACKET_RE.finditer(text):
+        inner = m.group(0).strip("[]")
+        if _BRACKET_WORDS_RE.search(inner) or "—" in inner:
+            issues.append(ValidationIssue("placeholder_echo", "A fill-in placeholder from the brief is on the page", m.group(0)[:80]))
+            break
+    for example in FORM_PLACEHOLDER_EXAMPLES:
+        needle = re.sub(r"[–—]", "-", example).lower()
+        if len(needle) >= 8 and needle in norm:
+            issues.append(ValidationIssue("placeholder_echo", "A form placeholder example is on the page", example))
+    return issues
+
+
 def _check_inline_script_syntax(html: str, brief: GenerationBrief) -> List[ValidationIssue]:
     """6. An inline <script> that cannot parse — ERROR.
 
@@ -980,6 +1003,7 @@ _ERROR_CHECKS = (
     _check_derived_item_names,
     _check_price_integrity,
     _check_item_integrity,
+    _check_placeholder_echo,
     _check_inline_script_syntax,
     _check_required_fields,
     _check_sanitizer_trace,
@@ -1116,6 +1140,7 @@ def validate_generated_site(html: str, brief: GenerationBrief) -> ValidationResu
 #: These codes need no merchant data to be certain: the page itself contains
 #: something demonstrably fake.
 PUBLISH_ENFORCED_CODES = frozenset({
+    "placeholder_echo",
     "placeholder_whatsapp",
     "placeholder_phone",
     "empty_whatsapp_link",
