@@ -95,7 +95,15 @@ def _hero_rules(plan: DesignPlan, S: Dict[str, str], has_whatsapp: bool, hero_vi
 """
 
 
-def _menu_rules(S: Dict[str, str], has_whatsapp: bool, item_count: int, has_item_images: bool, show_prices: bool, wa_digits: str, prefill: str) -> str:
+def _menu_rules(S: Dict[str, str], has_whatsapp: bool, item_count: int, has_item_images: bool, show_prices: bool, wa_digits: str, prefill: str, deterministic: bool = False) -> str:
+    if deterministic:
+        # The items are rendered from the data after generation
+        # (menu_fidelity.render_menu_block); the model only frames them.
+        return f"""MENU — the core of the site ({item_count} items, rendered from the merchant's data AFTER generation):
+- The section = heading, ONE short intro line, then exactly this empty slot as a direct child of the content container: <div id="binaapp-menu-slot"></div>
+- The slot is filled with every item (grouped by the merchant's categories, names and prices verbatim). Do NOT write any item name, price, tile, list row or table yourself — not in this section and not anywhere else (the hero may name ONE signature item without a price).
+- Give the section the page's surface colour and generous padding; the rendered cards inherit --primary-color / --accent-color / --surface-color / --text-color, so declare those CSS variables on :root.
+"""
     featured = min(item_count, MAX_FEATURED_MENU_ITEMS) if item_count else 0
     more = ""
     if item_count > MAX_FEATURED_MENU_ITEMS:
@@ -201,13 +209,14 @@ def section_standards_block(
     gallery_count: int,
     hero_video: bool,
     payment_methods: Sequence[str],
+    deterministic_menu: bool = False,
 ) -> str:
     S = strings_for(language)
     is_fnb = plan.vertical in dd.FNB_VERTICALS
     parts: List[str] = ["===== SECTION STANDARDS (build each listed section exactly like this) =====",
                         _hero_rules(plan, S, has_whatsapp, hero_video, is_fnb)]
     if is_fnb and "menu" in plan.sections:
-        parts.append(_menu_rules(S, has_whatsapp, item_count, has_item_images, show_prices, wa_digits, S["wa_prefill"]))
+        parts.append(_menu_rules(S, has_whatsapp, item_count, has_item_images, show_prices, wa_digits, S["wa_prefill"], deterministic_menu))
     elif plan.vertical == "clothing":
         parts.append(
             "KOLEKSI — a lookbook grid of the supplied products (photo tiles, item name and price beneath), then SAIZ & PENGHANTARAN as two columns of plain text from the description, then CARA ORDER as three numbered lines. No Menu section.\n"

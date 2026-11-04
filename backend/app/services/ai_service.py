@@ -63,6 +63,7 @@ from app.services.claim_sanitizer import (
     sensitive_claim_patterns,
 )
 from app.services.seo_metadata import SeoMeta, inject_seo_metadata
+from app.services import menu_fidelity as _mf
 from app.services.layout_guard_audit import firing_guards
 from app.services.generation_validator import (
     ValidationResult,
@@ -4878,6 +4879,24 @@ The merchant's own business data states the following: {_labels}.
                 "  such as \"price on request\" / \"atas permintaan\". Point customers to the\n"
                 "  WhatsApp/contact CTA to ask instead."
             )
+        # Large menus are rendered deterministically from the data after
+        # generation (menu_fidelity): the model emits ONE empty slot inside
+        # the menu section instead of transcribing 30 names and prices into
+        # a 16k-token page. Small menus stay model-laid-out and are
+        # reconciled against the data afterwards.
+        _deterministic_menu = _mf.use_deterministic_menu(_mf.normalize_items(_supplied_items))
+        if _deterministic_menu:
+            _render_rule = (
+                f"- DO NOT write the item cards yourself. The {_noun} section = its heading, ONE short intro\n"
+                f"  line, and then exactly this empty slot, which is filled with all {len(_supplied_items)} items\n"
+                f"  (grouped by CATEGORY, names and prices verbatim) after generation:\n"
+                f'  <div id="{_mf.MENU_SLOT_ID}"></div>\n'
+                f"  Emit the slot ONCE, as a direct child of the section's content container, after the\n"
+                f"  heading. Do NOT write any item name, price, card, tile, list row or table for these\n"
+                f"  items anywhere else on the page (the hero may name ONE signature item, without a price)."
+            )
+        else:
+            _render_rule = "- Render EVERY item listed above. Do not drop, merge, or summarise any of them."
         if _supplied_items:
             _lines = []
             for idx, it in enumerate(_supplied_items, 1):
@@ -4899,15 +4918,19 @@ anything you might infer from the business name, description, or image filenames
 {chr(10).join(_lines)}
 
 ABSOLUTE RULES FOR THIS DATA:
-- Render EVERY item listed above. Do not drop, merge, or summarise any of them.
+- Use ONLY the items listed above. Do NOT add any item that is not in this list:
+  NEVER invent a dish, drink, product or service, and NEVER invent, round, convert
+  or change a price. A card that is not in this list, or a price that differs from
+  this list, is removed after generation.
+{_render_rule}
 - Copy each NAME character-for-character. Do NOT rename, translate, reorder words,
   add the business name, or append qualifiers like "Set", "Combo", "Istimewa", "Special".
 {_price_rule}
-- Do NOT add any item that is not in this list.
 - Where an item has no supplied description you may write ONE short appetising line,
   but it must not assert facts absent from the data (no cooking times, no ingredient
   lists, no provenance, no awards, no spice levels).
-- If CATEGORY values are present, group the items under those categories."""
+- If CATEGORY values are present, group the items under those categories, in the
+  order the categories first appear, each under its own sub-heading."""
         elif not _has_slot_names:
             # Previously gated to ("food", "bakery", "clothing", "general") —
             # which excluded salon and services, the two verticals with the
@@ -4949,6 +4972,20 @@ The merchant did NOT provide {_noun} items, and none could be read from the desc
   such as "Atas permintaan", "Price on request", "Hubungi kami untuk harga",
   "From RM.." or "TBA". Omit the price element entirely instead.
 - An empty, honest section is REQUIRED over a fabricated one."""
+
+        else:
+            # Photos were supplied or generated and labelled, but the merchant
+            # entered NO item data. The labels name the photos; they are not
+            # a price list. This is the branch that published "Ayam Goreng
+            # Coklat RM12.50" on a merchant who never typed either.
+            menu_data_block = f"""===== NO {_noun.upper()} DATA SUPPLIED — PHOTOS ONLY =====
+The merchant did NOT enter any {_noun} items or prices. The labelled photos below are
+gallery captions, nothing more.
+- Show each labelled photo as a captioned gallery tile with its label as the caption.
+- DO NOT render a price for any tile — no "RM", no price range, no "from RM..", and no
+  substitute wording such as "Atas permintaan" / "Price on request".
+- DO NOT add any tile, dish, product or service that is not one of the labelled photos.
+- Point customers to the WhatsApp/contact CTA to ask about the full {_noun} and prices."""
 
         # ---- USER OVERRIDE CONDITIONALS ----
         # An explicit user colour request lifts the matching generic ban
@@ -5047,6 +5084,7 @@ HERO BLUEPRINT RULES:
                 gallery_count=gallery_count,
                 hero_video=hero_video,
                 payment_methods=payment_methods or [],
+                deterministic_menu=_deterministic_menu,
             )
             _flex_block = dpb.ANTI_TEMPLATE_RULES + "\n" + dpb.QUALITY_FLOOR_RULES
         elif designer_mode:
@@ -7853,6 +7891,54 @@ IMPORTANT RULES:
 
     # ==================== FREE AUTO-FILL (missing image slots) ====================
 
+    def _enforce_menu_fidelity(
+        self,
+        html: str,
+        request: WebsiteGenerationRequest,
+        *,
+        wa_digits: str = "",
+        language: str = "ms",
+        model: str = "",
+    ) -> str:
+        """Fill the deterministic menu slot and reconcile the page's menu
+        against the merchant's items. Never raises; the report is kept on
+        ``self._last_menu_fidelity`` for the job diagnostics."""
+        self._last_menu_fidelity = None
+        try:
+            items = _mf.normalize_items(self._normalize_supplied_menu_items(getattr(request, "menu_items", None)))
+            if not items:
+                # Nothing supplied: nothing to reconcile, but an empty slot
+                # must not ship as a blank box.
+                html, _ = _mf.fill_menu_slot(html, "<!-- no menu data supplied -->")
+                return html
+            from app.services.whatsapp_prefill import order_prefill_for
+            show_prices = bool(getattr(request, "show_prices", True))
+            prefill = order_prefill_for(getattr(request, "description", ""), language, business_type="food")
+            if _mf.use_deterministic_menu(items):
+                block = _mf.render_menu_block(
+                    items, language=language, wa_digits=wa_digits, show_prices=show_prices, order_prefill=prefill,
+                )
+                html, filled = _mf.fill_menu_slot(html, block)
+                logger.info(
+                    f"🍽️ Deterministic menu: {len(items)} items "
+                    f"{'rendered into the slot' if filled else 'SLOT MISSING — reconciling instead'} [model={model or 'unknown'}]"
+                )
+            html, report = _mf.reconcile_menu(
+                html, items, language=language, wa_digits=wa_digits, show_prices=show_prices, order_prefill=prefill,
+            )
+            _mf.log_report(report, business=getattr(request, "business_name", ""), model=model)
+            self._last_menu_fidelity = report.as_dict()
+            # Per-item order links carry the ordering choices the brief
+            # mentions (spice level, dine-in / take away) as blanks.
+            from app.services.whatsapp_prefill import enrich_order_links
+            html, _n_links = enrich_order_links(html, getattr(request, "description", ""), language)
+            if _n_links:
+                logger.info(f"💬 {_n_links} item order link(s) now carry the ordering choices from the brief")
+            return html
+        except Exception as err:
+            logger.warning(f"🍽️ Menu fidelity skipped: {err}")
+            return html
+
     def _inject_seo_metadata(
         self,
         html: str,
@@ -9825,6 +9911,12 @@ IMPORTANT INSTRUCTIONS:
             html, _n_prices = reformat_prices(html)
             if _n_prices:
                 logger.info(f"💸 Reformatted {_n_prices} price(s) to RM0.00 form")
+            # Menu fidelity: the merchant's items, verbatim, grouped by their
+            # categories — rendered into the slot for a large menu, and in
+            # every case reconciled against the data (invented card removed,
+            # wrong price corrected, missing item injected). Logged per
+            # correction; an error line when more than 20% needed one.
+            html = self._enforce_menu_fidelity(html, request, wa_digits=wa_digits, language=language, model=_html_model)
             if bool(getattr(request, "is_24h", False)):
                 html, _n_24 = enforce_24h_copy(html, language)
                 if _n_24:
