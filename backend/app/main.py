@@ -2093,6 +2093,9 @@ async def run_generation_task(
             menu_items=menu_items or [],
             show_prices=show_prices,
         )
+        # The supplied list, under its own name: the ``menu_items`` local is
+        # rebuilt from the uploaded photos further down.
+        menu_items_supplied = list(menu_items or [])
 
         # Create progress callback to update Supabase during generation
         async def progress_callback(progress: int, message: str):
@@ -2652,6 +2655,13 @@ async def run_generation_task(
                     f"user_id={_persist_uid} status=pending_payment "
                     f"html_chars={len(html)} job_id={job_id}"
                 )
+                # The merchant's items go with the draft, so a regeneration
+                # of this site starts from the same menu it was built from.
+                try:
+                    from app.services.menu_persistence import persist_menu_items
+                    persist_menu_items(supabase, generated_website_id, menu_items_supplied)
+                except Exception as _menu_err:
+                    logger.warning(f"🍽️ Draft menu persistence skipped: {_menu_err}")
             except ValueError:
                 logger.info(
                     f"⏭️ [WEBSITES INSERT] skipped draft persist — user_id not a UUID "
@@ -4422,6 +4432,15 @@ async def publish_website(
                     else "insert-new" if is_new_website
                     else "republish-update"
                 )
+                # Every named item the merchant entered, with its category —
+                # not only the photographed ones, and not only when delivery
+                # is on. A regeneration reads these back.
+                if menu_items_payload:
+                    try:
+                        from app.services.menu_persistence import persist_menu_items
+                        persist_menu_items(supabase, website_id, menu_items_payload)
+                    except Exception as _menu_err:
+                        logger.warning(f"🍽️ Menu persistence skipped: {_menu_err}")
                 logger.info(
                     f"✅ [WEBSITES INSERT] id={website_id} user_id={user_id} "
                     f"status=published mode={_publish_mode} subdomain={subdomain} "
@@ -4506,40 +4525,8 @@ async def publish_website(
                     }).execute()
                     category_id = cat_insert.data[0]["id"] if cat_insert.data else None
 
-                # Insert menu items (best-effort)
-                if menu_items_payload and category_id:
-                    items_to_insert = []
-                    from app.services.data_consistency import parse_price as _parse_price
-                    for idx, it in enumerate(menu_items_payload):
-                        if not isinstance(it, dict):
-                            continue
-                        name = it.get("name") or f"Item {idx+1}"
-                        img = it.get("image_url") or it.get("url") or None
-                        # Round 2 (§B6): a price is the merchant's decimal or
-                        # nothing. The old rotating default list invented
-                        # prices for the ordering menu; an item without a
-                        # valid price is left out of it (it can still be
-                        # asked about on WhatsApp) rather than priced by us.
-                        _dec = _parse_price(it.get("price"))
-                        if _dec is None:
-                            logger.warning(f"💸 Menu item '{name}' has no valid price — not added to the ordering menu")
-                            continue
-                        price = float(_dec)
-                        items_to_insert.append({
-                            "website_id": website_id,
-                            "category_id": category_id,
-                            "name": name,
-                            "description": it.get("description") or "Hidangan istimewa dari dapur kami",
-                            "price": price,
-                            "image_url": img,
-                            "is_available": True,
-                            "is_popular": False,
-                            "preparation_time": 15,
-                            "sort_order": idx
-                        })
-                    if items_to_insert:
-                        supabase.table("menu_items").insert(items_to_insert).execute()
-
+                # Menu items were persisted above (menu_persistence) with
+                # their categories; nothing to insert here.
                 # Insert a default delivery zone + settings
                 if delivery:
                     try:
