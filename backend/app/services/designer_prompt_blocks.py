@@ -138,6 +138,7 @@ def _menu_rules(S: Dict[str, str], has_whatsapp: bool, item_count: int, has_item
 def _about_rules() -> str:
     return """ABOUT / STORY — open layout:
 - One photo (if an unused photo exists) beside two short paragraphs written from the description. No card, no shadow, no box.
+- No unused photo: two columns of text — the two paragraphs, then three short facts from the description as a plain list. NEVER a copy of the hero's sticker / badge / signature label in place of the photo; a signature badge appears at most once on the page.
 - No quote block unless the merchant supplied a quote. At most ONE trust fact, and only if the description states it (year founded, "Pengusaha Muslim", an award).
 """
 
