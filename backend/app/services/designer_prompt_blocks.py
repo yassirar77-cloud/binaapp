@@ -81,6 +81,13 @@ def _hero_rules(plan: DesignPlan, S: Dict[str, str], has_whatsapp: bool, hero_vi
     }[plan.vertical if plan.vertical in dd.VERTICALS else "general"]
     if not has_whatsapp and primary == secondary:
         secondary = ""
+    light_line = ""
+    if getattr(plan, "theme", "") != "dark":
+        light_line = (
+            "- LIGHT (Cerah) theme: the hero stays light. No black panel and no dark scrim denser than 0.45 — a dark scrim plus a "
+            "black panel reads as a muddy block. Put the hero copy on a brand-coloured panel (primary at 90%, white text only if it "
+            "reads at 4.5:1) or a translucent white panel (bg-white/90, dark text).\n"
+        )
     video_line = ""
     if hero_video:
         video_line = (
@@ -90,6 +97,7 @@ def _hero_rules(plan: DesignPlan, S: Dict[str, str], has_whatsapp: bool, hero_vi
     return f"""HERO — the most characteristic thing first ({plan.hero_treatment}):
 - Headline: the dish / product / service name the merchant is known for when the description names one, otherwise the business name. One line beneath it, from the description.
 - Text on a photo MUST sit on a solid panel or a gradient scrim (rgba overlay ≥ 0.45 on the text side) so it reads at 4.5:1. Outlined buttons on a photo get a translucent fill (bg-white/15 backdrop-blur).
+{light_line}
 - CTA row = "{primary}"{f' + "{secondary}" (anchor to the section)' if secondary else ''}. NO third button.
 {video_line}- On a 390px phone: headline, line and CTA row visible without scrolling; the primary CTA is thumb-reachable (also a fixed bottom bar on mobile is acceptable when the plan's layout calls for it).
 """

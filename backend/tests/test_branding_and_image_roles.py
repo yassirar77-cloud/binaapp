@@ -1,6 +1,5 @@
 """Logo, favicon, theme-color; poster-style uploads shown whole."""
 
-import pytest
 
 from app.services.branding import apply_branding, favicon_from_initial, favicon_from_logo
 from app.services.image_roles import ImageShape, fit_transform, fix_poster_images, public_id_url, same_image

@@ -299,6 +299,48 @@ def _price_range(menu_items: List[Dict[str, str]]) -> str:
     return _fmt(low) if low == high else f"{_fmt(low)} - {_fmt(high)}"
 
 
+_MY_STATE_NAMES = (
+    "Johor", "Kedah", "Kelantan", "Melaka", "Negeri Sembilan", "Pahang", "Perak", "Perlis", "Pulau Pinang",
+    "Penang", "Sabah", "Sarawak", "Selangor", "Terengganu", "Kuala Lumpur", "Labuan", "Putrajaya",
+    "Wilayah Persekutuan", "W.P.", "WP",
+)
+_POSTCODE_RE = re.compile(r"\b(\d{5})\b")
+
+
+def postal_address(address: str) -> Dict[str, str]:
+    """schema.org PostalAddress from a Malaysian address string: the
+    postcode, the town after it, the state, and the street part before
+    the postcode. Parts that cannot be read are left out, never guessed."""
+    text = re.sub(r"\s+", " ", str(address or "")).strip().rstrip(".")
+    node: Dict[str, str] = {"@type": "PostalAddress", "addressCountry": "MY"}
+    if not text:
+        return node
+    region = ""
+    for name in _MY_STATE_NAMES:
+        m = re.search(rf"(?<![\w]){re.escape(name)}(?![\w])", text, re.IGNORECASE)
+        if m:
+            region = text[m.start():m.end()]
+            text_wo_region = (text[: m.start()] + text[m.end():]).strip(" ,")
+            break
+    else:
+        text_wo_region = text
+    pm = _POSTCODE_RE.search(text_wo_region)
+    if pm:
+        node["postalCode"] = pm.group(1)
+        after = text_wo_region[pm.end():].strip(" ,")
+        locality = after.split(",")[0].strip()
+        if locality:
+            node["addressLocality"] = locality
+        street = text_wo_region[: pm.start()].strip(" ,")
+        if street:
+            node["streetAddress"] = street
+    else:
+        node["streetAddress"] = text
+    if region:
+        node["addressRegion"] = region
+    return node
+
+
 def build_json_ld(meta: SeoMeta) -> Optional[Dict[str, Any]]:
     """schema.org node for the business, or None without enough real data."""
     if not meta.business_name:
@@ -313,7 +355,9 @@ def build_json_ld(meta: SeoMeta) -> Optional[Dict[str, Any]]:
         "name": meta.business_name,
     }
     if meta.description:
-        node["description"] = _clean(meta.description, 300)
+        # Ends at a sentence, never mid-phrase ("... Level 1" was the
+        # published JSON-LD description).
+        node["description"] = meta_description(meta.description, 300)
     if meta.site_url:
         node["url"] = meta.site_url
     if meta.hero_image:
@@ -321,11 +365,7 @@ def build_json_ld(meta: SeoMeta) -> Optional[Dict[str, Any]]:
     if meta.phone:
         node["telephone"] = meta.phone
     if meta.address:
-        node["address"] = {
-            "@type": "PostalAddress",
-            "streetAddress": meta.address,
-            "addressCountry": "MY",
-        }
+        node["address"] = postal_address(meta.address)
     if (meta.business_type or "").lower() in _FOOD_TYPES:
         node["servesCuisine"] = "Malaysian"
     price = _price_range(meta.menu_items)

@@ -24,7 +24,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 #: appended as positive-phrased exclusions.
 NEGATIVE_PROMPT = (
     "no text, no letters, no words, no lettering, no numbers, no captions, no signage, no labels, "
-    "no price tags, no signboards, no writing of any kind, no watermark, no logo anywhere in the image, "
+    "no printed amounts, no signboards, no writing of any kind, no watermark, no logo anywhere in the image, "
     "no people's faces"
 )
 NEGATIVE_TERMS = "text, letters, words, logo, watermark, signage, label, people's faces, faces, portrait"

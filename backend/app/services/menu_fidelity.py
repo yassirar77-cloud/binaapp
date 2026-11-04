@@ -33,7 +33,7 @@ from difflib import SequenceMatcher
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 from urllib.parse import quote
 
-from bs4 import BeautifulSoup, NavigableString, Tag
+from bs4 import BeautifulSoup, Tag
 from loguru import logger
 
 from app.services.data_consistency import format_price

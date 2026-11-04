@@ -4103,6 +4103,31 @@ header .grid {
 /* Inline contact WhatsApp icon: ensure the brand mark uses WhatsApp green so a
    primary-tinted container doesn't look like a broken orange circle. */
 .fa-whatsapp, .fab.fa-whatsapp, .fa-brands.fa-whatsapp { color: #25D366; }
+
+/* (g) Centred text stays centred. The generated stylesheet caps measure with
+   `p { max-width: 65ch }` and no auto margins, so a centred paragraph (the
+   contact phone, the copyright line, the QR label) sat flush-left inside its
+   centred parent. Centre the box, not just the text. */
+.text-center p, p.text-center, [class*="text-center"] > p,
+.text-center li, [class*="text-center"] > li { margin-left: auto; margin-right: auto; }
+
+/* (h) Footer text follows the footer. The generic `p { color: … }` rule in
+   the page stylesheet outranks the colour the footer inherits, which is how
+   a #5C3A2A copyright line landed on a #1A0F0A footer (unreadable). An
+   element rule here restores inheritance; a utility class on the element
+   (`text-white/70`) still wins by specificity, as it should. The runtime
+   nav-contrast guard below covers the footer as well. */
+footer p, footer li, footer dd, footer dt, footer small, footer address { color: inherit; }
+
+/* (i) Menu grid orphans: a lone card on the last row of a 3-up grid is
+   centred instead of stranded under the first column. Two-orphan rows are
+   left to the grid; the deterministic menu block uses a centred flex-wrap. */
+@media (min-width: 768px) {
+  section[id*="menu"] .grid[class~="md:grid-cols-3"] > :last-child:nth-child(3n+1) { grid-column: 2 / 3; }
+}
+@media (min-width: 1024px) {
+  section[id*="menu"] .grid[class~="lg:grid-cols-3"] > :last-child:nth-child(3n+1) { grid-column: 2 / 3; }
+}
 </style>
 """
 
@@ -4148,7 +4173,7 @@ header .grid {
       el.setAttribute(ATTR,'fixed');
     }
   }
-  function run(){try{var roots=document.querySelectorAll('header,body>nav');for(var i=0;i<roots.length;i++)fix(roots[i]);}catch(e){}}
+  function run(){try{var roots=document.querySelectorAll('header,body>nav,footer');for(var i=0;i<roots.length;i++)fix(roots[i]);}catch(e){}}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',run);else run();
   window.addEventListener('load',run);
   setTimeout(run,1500);

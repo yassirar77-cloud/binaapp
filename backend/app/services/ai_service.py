@@ -4952,7 +4952,7 @@ anything you might infer from the business name, description, or image filenames
 {chr(10).join(_lines)}
 
 ABSOLUTE RULES FOR THIS DATA:
-- Use ONLY the items listed above. Do NOT add any item that is not in this list:
+- Use ONLY the items listed above. Do NOT add any item that is not in this list.
   NEVER invent a dish, drink, product or service, and NEVER invent, round, convert
   or change a price. A card that is not in this list, or a price that differs from
   this list, is removed after generation.
@@ -5352,6 +5352,7 @@ TECHNICAL:
 
 MOBILE & POLISH (NON-NEGOTIABLE):
 - The sticky nav MUST have a working mobile menu: a hamburger button below the md breakpoint that toggles a slide-down panel with the nav links (simple JS class toggle). NEVER leave phone users with no navigation.
+- The mobile panel MUST end with the same WhatsApp / order CTA the desktop nav shows (full-width button) — phone users open that panel, not the desktop bar.
 - Add to the <style> block: html {{ scroll-padding-top: 5rem; }} so anchor jumps never hide section headings under the sticky nav.
 - Every <img> EXCEPT the hero image gets loading="lazy".
 - Hero and section headings get style="text-wrap: balance" (combine with the clamp() font-size where used).
@@ -10066,6 +10067,37 @@ IMPORTANT INSTRUCTIONS:
                 logger.info(f"🏷️ Branding applied: {_brand.as_dict()}")
             except Exception as _brand_err:
                 logger.warning(f"🏷️ Branding skipped: {_brand_err}")
+            # A light (Cerah) page keeps a light hero: scrim capped at 0.45,
+            # a black panel behind the copy becomes brand-coloured or white.
+            try:
+                _mode = str(getattr(request, "color_mode", "") or "").lower()
+                _is_light = _mode == "light" or (not _mode and plan is not None and getattr(plan, "theme", "") != "dark")
+                if _is_light:
+                    from app.services.hero_scrim import soften_light_hero
+                    _tokens_for_hero = extract_theme_tokens(html)
+                    _primary_for_hero = (plan.palette.get("primary") if plan is not None and isinstance(getattr(plan, "palette", None), dict) else None) or _tokens_for_hero.get("primary")
+                    html, _scrim = soften_light_hero(html, _primary_for_hero)
+                    if _scrim.changed:
+                        logger.info(f"🌤️ Light hero kept light: {_scrim.as_dict()}")
+            except Exception as _scrim_err:
+                logger.warning(f"🌤️ Hero scrim guard skipped: {_scrim_err}")
+            # The mobile nav panel carries the WhatsApp / order CTA.
+            try:
+                if wa_digits:
+                    from app.services.business_types import detect_business_type as _detect_biz
+                    from app.services.mobile_nav import ensure_mobile_nav_cta
+                    from app.services.site_strings import strings_for as _strings_for
+                    from app.services.whatsapp_prefill import default_prefill
+                    _S = _strings_for(language)
+                    _biz_for_cta = _detect_biz(request.description)
+                    _cta_label = _S.get("cta_order_whatsapp", "Pesan di WhatsApp") if _biz_for_cta in ("food", "bakery") else _S.get("cta_chat_whatsapp", "WhatsApp Kami")
+                    html, _mob = ensure_mobile_nav_cta(
+                        html, wa_digits, label=_cta_label, prefill=default_prefill(language, _biz_for_cta),
+                    )
+                    if _mob:
+                        logger.info("📱 WhatsApp CTA added to the mobile nav panel")
+            except Exception as _mob_err:
+                logger.warning(f"📱 Mobile nav CTA skipped: {_mob_err}")
             # Every phone number printed as text is a tel: link.
             try:
                 from app.services.contact_links import linkify_phones
@@ -10164,6 +10196,7 @@ IMPORTANT INSTRUCTIONS:
             validation_errors=validation.error_messages(),
             validation_warnings=[str(w) for w in validation.warnings],
             step_outcomes=step_outcomes,
+            menu_fidelity=getattr(self, "_last_menu_fidelity", None),
             was_truncated=truncation_flags.get("was_truncated", False),
             truncation_retries=truncation_flags.get("truncation_retries", 0),
             needs_manual_review=truncation_flags.get("needs_manual_review", False),
