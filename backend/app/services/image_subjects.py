@@ -23,8 +23,9 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 #: field receive NEGATIVE_TERMS; providers without one get NEGATIVE_PROMPT
 #: appended as positive-phrased exclusions.
 NEGATIVE_PROMPT = (
-    "no text, no letters, no words, no lettering, no captions, no signage, no labels, "
-    "no watermark, no logo anywhere in the image, no people's faces"
+    "no text, no letters, no words, no lettering, no numbers, no captions, no signage, no labels, "
+    "no printed amounts, no signboards, no writing of any kind, no watermark, no logo anywhere in the image, "
+    "no people's faces"
 )
 NEGATIVE_TERMS = "text, letters, words, logo, watermark, signage, label, people's faces, faces, portrait"
 

@@ -56,7 +56,7 @@ class TestInjection:
 
     def test_the_script_is_scoped_to_navigation_and_judges_nothing_transparent(self):
         js = TemplateService.NAV_CONTRAST_GUARD_JS
-        assert "querySelectorAll('header,body>nav')" in js
+        assert "querySelectorAll('header,body>nav,footer')" in js
         # A nav with no opaque background above it (transparent over the hero)
         # is left alone, as is any control that paints its own surface.
         assert "if(!rootBg)return;" in js

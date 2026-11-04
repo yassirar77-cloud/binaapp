@@ -915,10 +915,18 @@ async def regenerate_website(
     except ValueError:
         language_enum = Language.MALAY
 
+    # The merchant's stored menu (menu_items + menu_categories) travels with
+    # the regeneration. Without it the request carried no items and every
+    # regenerated site was built from the prose alone — four invented cards
+    # and invented prices on a 32-item menu.
+    stored_menu_items = await supabase_service.get_menu_items(website_id)
+    logger.info(f"[REGENERATE] {len(stored_menu_items)} stored menu item(s) attached for website {website_id}")
+
     ai_request = WebsiteGenerationRequest(
         description=new_description,
         language=language_enum,
         business_name=website["business_name"],
+        menu_items=stored_menu_items or None,
         business_type=website.get("business_type"),
         subdomain=website["subdomain"],
         include_whatsapp=bool(website.get("include_whatsapp")),

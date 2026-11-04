@@ -1936,6 +1936,7 @@ async def run_generation_task(
     design_freedom: Optional[str] = None,
     business_type: Optional[str] = None,
     hero_image_prompt: Optional[str] = None,
+    logo: Optional[str] = None,
     menu_items: Optional[list] = None,
     show_prices: bool = True,
     hero_video: bool = False,
@@ -2090,9 +2091,13 @@ async def run_generation_task(
             design_brief=design_brief,
             design_freedom=design_freedom,
             hero_image_prompt=hero_image_prompt,
+            logo=logo,
             menu_items=menu_items or [],
             show_prices=show_prices,
         )
+        # The supplied list, under its own name: the ``menu_items`` local is
+        # rebuilt from the uploaded photos further down.
+        menu_items_supplied = list(menu_items or [])
 
         # Create progress callback to update Supabase during generation
         async def progress_callback(progress: int, message: str):
@@ -2174,11 +2179,16 @@ async def run_generation_task(
                 # refusing to deliver one helps nobody — but it is now
                 # impossible for this to be invisible.
                 _validation_failed = not ai_response.validation_ok
+                # More than 20% of the merchant's items needing a correction
+                # is a run worth a human look, even though the page ships
+                # corrected.
+                _menu_report = getattr(ai_response, "menu_fidelity", None) or {}
+                _menu_severe = bool(_menu_report.get("severe"))
                 diag_update = {
                     "was_truncated": ai_response.was_truncated,
                     "truncation_retries": ai_response.truncation_retries,
                     "needs_manual_review": bool(
-                        ai_response.needs_manual_review or _validation_failed
+                        ai_response.needs_manual_review or _validation_failed or _menu_severe
                     ),
                     "step_timings": ai_response.step_timings or {},
                     "validation": {
@@ -2189,6 +2199,7 @@ async def run_generation_task(
                         # timed out and was discarded is not a completion,
                         # however long it ran.
                         "steps": dict(ai_response.step_outcomes or {}),
+                        "menu_fidelity": _menu_report,
                     },
                     "updated_at": datetime.now().isoformat(),
                 }
@@ -2202,6 +2213,12 @@ async def run_generation_task(
                 if ai_response.needs_manual_review:
                     logger.error(
                         f"🔴 Job {job_id[:8]} flagged for manual review (double truncation)"
+                    )
+                if _menu_severe:
+                    logger.error(
+                        f"🔴 Job {job_id[:8]} MENU FIDELITY: {_menu_report.get('corrections')} correction(s) on "
+                        f"{_menu_report.get('total')} item(s) — removed={_menu_report.get('removed')} "
+                        f"price_fixed={_menu_report.get('price_fixed')} injected={len(_menu_report.get('injected') or [])}"
                     )
             except Exception as diag_err:
                 logger.warning(f"⚠️ Could not persist generation diagnostics: {diag_err}")
@@ -2652,6 +2669,13 @@ async def run_generation_task(
                     f"user_id={_persist_uid} status=pending_payment "
                     f"html_chars={len(html)} job_id={job_id}"
                 )
+                # The merchant's items go with the draft, so a regeneration
+                # of this site starts from the same menu it was built from.
+                try:
+                    from app.services.menu_persistence import persist_menu_items
+                    persist_menu_items(supabase, generated_website_id, menu_items_supplied)
+                except Exception as _menu_err:
+                    logger.warning(f"🍽️ Draft menu persistence skipped: {_menu_err}")
             except ValueError:
                 logger.info(
                     f"⏭️ [WEBSITES INSERT] skipped draft persist — user_id not a UUID "
@@ -2751,6 +2775,7 @@ def _input_payload_for_job(body: dict) -> dict:
         "show_prices": body.get("show_prices"),
         "hero_video": body.get("hero_video"),
         "hero_image_prompt": body.get("hero_image_prompt"),
+        "logo": body.get("logo") or body.get("logo_url"),
         "address": body.get("address"),
         "whatsapp_number": body.get("whatsapp_number"),
         "opening_hours": body.get("opening_hours"),
@@ -2848,6 +2873,18 @@ async def _start_generation_from_body(body: dict, preferred_plan: Optional[dict]
     /api/generate/refine (a multi-style pick)."""
     # Extract parameters
     description = body.get("description") or body.get("business_description") or ""
+    # A fill-in the merchant never filled ("Waktu operasi: [ISI — contoh:
+    # 11 pagi – 10 malam]") is not information: the placeholder is removed
+    # before anything reads the brief, so its example is never published
+    # as a fact and the hours read as not supplied.
+    from app.services.placeholder_guard import strip_brief_placeholders
+    description, _placeholders = strip_brief_placeholders(description)
+    if _placeholders.changed:
+        logger.warning(
+            f"🧹 Brief placeholders removed: {_placeholders.removed[:6]}"
+            + (f"; dropped lines: {_placeholders.dropped_lines[:3]}" if _placeholders.dropped_lines else "")
+        )
+        body = {**body, "description": description, "business_description": description}
     # Round 2 (§B4): a story that says Seksyen 18 and an address that says
     # Seksyen 7 never both reach the page. Unresolved → 409 with the
     # question; resolved → the losing side is rewritten to the winner and
@@ -2891,6 +2928,15 @@ async def _start_generation_from_body(body: dict, preferred_plan: Optional[dict]
     image_choice = body.get("image_choice") or body.get("images_choice") or body.get("imageChoice") or "none"
     delivery = body.get("delivery") or None
     address = body.get("address") or None
+    if not address:
+        # The address field was empty but the story carries one ("Alamat:
+        # ..."). Without this the map, the JSON-LD address and the Waze /
+        # Google Maps buttons all had nothing to point at, even with the
+        # Google Maps feature switched on.
+        from app.services.data_consistency import address_from_brief
+        address = address_from_brief(description) or None
+        if address:
+            logger.info(f"📍 Address read from the brief (field was empty): {address!r}")
     social_media = body.get("social_media") or None
     payment = body.get("payment") or None  # Payment methods (cod, qr, qr_image)
     business_name = body.get("business_name") or body.get("businessName") or None  # Actual business name
@@ -2967,6 +3013,11 @@ async def _start_generation_from_body(body: dict, preferred_plan: Optional[dict]
     # which is collected separately and applied after publish.
     hero_image_prompt = (body.get("hero_image_prompt") or body.get("heroImagePrompt") or "")
     hero_image_prompt = str(hero_image_prompt).strip()[:400] or None
+    # The merchant's logo (uploaded on the create page): header, footer and
+    # favicon are built from it; without it the page shows a letter badge.
+    logo_url = str(body.get("logo") or body.get("logo_url") or "").strip()[:500] or None
+    if logo_url and not logo_url.lower().startswith(("http://", "https://")):
+        logo_url = None
 
     # ── Merchant-supplied items: names AND prices (the SOURCE OF TRUTH
     # contract already documented on WebsiteGenerationRequest.menu_items and
@@ -3397,6 +3448,7 @@ MANDATORY REQUIREMENTS:
         design_freedom=design_freedom,
         business_type=explicit_business_type,
         hero_image_prompt=hero_image_prompt,
+        logo=logo_url,
         menu_items=supplied_menu_items,
         show_prices=show_prices,
         hero_video=hero_video_wanted,
@@ -4422,6 +4474,15 @@ async def publish_website(
                     else "insert-new" if is_new_website
                     else "republish-update"
                 )
+                # Every named item the merchant entered, with its category —
+                # not only the photographed ones, and not only when delivery
+                # is on. A regeneration reads these back.
+                if menu_items_payload:
+                    try:
+                        from app.services.menu_persistence import persist_menu_items
+                        persist_menu_items(supabase, website_id, menu_items_payload)
+                    except Exception as _menu_err:
+                        logger.warning(f"🍽️ Menu persistence skipped: {_menu_err}")
                 logger.info(
                     f"✅ [WEBSITES INSERT] id={website_id} user_id={user_id} "
                     f"status=published mode={_publish_mode} subdomain={subdomain} "
@@ -4506,40 +4567,8 @@ async def publish_website(
                     }).execute()
                     category_id = cat_insert.data[0]["id"] if cat_insert.data else None
 
-                # Insert menu items (best-effort)
-                if menu_items_payload and category_id:
-                    items_to_insert = []
-                    from app.services.data_consistency import parse_price as _parse_price
-                    for idx, it in enumerate(menu_items_payload):
-                        if not isinstance(it, dict):
-                            continue
-                        name = it.get("name") or f"Item {idx+1}"
-                        img = it.get("image_url") or it.get("url") or None
-                        # Round 2 (§B6): a price is the merchant's decimal or
-                        # nothing. The old rotating default list invented
-                        # prices for the ordering menu; an item without a
-                        # valid price is left out of it (it can still be
-                        # asked about on WhatsApp) rather than priced by us.
-                        _dec = _parse_price(it.get("price"))
-                        if _dec is None:
-                            logger.warning(f"💸 Menu item '{name}' has no valid price — not added to the ordering menu")
-                            continue
-                        price = float(_dec)
-                        items_to_insert.append({
-                            "website_id": website_id,
-                            "category_id": category_id,
-                            "name": name,
-                            "description": it.get("description") or "Hidangan istimewa dari dapur kami",
-                            "price": price,
-                            "image_url": img,
-                            "is_available": True,
-                            "is_popular": False,
-                            "preparation_time": 15,
-                            "sort_order": idx
-                        })
-                    if items_to_insert:
-                        supabase.table("menu_items").insert(items_to_insert).execute()
-
+                # Menu items were persisted above (menu_persistence) with
+                # their categories; nothing to insert here.
                 # Insert a default delivery zone + settings
                 if delivery:
                     try:

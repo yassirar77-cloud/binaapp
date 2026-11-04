@@ -63,6 +63,7 @@ from app.services.claim_sanitizer import (
     sensitive_claim_patterns,
 )
 from app.services.seo_metadata import SeoMeta, inject_seo_metadata
+from app.services import menu_fidelity as _mf
 from app.services.layout_guard_audit import firing_guards
 from app.services.generation_validator import (
     ValidationResult,
@@ -4335,6 +4336,8 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
         payment_methods: Optional[list] = None,
         opening_hours: Optional[str] = None,
         gallery_count: int = 0,
+        logo_url: Optional[str] = None,
+        poster_urls: Optional[list] = None,
     ) -> str:
         """Build the HTML generation prompt.
 
@@ -4618,6 +4621,38 @@ Keep all text consistent in English throughout."""
         if location_address and str(location_address).strip():
             address_line = f"✅ Address (use EXACTLY, do not invent): {str(location_address).strip()}"
 
+        # ---- LOGO / POSTER UPLOADS ----
+        if logo_url and str(logo_url).strip():
+            _logo_rule = (
+                f'- The merchant uploaded a LOGO: {str(logo_url).strip()} — render it as <img src="{str(logo_url).strip()}" alt="{name}" class="h-10 md:h-12 w-auto"> '
+                "inside the header brand link (before the business name text) and again in the footer brand block (h-8). "
+                "NEVER render a single-letter badge or an icon as the logo when this image exists."
+            )
+        else:
+            _logo_rule = "- No logo was uploaded: the header brand is the business name as styled text (a small initial badge is acceptable)."
+        _poster_rule = ""
+        if poster_urls:
+            _poster_rule = (
+                "- POSTER / MENU-BOARD UPLOADS (tall, text-heavy): "
+                + ", ".join(str(u) for u in poster_urls)
+                + ". Use these ONLY inside the menu section, shown whole (object-contain, never object-cover) with the "
+                "menu heading — NEVER as the hero, the about/story photo, a background, or a cropped card image."
+            )
+
+        # ---- OPENING HOURS ----
+        # Hours come from the structured field only. A brief that carried a
+        # fill-in ("Waktu operasi: [ISI — contoh: 11 pagi – 10 malam]") had
+        # its example published as the real hours; the placeholder is now
+        # stripped upstream and the page says to ask, never a guess.
+        from app.services.placeholder_guard import hours_fallback as _hours_fallback
+        if opening_hours and str(opening_hours).strip():
+            hours_line = f"✅ Opening hours (use EXACTLY): {str(opening_hours).strip()}"
+        else:
+            hours_line = (
+                f'✅ Opening hours were NOT supplied: wherever hours would appear, render exactly "{_hours_fallback(language)}". '
+                "NEVER invent, guess or copy example hours from the description."
+            )
+
         # ---- IMAGE INSTRUCTIONS ----
         if image_choice == "none":
             image_section = """IMAGE MODE: NO IMAGES
@@ -4878,6 +4913,24 @@ The merchant's own business data states the following: {_labels}.
                 "  such as \"price on request\" / \"atas permintaan\". Point customers to the\n"
                 "  WhatsApp/contact CTA to ask instead."
             )
+        # Large menus are rendered deterministically from the data after
+        # generation (menu_fidelity): the model emits ONE empty slot inside
+        # the menu section instead of transcribing 30 names and prices into
+        # a 16k-token page. Small menus stay model-laid-out and are
+        # reconciled against the data afterwards.
+        _deterministic_menu = _mf.use_deterministic_menu(_mf.normalize_items(_supplied_items))
+        if _deterministic_menu:
+            _render_rule = (
+                f"- DO NOT write the item cards yourself. The {_noun} section = its heading, ONE short intro\n"
+                f"  line, and then exactly this empty slot, which is filled with all {len(_supplied_items)} items\n"
+                f"  (grouped by CATEGORY, names and prices verbatim) after generation:\n"
+                f'  <div id="{_mf.MENU_SLOT_ID}"></div>\n'
+                f"  Emit the slot ONCE, as a direct child of the section's content container, after the\n"
+                f"  heading. Do NOT write any item name, price, card, tile, list row or table for these\n"
+                f"  items anywhere else on the page (the hero may name ONE signature item, without a price)."
+            )
+        else:
+            _render_rule = "- Render EVERY item listed above. Do not drop, merge, or summarise any of them."
         if _supplied_items:
             _lines = []
             for idx, it in enumerate(_supplied_items, 1):
@@ -4899,15 +4952,19 @@ anything you might infer from the business name, description, or image filenames
 {chr(10).join(_lines)}
 
 ABSOLUTE RULES FOR THIS DATA:
-- Render EVERY item listed above. Do not drop, merge, or summarise any of them.
+- Use ONLY the items listed above. Do NOT add any item that is not in this list.
+  NEVER invent a dish, drink, product or service, and NEVER invent, round, convert
+  or change a price. A card that is not in this list, or a price that differs from
+  this list, is removed after generation.
+{_render_rule}
 - Copy each NAME character-for-character. Do NOT rename, translate, reorder words,
   add the business name, or append qualifiers like "Set", "Combo", "Istimewa", "Special".
 {_price_rule}
-- Do NOT add any item that is not in this list.
 - Where an item has no supplied description you may write ONE short appetising line,
   but it must not assert facts absent from the data (no cooking times, no ingredient
   lists, no provenance, no awards, no spice levels).
-- If CATEGORY values are present, group the items under those categories."""
+- If CATEGORY values are present, group the items under those categories, in the
+  order the categories first appear, each under its own sub-heading."""
         elif not _has_slot_names:
             # Previously gated to ("food", "bakery", "clothing", "general") —
             # which excluded salon and services, the two verticals with the
@@ -4949,6 +5006,20 @@ The merchant did NOT provide {_noun} items, and none could be read from the desc
   such as "Atas permintaan", "Price on request", "Hubungi kami untuk harga",
   "From RM.." or "TBA". Omit the price element entirely instead.
 - An empty, honest section is REQUIRED over a fabricated one."""
+
+        else:
+            # Photos were supplied or generated and labelled, but the merchant
+            # entered NO item data. The labels name the photos; they are not
+            # a price list. This is the branch that published "Ayam Goreng
+            # Coklat RM12.50" on a merchant who never typed either.
+            menu_data_block = f"""===== NO {_noun.upper()} DATA SUPPLIED — PHOTOS ONLY =====
+The merchant did NOT enter any {_noun} items or prices. The labelled photos below are
+gallery captions, nothing more.
+- Show each labelled photo as a captioned gallery tile with its label as the caption.
+- DO NOT render a price for any tile — no "RM", no price range, no "from RM..", and no
+  substitute wording such as "Atas permintaan" / "Price on request".
+- DO NOT add any tile, dish, product or service that is not one of the labelled photos.
+- Point customers to the WhatsApp/contact CTA to ask about the full {_noun} and prices."""
 
         # ---- USER OVERRIDE CONDITIONALS ----
         # An explicit user colour request lifts the matching generic ban
@@ -5047,6 +5118,7 @@ HERO BLUEPRINT RULES:
                 gallery_count=gallery_count,
                 hero_video=hero_video,
                 payment_methods=payment_methods or [],
+                deterministic_menu=_deterministic_menu,
             )
             _flex_block = dpb.ANTI_TEMPLATE_RULES + "\n" + dpb.QUALITY_FLOOR_RULES
         elif designer_mode:
@@ -5214,6 +5286,7 @@ ICONS — Font Awesome FREE 6.x ONLY (non-negotiable):
 {icon_glyph_guidance}
 
 BRAND / LOGO (non-negotiable):
+{_logo_rule}
 - The logo and footer brand text MUST be the FULL business name exactly: "{name}".
 - NEVER truncate the name to a single word or a fragment (e.g. do NOT render "kedai." for "Kedai Tomyam"). A styled dot or accent colour is allowed only AFTER the complete name.
 
@@ -5261,7 +5334,9 @@ MUST WRITE REAL CONTENT:
 ✅ Real contact message
 {_wa_content_line}
 {address_line}
-🚫 DO NOT invent phone numbers, addresses, cities, awards
+{hours_line}
+{_poster_rule}
+🚫 DO NOT invent phone numbers, addresses, cities, awards, or opening hours
 
 {wa_rules}
 
@@ -5277,6 +5352,7 @@ TECHNICAL:
 
 MOBILE & POLISH (NON-NEGOTIABLE):
 - The sticky nav MUST have a working mobile menu: a hamburger button below the md breakpoint that toggles a slide-down panel with the nav links (simple JS class toggle). NEVER leave phone users with no navigation.
+- The mobile panel MUST end with the same WhatsApp / order CTA the desktop nav shows (full-width button) — phone users open that panel, not the desktop bar.
 - Add to the <style> block: html {{ scroll-padding-top: 5rem; }} so anchor jumps never hide section headings under the sticky nav.
 - Every <img> EXCEPT the hero image gets loading="lazy".
 - Hero and section headings get style="text-wrap: balance" (combine with the clamp() font-size where used).
@@ -7724,6 +7800,19 @@ IMPORTANT RULES:
         """
         import time
         start_time = time.time()
+        # Fill-in placeholders and "contoh:" examples never reach the model
+        # (the create route strips them too; this covers every caller).
+        self._last_placeholder_examples = []
+        self._last_poster_uploads = []
+        try:
+            from app.services.placeholder_guard import strip_brief_placeholders
+            _clean_desc, _ph = strip_brief_placeholders(getattr(request, "description", "") or "")
+            if _ph.changed:
+                request.description = _clean_desc
+                self._last_placeholder_examples = list(_ph.examples)
+                logger.warning(f"🧹 Brief placeholders stripped before generation: {_ph.removed[:6]} (dropped lines: {_ph.dropped_lines[:3]})")
+        except Exception as _ph_err:
+            logger.warning(f"🧹 Placeholder strip skipped: {_ph_err}")
 
         async def update_progress(percent: int, message: str):
             if progress_callback:
@@ -7852,6 +7941,54 @@ IMPORTANT RULES:
         return final_html
 
     # ==================== FREE AUTO-FILL (missing image slots) ====================
+
+    def _enforce_menu_fidelity(
+        self,
+        html: str,
+        request: WebsiteGenerationRequest,
+        *,
+        wa_digits: str = "",
+        language: str = "ms",
+        model: str = "",
+    ) -> str:
+        """Fill the deterministic menu slot and reconcile the page's menu
+        against the merchant's items. Never raises; the report is kept on
+        ``self._last_menu_fidelity`` for the job diagnostics."""
+        self._last_menu_fidelity = None
+        try:
+            items = _mf.normalize_items(self._normalize_supplied_menu_items(getattr(request, "menu_items", None)))
+            if not items:
+                # Nothing supplied: nothing to reconcile, but an empty slot
+                # must not ship as a blank box.
+                html, _ = _mf.fill_menu_slot(html, "<!-- no menu data supplied -->")
+                return html
+            from app.services.whatsapp_prefill import order_prefill_for
+            show_prices = bool(getattr(request, "show_prices", True))
+            prefill = order_prefill_for(getattr(request, "description", ""), language, business_type="food")
+            if _mf.use_deterministic_menu(items):
+                block = _mf.render_menu_block(
+                    items, language=language, wa_digits=wa_digits, show_prices=show_prices, order_prefill=prefill,
+                )
+                html, filled = _mf.fill_menu_slot(html, block)
+                logger.info(
+                    f"🍽️ Deterministic menu: {len(items)} items "
+                    f"{'rendered into the slot' if filled else 'SLOT MISSING — reconciling instead'} [model={model or 'unknown'}]"
+                )
+            html, report = _mf.reconcile_menu(
+                html, items, language=language, wa_digits=wa_digits, show_prices=show_prices, order_prefill=prefill,
+            )
+            _mf.log_report(report, business=getattr(request, "business_name", ""), model=model)
+            self._last_menu_fidelity = report.as_dict()
+            # Per-item order links carry the ordering choices the brief
+            # mentions (spice level, dine-in / take away) as blanks.
+            from app.services.whatsapp_prefill import enrich_order_links
+            html, _n_links = enrich_order_links(html, getattr(request, "description", ""), language)
+            if _n_links:
+                logger.info(f"💬 {_n_links} item order link(s) now carry the ordering choices from the brief")
+            return html
+        except Exception as err:
+            logger.warning(f"🍽️ Menu fidelity skipped: {err}")
+            return html
 
     def _inject_seo_metadata(
         self,
@@ -9060,6 +9197,27 @@ IMPORTANT RULES:
 
             await update_progress(45, "AI images generated")
 
+        # Which uploads are posters (tall or text-heavy): kept out of the
+        # hero/about roles, fitted rather than filled, shown whole.
+        _poster_uploads: List[str] = []
+        if request.uploaded_images:
+            try:
+                from app.services import image_roles as _roles
+                _text_check = None
+                if self._image_check_available():
+                    async def _text_check(url: str) -> bool:
+                        verdict = await image_vision_check.check_image(
+                            url, "a photo for a business website", call_model=self._call_image_check_model,
+                        )
+                        return bool(verdict.has_text)
+                _shapes = await _roles.classify_uploads(request.uploaded_images, text_check=_text_check)
+                _poster_uploads = _roles.poster_urls(_shapes)
+                self._last_poster_uploads = list(_poster_uploads)
+                if _poster_uploads:
+                    logger.info(f"🖼️ {len(_poster_uploads)} poster-style upload(s) will be fitted, not cropped, and kept out of hero/about")
+            except Exception as _roles_err:
+                logger.warning(f"🖼️ Upload role classification skipped: {_roles_err}")
+
         # Consistent crop ratios per section (§6): hero 16:9, item tiles
         # 4:3 — applied as Cloudinary transforms on every resolved URL (and
         # the request's own list, so the exact-URL validation stays in
@@ -9071,6 +9229,15 @@ IMPORTANT RULES:
                 image_urls = apply_section_crops(image_urls, item_role=_item_role)
                 if request.uploaded_images:
                     request.uploaded_images = crop_uploaded_images(request.uploaded_images, item_role=_item_role)
+                if _poster_uploads:
+                    from app.services.image_roles import fit_transform as _fit, same_image as _same
+                    for _k, _v in list(image_urls.items()):
+                        if isinstance(_v, str) and any(_same(_v, _p) for _p in _poster_uploads):
+                            image_urls[_k] = _fit(_v)
+                    request.uploaded_images = [
+                        ({**_img, "url": _fit(_img["url"])} if isinstance(_img, dict) and _img.get("url") and any(_same(_img["url"], _p) for _p in _poster_uploads) else _img)
+                        for _img in request.uploaded_images
+                    ]
             except Exception as _crop_err:
                 logger.warning(f"🖼️ Section crops skipped: {_crop_err}")
 
@@ -9291,6 +9458,8 @@ IMPORTANT RULES:
             payment_methods=getattr(request, "payment_methods", None),
             opening_hours=getattr(request, "opening_hours", None),
             gallery_count=self._gallery_image_count(request),
+            logo_url=getattr(request, "logo", None),
+            poster_urls=_poster_uploads,
         )
 
         # Add image URLs to prompt with STRONG emphasis.
@@ -9825,6 +9994,12 @@ IMPORTANT INSTRUCTIONS:
             html, _n_prices = reformat_prices(html)
             if _n_prices:
                 logger.info(f"💸 Reformatted {_n_prices} price(s) to RM0.00 form")
+            # Menu fidelity: the merchant's items, verbatim, grouped by their
+            # categories — rendered into the slot for a large menu, and in
+            # every case reconciled against the data (invented card removed,
+            # wrong price corrected, missing item injected). Logged per
+            # correction; an error line when more than 20% needed one.
+            html = self._enforce_menu_fidelity(html, request, wa_digits=wa_digits, language=language, model=_html_model)
             if bool(getattr(request, "is_24h", False)):
                 html, _n_24 = enforce_24h_copy(html, language)
                 if _n_24:
@@ -9849,6 +10024,24 @@ IMPORTANT INSTRUCTIONS:
                 self._last_fact_guard = _fact_report.as_dict()
             except Exception as _fact_err:
                 logger.warning(f"🧾 Fact guard skipped: {_fact_err}")
+            # Example text from a form placeholder or a stripped brief
+            # fill-in must not be on the page even if the model echoed it.
+            try:
+                from app.services.placeholder_guard import scrub_placeholder_echo
+                html, _ph_hits = scrub_placeholder_echo(html, getattr(self, "_last_placeholder_examples", []) or [], language=language)
+                if _ph_hits:
+                    logger.warning(f"🧹 Placeholder echo removed from the page: {_ph_hits[:6]}")
+            except Exception as _ph_err:
+                logger.warning(f"🧹 Placeholder echo scrub skipped: {_ph_err}")
+            # Nothing empty ships: a section the guards emptied, or a pair
+            # of decorative dividers framing nothing, is removed.
+            try:
+                from app.services.section_hygiene import clean_sections
+                html, _hyg = clean_sections(html)
+                if _hyg.changed:
+                    logger.info(f"🧽 Section hygiene: {_hyg.as_dict()}")
+            except Exception as _hyg_err:
+                logger.warning(f"🧽 Section hygiene skipped: {_hyg_err}")
             # Round 2 (§D14): a single-letter logo badge takes the plan's
             # accent colour and display font, never a default blue square.
             if plan is not None:
@@ -9861,6 +10054,69 @@ IMPORTANT INSTRUCTIONS:
                         logger.info(f"🔤 Logo badge restyled to the plan accent ({_n_badge})")
                 except Exception as _badge_err:
                     logger.warning(f"🔤 Logo badge restyle skipped: {_badge_err}")
+            # Brand assets: theme-color = the page's primary, favicon from
+            # the logo (or the primary + initial), the uploaded logo in the
+            # header and footer instead of a letter badge.
+            try:
+                from app.services.branding import apply_branding
+                _tokens = extract_theme_tokens(html)
+                _primary = (plan.palette.get("primary") if plan is not None and isinstance(getattr(plan, "palette", None), dict) else None) or _tokens.get("primary")
+                html, _brand = apply_branding(
+                    html, business_name=request.business_name, primary=_primary, logo_url=getattr(request, "logo", None),
+                )
+                logger.info(f"🏷️ Branding applied: {_brand.as_dict()}")
+            except Exception as _brand_err:
+                logger.warning(f"🏷️ Branding skipped: {_brand_err}")
+            # A light (Cerah) page keeps a light hero: scrim capped at 0.45,
+            # a black panel behind the copy becomes brand-coloured or white.
+            try:
+                _mode = str(getattr(request, "color_mode", "") or "").lower()
+                _is_light = _mode == "light" or (not _mode and plan is not None and getattr(plan, "theme", "") != "dark")
+                if _is_light:
+                    from app.services.hero_scrim import soften_light_hero
+                    _tokens_for_hero = extract_theme_tokens(html)
+                    _primary_for_hero = (plan.palette.get("primary") if plan is not None and isinstance(getattr(plan, "palette", None), dict) else None) or _tokens_for_hero.get("primary")
+                    html, _scrim = soften_light_hero(html, _primary_for_hero)
+                    if _scrim.changed:
+                        logger.info(f"🌤️ Light hero kept light: {_scrim.as_dict()}")
+            except Exception as _scrim_err:
+                logger.warning(f"🌤️ Hero scrim guard skipped: {_scrim_err}")
+            # The mobile nav panel carries the WhatsApp / order CTA.
+            try:
+                if wa_digits:
+                    from app.services.business_types import detect_business_type as _detect_biz
+                    from app.services.mobile_nav import ensure_mobile_nav_cta
+                    from app.services.site_strings import strings_for as _strings_for
+                    from app.services.whatsapp_prefill import default_prefill
+                    _S = _strings_for(language)
+                    _biz_for_cta = _detect_biz(request.description)
+                    _cta_label = _S.get("cta_order_whatsapp", "Pesan di WhatsApp") if _biz_for_cta in ("food", "bakery") else _S.get("cta_chat_whatsapp", "WhatsApp Kami")
+                    html, _mob = ensure_mobile_nav_cta(
+                        html, wa_digits, label=_cta_label, prefill=default_prefill(language, _biz_for_cta),
+                    )
+                    if _mob:
+                        logger.info("📱 WhatsApp CTA added to the mobile nav panel")
+            except Exception as _mob_err:
+                logger.warning(f"📱 Mobile nav CTA skipped: {_mob_err}")
+            # Every phone number printed as text is a tel: link.
+            try:
+                from app.services.contact_links import linkify_phones
+                html, _n_tel = linkify_phones(html)
+                if _n_tel:
+                    logger.info(f"📞 {_n_tel} phone number(s) turned into tel: links")
+            except Exception as _tel_err:
+                logger.warning(f"📞 tel: linking skipped: {_tel_err}")
+            # A poster-style upload that still ended up outside the menu is
+            # shown whole rather than cropped.
+            try:
+                _posters = getattr(self, "_last_poster_uploads", None) or []
+                if _posters:
+                    from app.services.image_roles import fix_poster_images
+                    html, _n_posters = fix_poster_images(html, _posters)
+                    if _n_posters:
+                        logger.info(f"🖼️ {_n_posters} poster image(s) switched to object-contain")
+            except Exception as _poster_err:
+                logger.warning(f"🖼️ Poster fix skipped: {_poster_err}")
             # SEO / social metadata, emitted deterministically from data the
             # pipeline already has. Malaysian SMEs share by pasting the link
             # into WhatsApp; with no OG tags that renders as a bare URL.
@@ -9940,6 +10196,7 @@ IMPORTANT INSTRUCTIONS:
             validation_errors=validation.error_messages(),
             validation_warnings=[str(w) for w in validation.warnings],
             step_outcomes=step_outcomes,
+            menu_fidelity=getattr(self, "_last_menu_fidelity", None),
             was_truncated=truncation_flags.get("was_truncated", False),
             truncation_retries=truncation_flags.get("truncation_retries", 0),
             needs_manual_review=truncation_flags.get("needs_manual_review", False),

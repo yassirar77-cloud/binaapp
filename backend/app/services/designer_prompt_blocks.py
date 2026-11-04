@@ -81,6 +81,13 @@ def _hero_rules(plan: DesignPlan, S: Dict[str, str], has_whatsapp: bool, hero_vi
     }[plan.vertical if plan.vertical in dd.VERTICALS else "general"]
     if not has_whatsapp and primary == secondary:
         secondary = ""
+    light_line = ""
+    if getattr(plan, "theme", "") != "dark":
+        light_line = (
+            "- LIGHT (Cerah) theme: the hero stays light. No black panel and no dark scrim denser than 0.45 — a dark scrim plus a "
+            "black panel reads as a muddy block. Put the hero copy on a brand-coloured panel (primary at 90%, white text only if it "
+            "reads at 4.5:1) or a translucent white panel (bg-white/90, dark text).\n"
+        )
     video_line = ""
     if hero_video:
         video_line = (
@@ -90,12 +97,21 @@ def _hero_rules(plan: DesignPlan, S: Dict[str, str], has_whatsapp: bool, hero_vi
     return f"""HERO — the most characteristic thing first ({plan.hero_treatment}):
 - Headline: the dish / product / service name the merchant is known for when the description names one, otherwise the business name. One line beneath it, from the description.
 - Text on a photo MUST sit on a solid panel or a gradient scrim (rgba overlay ≥ 0.45 on the text side) so it reads at 4.5:1. Outlined buttons on a photo get a translucent fill (bg-white/15 backdrop-blur).
+{light_line}
 - CTA row = "{primary}"{f' + "{secondary}" (anchor to the section)' if secondary else ''}. NO third button.
 {video_line}- On a 390px phone: headline, line and CTA row visible without scrolling; the primary CTA is thumb-reachable (also a fixed bottom bar on mobile is acceptable when the plan's layout calls for it).
 """
 
 
-def _menu_rules(S: Dict[str, str], has_whatsapp: bool, item_count: int, has_item_images: bool, show_prices: bool, wa_digits: str, prefill: str) -> str:
+def _menu_rules(S: Dict[str, str], has_whatsapp: bool, item_count: int, has_item_images: bool, show_prices: bool, wa_digits: str, prefill: str, deterministic: bool = False) -> str:
+    if deterministic:
+        # The items are rendered from the data after generation
+        # (menu_fidelity.render_menu_block); the model only frames them.
+        return f"""MENU — the core of the site ({item_count} items, rendered from the merchant's data AFTER generation):
+- The section = heading, ONE short intro line, then exactly this empty slot as a direct child of the content container: <div id="binaapp-menu-slot"></div>
+- The slot is filled with every item (grouped by the merchant's categories, names and prices verbatim). Do NOT write any item name, price, tile, list row or table yourself — not in this section and not anywhere else (the hero may name ONE signature item without a price).
+- Give the section the page's surface colour and generous padding; the rendered cards inherit --primary-color / --accent-color / --surface-color / --text-color, so declare those CSS variables on :root.
+"""
     featured = min(item_count, MAX_FEATURED_MENU_ITEMS) if item_count else 0
     more = ""
     if item_count > MAX_FEATURED_MENU_ITEMS:
@@ -126,9 +142,10 @@ def _about_rules() -> str:
 """
 
 
-def _location_rules(S: Dict[str, str], address: Optional[str], include_maps: bool, hours: Optional[str]) -> str:
+def _location_rules(S: Dict[str, str], address: Optional[str], include_maps: bool, hours: Optional[str], language: str = "ms") -> str:
+    from app.services.placeholder_guard import hours_fallback
     if not address:
-        return """LOCATION — no address was supplied: omit the location section entirely (no map, no invented address, no "Jumpa Kami" filler). Keep hours out unless supplied.
+        return f"""LOCATION — no address was supplied: omit the location section entirely (no map, no invented address, no "Jumpa Kami" filler). Hours: {('render exactly "' + hours + '"') if hours else ('not supplied — if the page shows hours anywhere, the text is exactly "' + hours_fallback(language) + '"; never invent or guess hours')}.
 """
     from urllib.parse import quote_plus
     maps_line = (
@@ -136,7 +153,7 @@ def _location_rules(S: Dict[str, str], address: Optional[str], include_maps: boo
         if include_maps else
         f'- Google Maps OFF: address TEXT only plus one link "{S["cta_open_maps"]}" → https://www.google.com/maps/search/?api=1&query={quote_plus(address)}. NO map card, NO decorative map illustration, NO iframe.'
     )
-    hours_line = f"- Hours (supplied — render exactly): {hours}" if hours else "- Hours were NOT supplied: do not render any opening hours."
+    hours_line = f"- Hours (supplied — render exactly): {hours}" if hours else f'- Hours were NOT supplied: render exactly "{hours_fallback(language)}" where hours would go. NEVER invent, guess or copy example hours from the description.'
     return f"""LOCATION & HOURS:
 - Address text exactly: {address}
 {maps_line}
@@ -201,13 +218,14 @@ def section_standards_block(
     gallery_count: int,
     hero_video: bool,
     payment_methods: Sequence[str],
+    deterministic_menu: bool = False,
 ) -> str:
     S = strings_for(language)
     is_fnb = plan.vertical in dd.FNB_VERTICALS
     parts: List[str] = ["===== SECTION STANDARDS (build each listed section exactly like this) =====",
                         _hero_rules(plan, S, has_whatsapp, hero_video, is_fnb)]
     if is_fnb and "menu" in plan.sections:
-        parts.append(_menu_rules(S, has_whatsapp, item_count, has_item_images, show_prices, wa_digits, S["wa_prefill"]))
+        parts.append(_menu_rules(S, has_whatsapp, item_count, has_item_images, show_prices, wa_digits, S["wa_prefill"], deterministic_menu))
     elif plan.vertical == "clothing":
         parts.append(
             "KOLEKSI — a lookbook grid of the supplied products (photo tiles, item name and price beneath), then SAIZ & PENGHANTARAN as two columns of plain text from the description, then CARA ORDER as three numbered lines. No Menu section.\n"
@@ -227,7 +245,7 @@ def section_standards_block(
     if "about" in plan.sections:
         parts.append(_about_rules())
     if "location" in plan.sections or "hubungi" in plan.sections:
-        parts.append(_location_rules(S, address, include_maps, hours))
+        parts.append(_location_rules(S, address, include_maps, hours, language))
     parts.append(_gallery_rules(gallery_count))
     parts.append(_contact_rules(S, has_whatsapp, include_contact_form, include_social, socials))
     parts.append(_footer_rules(S, address, hours, has_whatsapp, payment_methods))

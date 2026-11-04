@@ -33,6 +33,7 @@ import {
 import { checkCreateWebsiteAllowed } from '@/lib/quota'
 import { GENERATION_POLL_INTERVAL_MS, afterSleep, initialLiveness, observePoll, pollGiveUpMessage, pollVerdict } from '@/lib/generationPoll'
 import { normalizePriceInput } from '@/lib/priceInput'
+import { parseMenuPaste, rowsForRequest, categoriesOf, menuRowsWarning, saveMenuRows, loadMenuRows, clearMenuRows, slugMismatchWarning, type MenuRow } from '@/lib/menuRows'
 import {
   BRIEF_EXAMPLES,
   DESIGN_BRIEF_MAX,
@@ -205,13 +206,37 @@ export default function CreatePage() {
   }, [shareMenuOpen])
   const [uploadedImages, setUploadedImages] = useState<{
     hero: string | null
-    gallery: { url: string; name: string; price: string }[]
+    gallery: MenuRow[]
   }>({ hero: null, gallery: [] })
+  // The menu rows are the one input with no other draft: a reload, a tab
+  // the phone discarded, or an auth bounce used to take all of them with
+  // it (32 items typed, `menu_items: []` sent). They are mirrored to
+  // localStorage on every change and restored on mount; cleared when the
+  // site is published or the form is reset for a new site.
+  const menuRowsRestored = useRef(false)
+  useEffect(() => {
+    if (menuRowsRestored.current) return
+    menuRowsRestored.current = true
+    const saved = loadMenuRows()
+    if (saved.length > 0) {
+      setUploadedImages(prev => (prev.gallery.length === 0 ? { ...prev, gallery: saved } : prev))
+    }
+  }, [])
+  useEffect(() => {
+    if (!menuRowsRestored.current) return
+    saveMenuRows(uploadedImages.gallery)
+  }, [uploadedImages.gallery])
+  const [menuPasteOpen, setMenuPasteOpen] = useState(false)
+  const [menuPasteText, setMenuPasteText] = useState('')
 
   // V3 inline upload UI state (replaces VisualImageUpload sub-component).
   // These are ephemeral UX-only refs — uploadedImages above remains the
   // source of truth that flows to the backend.
   const [heroPreview, setHeroPreview] = useState<string>('')
+  // The merchant's logo: header, footer and favicon are built from it on
+  // the backend. Without it the page shows a letter badge.
+  const [logoUrl, setLogoUrl] = useState<string>('')
+  const [uploadingLogo, setUploadingLogo] = useState(false)
   const [uploadingHero, setUploadingHero] = useState(false)
   const [menuPreviews, setMenuPreviews] = useState<Record<number, string>>({})
   const [uploadingMenuIdx, setUploadingMenuIdx] = useState<number | null>(null)
@@ -473,6 +498,8 @@ export default function CreatePage() {
     setPaymentQR(null)
     setPaymentQRPreview('')
     setUploadedImages({ hero: null, gallery: [] })
+    clearMenuRows()
+    setLogoUrl('')
     setHeroPreview('')
     setMenuPreviews({})
     setSelectedFeatures({
@@ -548,6 +575,20 @@ export default function CreatePage() {
     }
   }
 
+  const handleLogoFile = async (file: File) => {
+    const v = validateImageFile(file)
+    if (v) { toast.error(v); return }
+    setUploadingLogo(true)
+    try {
+      const url = await uploadImageToBackend(file)
+      setLogoUrl(url)
+    } catch (err: any) {
+      toast.error(err.message || 'Gagal muat naik logo')
+    } finally {
+      setUploadingLogo(false)
+    }
+  }
+
   const removeHero = () => {
     if (heroPreview) URL.revokeObjectURL(heroPreview)
     setHeroPreview('')
@@ -567,7 +608,7 @@ export default function CreatePage() {
   }
 
   // Menu items (uploadedImages.gallery is source of truth)
-  const ensureGalleryRow = (idx: number): { url: string; name: string; price: string }[] => {
+  const ensureGalleryRow = (idx: number): MenuRow[] => {
     const cur = uploadedImages.gallery
     if (idx < cur.length) return cur
     const next = [...cur]
@@ -575,7 +616,7 @@ export default function CreatePage() {
     return next
   }
 
-  const updateMenuField = (idx: number, patch: Partial<{ url: string; name: string; price: string }>) => {
+  const updateMenuField = (idx: number, patch: Partial<MenuRow>) => {
     setUploadedImages(prev => {
       const arr = [...prev.gallery]
       while (arr.length <= idx) arr.push({ url: '', name: '', price: '' })
@@ -586,6 +627,21 @@ export default function CreatePage() {
 
   const addMenuItemRow = () => {
     setUploadedImages(prev => ({ ...prev, gallery: [...prev.gallery, { url: '', name: '', price: '' }] }))
+  }
+
+  // A whole menu pasted at once ("Set Ayam: Set A – Ayam Gepuk 12.50 | ...")
+  // becomes rows with their section labels. Appended after the rows that
+  // already exist; blank rows are dropped so the list stays tidy.
+  const importMenuPaste = () => {
+    const parsed = parseMenuPaste(menuPasteText)
+    if (parsed.length === 0) { toast.error('Tiada item dikesan. Satu item setiap baris, contoh: Nasi Lemak 5.50'); return }
+    setUploadedImages(prev => ({
+      ...prev,
+      gallery: [...prev.gallery.filter(g => g.name || g.price || g.url), ...parsed],
+    }))
+    setMenuPasteText('')
+    setMenuPasteOpen(false)
+    toast.success(`${parsed.length} item ditambah${categoriesOf(parsed).length ? ` dalam ${categoriesOf(parsed).length} kategori` : ''}`)
   }
 
   const removeMenuItemRow = (idx: number) => {
@@ -1034,6 +1090,17 @@ export default function CreatePage() {
       return
     }
 
+    // A food business with no items gets a page built from the prose — that
+    // is where invented dishes and prices come from. Say so before credit
+    // is spent; the merchant can still go ahead deliberately.
+    const menuWarning = menuRowsWarning(uploadedImages.gallery, businessType, finalDescription)
+    if (menuWarning && !o.skipListening) {
+      if (!window.confirm(`${menuWarning}\n\nTeruskan tanpa menu?`)) {
+        document.getElementById('v3-menu-upload-0')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        return
+      }
+    }
+
     // Check if user is logged in
     if (!user) {
       setError('Sila log masuk untuk mencipta website')
@@ -1143,9 +1210,8 @@ export default function CreatePage() {
       // were dropped and the model wrote "Atas permintaan" instead. A row
       // needs only a NAME — an item with no photo and no price is still the
       // merchant telling us what they sell.
-      const menuItemsForGeneration = uploadedImages.gallery
-        .map(g => ({ name: (g.name || '').trim(), price: normalizePriceInput(g.price) }))
-        .filter(it => it.name.length > 0);
+      const menuItemsForGeneration = rowsForRequest(uploadedImages.gallery)
+        .map(it => ({ name: it.name, price: normalizePriceInput(it.price), category: it.category }));
 
       // STRICT IMAGE CONTROL: Determine final image choice
       // If user uploaded images, force 'upload' mode
@@ -1182,6 +1248,7 @@ export default function CreatePage() {
           business_type: businessType === 'auto' ? null : businessType,  // Pass business type for dynamic categories
           // Merchant's own hero visual description — overrides the auto-built prompt.
           hero_image_prompt: heroImagePrompt.trim() || undefined,
+          logo: logoUrl || undefined,
           menu_items: menuItemsForGeneration,
           // STRICT IMAGE CONTROL: Send explicit image choice
           image_choice: finalImageChoice,
@@ -1613,12 +1680,15 @@ export default function CreatePage() {
           ? crypto.randomUUID()
           : `${Date.now()}-${Math.random().toString(16).slice(2)}`
 
-      const menuItemsForDelivery = (uploadedImages?.gallery || [])
-        .filter(g => !!g?.url)
-        .map((g, idx) => ({
-          name: g.name || `Menu Item ${idx + 1}`,
-          image_url: g.url,
-          price: g.price ? parseFloat(g.price) : null
+      // Every named row — not only the photographed ones. The backend stores
+      // these on the website (menu_items + categories) so a regeneration
+      // starts from the same menu; a text-only item used to vanish here.
+      const menuItemsForDelivery = rowsForRequest(uploadedImages?.gallery || [])
+        .map(it => ({
+          name: it.name,
+          image_url: it.image_url || null,
+          price: it.price ? parseFloat(normalizePriceInput(it.price)) : null,
+          category: it.category || null,
         }))
 
       const response = await fetch(`${API_BASE_URL}/api/publish`, {
@@ -1750,6 +1820,7 @@ export default function CreatePage() {
 
       setPublishedUrl(publishedWebsiteUrl)
       setShowPublishModal(false)
+      clearMenuRows()
 
       // The website row now exists — the hero video can be generated against it.
       heroVideoWebsiteId.current = publishedWebsiteId
@@ -2461,6 +2532,33 @@ export default function CreatePage() {
                 <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.025em', margin: 0, color: '#F5F5FA', lineHeight: 1.1 }}>Hero image</h2>
                 <p style={{ color: '#86869A', fontSize: 14, margin: '8px 0 0', maxWidth: 540, lineHeight: 1.5 }}>Image utama untuk header website. Optional — AI boleh suggest dari brief anda.</p>
               </div>
+              <div className="cr-card cr-card-hairline" style={{ padding: 12, marginBottom: 12, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                <div
+                  onClick={() => document.getElementById('v3-logo-upload')?.click()}
+                  title="Logo kedai"
+                  style={{ width: 56, height: 56, borderRadius: 12, border: logoUrl ? '1px solid rgba(255,255,255,.12)' : '1.5px dashed rgba(255,255,255,.14)', background: logoUrl ? '#fff' : 'rgba(255,255,255,.02)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', overflow: 'hidden', flexShrink: 0, position: 'relative' }}
+                >
+                  {logoUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={logoUrl} alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 4 }} />
+                  ) : (
+                    <Upload size={16} color="#86869A" />
+                  )}
+                  {uploadingLogo && (
+                    <div style={{ position: 'absolute', inset: 0, background: 'rgba(5,5,12,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <div style={{ width: 14, height: 14, border: '1.5px solid rgba(255,255,255,.25)', borderTopColor: '#C7FF3D', borderRadius: '50%', animation: 'spin .8s linear infinite' }} />
+                    </div>
+                  )}
+                  <input id="v3-logo-upload" type="file" accept="image/png,image/jpeg,image/jpg,image/webp" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleLogoFile(f); e.target.value = '' }} style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }} />
+                </div>
+                <div style={{ flex: 1, minWidth: 160 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: '#F5F5FA' }}>Logo kedai <span style={{ color: '#5A5A6E', fontWeight: 400 }}>(optional)</span></div>
+                  <div style={{ fontSize: 11, color: '#86869A', marginTop: 2 }}>Dipaparkan di header, footer dan sebagai favicon. PNG dengan latar lutsinar paling sesuai.</div>
+                </div>
+                {logoUrl && (
+                  <button type="button" className="cr-btn cr-btn-ghost" onClick={() => setLogoUrl('')} style={{ height: 32, padding: '0 10px', fontSize: 12 }}>Buang</button>
+                )}
+              </div>
               <div className="cr-card cr-card-hairline" style={{ padding: 16, display: 'flex', gap: 14, alignItems: 'stretch', flexWrap: 'wrap' }}>
                 <div
                   onDragOver={(e) => { e.preventDefault(); e.currentTarget.style.borderColor = 'rgba(107,92,255,.5)'; e.currentTarget.style.background = 'rgba(79,61,255,.04)'; }}
@@ -2695,7 +2793,7 @@ export default function CreatePage() {
                     const showImg = menuPreviews[i] || it.url
                     const canRemove = uploadedImages.gallery.length > 0
                     return (
-                      <div key={i} className="float-in menu-row" style={{ display: 'grid', gridTemplateColumns: '48px minmax(0,1fr) 100px 32px', gap: 8, alignItems: 'center', padding: '8px 10px 8px 8px', background: '#0F0F1A', border: '1px solid rgba(255,255,255,.06)', borderRadius: 12 }}>
+                      <div key={i} className="float-in menu-row" style={{ display: 'grid', gridTemplateColumns: '48px minmax(0,1fr) 128px 100px 32px', gap: 8, alignItems: 'center', padding: '8px 10px 8px 8px', background: '#0F0F1A', border: '1px solid rgba(255,255,255,.06)', borderRadius: 12 }}>
                         <div
                           onClick={() => document.getElementById(`v3-menu-upload-${i}`)?.click()}
                           style={{ width: 40, height: 40, borderRadius: 8, background: showImg ? '#000' : 'rgba(255,255,255,.04)', border: showImg ? '1px solid rgba(255,255,255,.08)' : '1px dashed rgba(255,255,255,.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#5A5A6E', cursor: 'pointer', overflow: 'hidden', position: 'relative' }}
@@ -2733,6 +2831,15 @@ export default function CreatePage() {
                           onChange={(e) => updateMenuField(i, { name: e.target.value })}
                           style={{ background: 'transparent', border: '1px solid rgba(255,255,255,.04)', height: 40, padding: '0 12px', minWidth: 0, width: '100%' }}
                         />
+                        <input
+                          className="cr-input menu-row-category"
+                          list="v3-menu-categories"
+                          placeholder="Kategori (cth: Set Ayam)"
+                          aria-label="Kategori / seksyen menu"
+                          value={it.category || ''}
+                          onChange={(e) => updateMenuField(i, { category: e.target.value.slice(0, 60) })}
+                          style={{ background: 'transparent', border: '1px solid rgba(255,255,255,.04)', height: 40, padding: '0 10px', minWidth: 0, width: '100%', fontSize: 12 }}
+                        />
                         <div className="menu-row-price" style={{ position: 'relative', minWidth: 0 }}>
                           <span className="num" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: '#5A5A6E', pointerEvents: 'none' }}>RM</span>
                           <input
@@ -2765,6 +2872,38 @@ export default function CreatePage() {
                     )
                   })}
                 </div>
+                <datalist id="v3-menu-categories">
+                  {categoriesOf(uploadedImages.gallery).map(c => <option key={c} value={c} />)}
+                </datalist>
+                {menuPasteOpen && (
+                  <div className="float-in" style={{ marginTop: 10, padding: 12, background: '#0F0F1A', border: '1px solid rgba(199,255,61,.2)', borderRadius: 12 }}>
+                    <div style={{ fontSize: 12, color: '#B8B8C8', marginBottom: 8 }}>
+                      Tampal senarai menu anda — satu item setiap baris atau asingkan dengan &quot;|&quot;. Tulis nama seksyen diikuti &quot;:&quot; untuk mengumpulkan, contoh:
+                      <code style={{ display: 'block', marginTop: 6, fontSize: 11, color: '#86869A', whiteSpace: 'pre-wrap' }}>{'Set Ayam: Set A – Ayam Gepuk 12.50 | Set B – Ayam Gepuk Tauhu Tempe 13.50\nMinuman: Teh O Ice 3.00 | Limau Ice 3.50'}</code>
+                    </div>
+                    <textarea
+                      className="cr-input"
+                      value={menuPasteText}
+                      onChange={(e) => setMenuPasteText(e.target.value)}
+                      rows={6}
+                      placeholder="Set Ayam: Set A – Ayam Gepuk 12.50 | Set B – Ayam Gepuk Tauhu Tempe 13.50"
+                      style={{ width: '100%', minHeight: 120, padding: 10, fontSize: 13, fontFamily: "'Geist Mono', monospace", resize: 'vertical' }}
+                    />
+                    <div style={{ display: 'flex', gap: 8, marginTop: 8, justifyContent: 'flex-end' }}>
+                      <button type="button" className="cr-btn cr-btn-ghost" onClick={() => { setMenuPasteOpen(false); setMenuPasteText('') }}>Batal</button>
+                      <button type="button" className="cr-btn" onClick={importMenuPaste} style={{ background: '#C7FF3D', color: '#05050C' }}>Tambah item dari senarai</button>
+                    </div>
+                  </div>
+                )}
+                {!menuPasteOpen && (
+                  <button
+                    type="button"
+                    onClick={() => setMenuPasteOpen(true)}
+                    style={{ marginTop: 10, width: '100%', padding: 10, background: 'transparent', border: '1px dashed rgba(255,255,255,.12)', borderRadius: 12, color: '#B8B8C8', fontSize: 12, cursor: 'pointer', fontFamily: "'Geist', 'Inter', -apple-system, sans-serif" }}
+                  >
+                    Tampal senarai menu (banyak item sekali gus)
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={addMenuItemRow}
@@ -3638,6 +3777,23 @@ export default function CreatePage() {
                           Only lowercase letters, numbers, and hyphens · 3-30 characters
                         </p>
                       )}
+                      {(() => {
+                        // A typed slug one letter off the business name goes
+                        // live and stays wrong (ayamgepukpaglima). Soft
+                        // warning only — a different slug can be deliberate.
+                        const mismatch = (pubState === 'edit' || pubState === 'available') ? slugMismatchWarning(subdomain, businessName) : null
+                        return mismatch ? (
+                          <div style={{ marginTop: 10, padding: '10px 12px', background: 'rgba(255,176,32,.06)', border: '1px solid rgba(255,176,32,.25)', borderRadius: 10, fontSize: 12, color: '#FFB020', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+                            <span style={{ flex: 1, minWidth: 200 }}>{mismatch.message}</span>
+                            <button
+                              type="button"
+                              className="chip"
+                              onClick={() => { setSubdomain(mismatch.suggestion); setSubdomainError(validateSubdomain(mismatch.suggestion)); setPubChecked(false) }}
+                              style={{ borderColor: 'rgba(255,176,32,.3)', background: 'rgba(255,176,32,.06)', color: '#FFB020', fontFamily: "'Geist Mono', monospace", fontSize: 12 }}
+                            >Guna {mismatch.suggestion}</button>
+                          </div>
+                        ) : null
+                      })()}
                     </div>
                   </>
                 )}

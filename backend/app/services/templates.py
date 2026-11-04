@@ -404,12 +404,12 @@ class TemplateService:
     }
 
     @classmethod
-    def whatsapp_default_message(cls, language: Optional[str] = None) -> str:
-        """Language-appropriate WhatsApp prefill. Defaults to Malay — the
-        product's primary market and the language of the generated pages."""
-        lang = str(language or "ms").lower()
-        key = "en" if lang.startswith("en") else "ms"
-        return cls.WHATSAPP_DEFAULT_MESSAGE[key]
+    def whatsapp_default_message(cls, language: Optional[str] = None, business_type: Optional[str] = None) -> str:
+        """Language- AND vertical-appropriate WhatsApp prefill. Defaults to
+        Malay — the product's primary market. A food business gets order
+        wording ("saya nak order"); everything else keeps the enquiry line."""
+        from app.services.whatsapp_prefill import default_prefill
+        return default_prefill(language, business_type)
 
     @staticmethod
     def wa_me_number(phone_clean: str) -> str:
@@ -431,6 +431,7 @@ class TemplateService:
         default_message: Optional[str] = None,
         theme_tokens: Optional[Dict[str, str]] = None,
         language: Optional[str] = None,
+        business_type: Optional[str] = None,
     ) -> str:
         """
         Inject WhatsApp floating button into HTML.
@@ -445,7 +446,7 @@ class TemplateService:
         """
         _ = theme_tokens  # currently unused; see docstring above
         if not default_message:
-            default_message = self.whatsapp_default_message(language)
+            default_message = self.whatsapp_default_message(language, business_type)
         # Skip if a floating WhatsApp button is already in the page.
         # Re-injecting causes a duplicate that overlaps the contact section.
         if 'id="whatsapp-button"' in html or "id='whatsapp-button'" in html:
@@ -502,6 +503,36 @@ class TemplateService:
 
         return html
 
+    @staticmethod
+    def map_direction_buttons(address: str, language: Optional[str] = None, *, lat: Optional[float] = None, lng: Optional[float] = None) -> str:
+        """'Buka di Google Maps' + 'Waze' links for the address (or the
+        pinned coordinates). An embed shows where; a button gets them there."""
+        from urllib.parse import quote_plus
+        addr = re.sub(r"\s+", " ", str(address or "")).strip()
+        if not addr and lat is None:
+            return ""
+        is_en = str(language or "ms").lower().startswith("en")
+        if lat is not None and lng is not None:
+            gmaps = f"https://www.google.com/maps/dir/?api=1&destination={lat:.6f},{lng:.6f}"
+            waze = f"https://waze.com/ul?ll={lat:.6f},{lng:.6f}&navigate=yes"
+        else:
+            gmaps = f"https://www.google.com/maps/search/?api=1&query={quote_plus(addr)}"
+            waze = f"https://waze.com/ul?q={quote_plus(addr)}&navigate=yes"
+        label_g = "Open in Google Maps" if is_en else "Buka di Google Maps"
+        label_w = "Navigate with Waze" if is_en else "Waze"
+        btn = (
+            "display:inline-flex;align-items:center;gap:.5rem;padding:.65rem 1.1rem;border-radius:999px;"
+            "font-weight:700;font-size:.95rem;text-decoration:none;border:2px solid var(--primary-color, currentColor);"
+        )
+        return (
+            '<div class="binaapp-map-actions" style="display:flex;flex-wrap:wrap;justify-content:center;gap:.75rem;margin-top:1rem;">'
+            f'<a href="{html_escape(gmaps)}" target="_blank" rel="noopener" style="{btn}background:var(--primary-color, #1C1917);color:#fff;">'
+            f'<i class="fa-solid fa-location-dot" aria-hidden="true"></i> {label_g}</a>'
+            f'<a href="{html_escape(waze)}" target="_blank" rel="noopener" style="{btn}background:transparent;color:var(--primary-color, inherit);">'
+            f'<i class="fa-brands fa-waze" aria-hidden="true"></i> {label_w}</a>'
+            "</div>"
+        )
+
     def inject_google_maps(
         self,
         html: str,
@@ -510,6 +541,7 @@ class TemplateService:
         website_id: Optional[str] = None,
         generation_count: Optional[int] = None,
         business_name: Optional[str] = None,
+        language: Optional[str] = None,
     ) -> str:
         """
         Inject Google Maps embed into HTML.
@@ -553,6 +585,7 @@ class TemplateService:
         referrerpolicy="no-referrer-when-downgrade">
       </iframe>
     </div>
+    {self.map_direction_buttons(address, language=language)}
   </div>
 """
 
@@ -3717,6 +3750,7 @@ __BINAAPP_WIDGET_THEME_VARS__
                 user_data.get("whatsapp_message"),
                 theme_tokens=theme_tokens,
                 language=user_data.get("language"),
+                business_type=user_data.get("business_type"),
             )
 
         # Google Maps
@@ -3728,6 +3762,7 @@ __BINAAPP_WIDGET_THEME_VARS__
                 website_id=website_id_for_log,
                 generation_count=generation_count_for_log,
                 business_name=user_data.get("business_name") or user_data.get("name"),
+                language=user_data.get("language"),
             )
 
         # Shopping Cart
@@ -4068,6 +4103,31 @@ header .grid {
 /* Inline contact WhatsApp icon: ensure the brand mark uses WhatsApp green so a
    primary-tinted container doesn't look like a broken orange circle. */
 .fa-whatsapp, .fab.fa-whatsapp, .fa-brands.fa-whatsapp { color: #25D366; }
+
+/* (g) Centred text stays centred. The generated stylesheet caps measure with
+   `p { max-width: 65ch }` and no auto margins, so a centred paragraph (the
+   contact phone, the copyright line, the QR label) sat flush-left inside its
+   centred parent. Centre the box, not just the text. */
+.text-center p, p.text-center, [class*="text-center"] > p,
+.text-center li, [class*="text-center"] > li { margin-left: auto; margin-right: auto; }
+
+/* (h) Footer text follows the footer. The generic `p { color: … }` rule in
+   the page stylesheet outranks the colour the footer inherits, which is how
+   a #5C3A2A copyright line landed on a #1A0F0A footer (unreadable). An
+   element rule here restores inheritance; a utility class on the element
+   (`text-white/70`) still wins by specificity, as it should. The runtime
+   nav-contrast guard below covers the footer as well. */
+footer p, footer li, footer dd, footer dt, footer small, footer address { color: inherit; }
+
+/* (i) Menu grid orphans: a lone card on the last row of a 3-up grid is
+   centred instead of stranded under the first column. Two-orphan rows are
+   left to the grid; the deterministic menu block uses a centred flex-wrap. */
+@media (min-width: 768px) {
+  section[id*="menu"] .grid[class~="md:grid-cols-3"] > :last-child:nth-child(3n+1) { grid-column: 2 / 3; }
+}
+@media (min-width: 1024px) {
+  section[id*="menu"] .grid[class~="lg:grid-cols-3"] > :last-child:nth-child(3n+1) { grid-column: 2 / 3; }
+}
 </style>
 """
 
@@ -4113,7 +4173,7 @@ header .grid {
       el.setAttribute(ATTR,'fixed');
     }
   }
-  function run(){try{var roots=document.querySelectorAll('header,body>nav');for(var i=0;i<roots.length;i++)fix(roots[i]);}catch(e){}}
+  function run(){try{var roots=document.querySelectorAll('header,body>nav,footer');for(var i=0;i<roots.length;i++)fix(roots[i]);}catch(e){}}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',run);else run();
   window.addEventListener('load',run);
   setTimeout(run,1500);

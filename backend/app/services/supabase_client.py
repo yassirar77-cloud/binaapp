@@ -4,7 +4,7 @@ Handles all Supabase interactions using REST API
 """
 import re
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator, Dict, Optional
+from typing import List, Any, AsyncIterator, Dict, Optional
 
 import httpx
 
@@ -419,6 +419,30 @@ class SupabaseService:
         except Exception as e:
             print(f"❌ Get website error: {str(e)}")
             return None
+
+    async def get_menu_items(self, website_id: str) -> List[Dict[str, Any]]:
+        """The stored menu for a website in the generator's item shape
+        ({name, price, category, ...}); [] when none or on any error."""
+        try:
+            async with self._client() as client:
+                items_resp = await client.get(
+                    f"{self.url}/rest/v1/menu_items",
+                    headers=self.headers,
+                    params={"website_id": f"eq.{website_id}", "select": "*"},
+                )
+                cats_resp = await client.get(
+                    f"{self.url}/rest/v1/menu_categories",
+                    headers=self.headers,
+                    params={"website_id": f"eq.{website_id}", "select": "*"},
+                )
+            if items_resp.status_code != 200:
+                return []
+            from app.services.menu_persistence import items_from_rows
+            cats = cats_resp.json() if cats_resp.status_code == 200 else []
+            return items_from_rows(items_resp.json() or [], cats or [])
+        except Exception as e:
+            print(f"❌ Get menu items error: {str(e)}")
+            return []
 
     async def update_website(self, website_id: str, data: Dict[str, Any]) -> bool:
         """

@@ -404,6 +404,10 @@ class AIGenerationResponse(BaseModel):
     validation_ok: bool = True
     validation_errors: List[str] = []
     validation_warnings: List[str] = []
+    # Menu fidelity report (menu_fidelity.MenuFidelityReport.as_dict()):
+    # how many supplied items matched, what was removed / corrected /
+    # injected, and whether more than 20% needed a correction (severe).
+    menu_fidelity: Optional[Dict[str, Any]] = None
 
 
 # Publishing Schemas
