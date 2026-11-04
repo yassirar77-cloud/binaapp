@@ -2916,6 +2916,15 @@ async def _start_generation_from_body(body: dict, preferred_plan: Optional[dict]
     image_choice = body.get("image_choice") or body.get("images_choice") or body.get("imageChoice") or "none"
     delivery = body.get("delivery") or None
     address = body.get("address") or None
+    if not address:
+        # The address field was empty but the story carries one ("Alamat:
+        # ..."). Without this the map, the JSON-LD address and the Waze /
+        # Google Maps buttons all had nothing to point at, even with the
+        # Google Maps feature switched on.
+        from app.services.data_consistency import address_from_brief
+        address = address_from_brief(description) or None
+        if address:
+            logger.info(f"📍 Address read from the brief (field was empty): {address!r}")
     social_media = body.get("social_media") or None
     payment = body.get("payment") or None  # Payment methods (cod, qr, qr_image)
     business_name = body.get("business_name") or body.get("businessName") or None  # Actual business name

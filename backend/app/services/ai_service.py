@@ -10066,6 +10066,14 @@ IMPORTANT INSTRUCTIONS:
                 logger.info(f"🏷️ Branding applied: {_brand.as_dict()}")
             except Exception as _brand_err:
                 logger.warning(f"🏷️ Branding skipped: {_brand_err}")
+            # Every phone number printed as text is a tel: link.
+            try:
+                from app.services.contact_links import linkify_phones
+                html, _n_tel = linkify_phones(html)
+                if _n_tel:
+                    logger.info(f"📞 {_n_tel} phone number(s) turned into tel: links")
+            except Exception as _tel_err:
+                logger.warning(f"📞 tel: linking skipped: {_tel_err}")
             # A poster-style upload that still ended up outside the menu is
             # shown whole rather than cropped.
             try:

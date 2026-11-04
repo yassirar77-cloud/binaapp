@@ -503,6 +503,36 @@ class TemplateService:
 
         return html
 
+    @staticmethod
+    def map_direction_buttons(address: str, language: Optional[str] = None, *, lat: Optional[float] = None, lng: Optional[float] = None) -> str:
+        """'Buka di Google Maps' + 'Waze' links for the address (or the
+        pinned coordinates). An embed shows where; a button gets them there."""
+        from urllib.parse import quote_plus
+        addr = re.sub(r"\s+", " ", str(address or "")).strip()
+        if not addr and lat is None:
+            return ""
+        is_en = str(language or "ms").lower().startswith("en")
+        if lat is not None and lng is not None:
+            gmaps = f"https://www.google.com/maps/dir/?api=1&destination={lat:.6f},{lng:.6f}"
+            waze = f"https://waze.com/ul?ll={lat:.6f},{lng:.6f}&navigate=yes"
+        else:
+            gmaps = f"https://www.google.com/maps/search/?api=1&query={quote_plus(addr)}"
+            waze = f"https://waze.com/ul?q={quote_plus(addr)}&navigate=yes"
+        label_g = "Open in Google Maps" if is_en else "Buka di Google Maps"
+        label_w = "Navigate with Waze" if is_en else "Waze"
+        btn = (
+            "display:inline-flex;align-items:center;gap:.5rem;padding:.65rem 1.1rem;border-radius:999px;"
+            "font-weight:700;font-size:.95rem;text-decoration:none;border:2px solid var(--primary-color, currentColor);"
+        )
+        return (
+            '<div class="binaapp-map-actions" style="display:flex;flex-wrap:wrap;justify-content:center;gap:.75rem;margin-top:1rem;">'
+            f'<a href="{html_escape(gmaps)}" target="_blank" rel="noopener" style="{btn}background:var(--primary-color, #1C1917);color:#fff;">'
+            f'<i class="fa-solid fa-location-dot" aria-hidden="true"></i> {label_g}</a>'
+            f'<a href="{html_escape(waze)}" target="_blank" rel="noopener" style="{btn}background:transparent;color:var(--primary-color, inherit);">'
+            f'<i class="fa-brands fa-waze" aria-hidden="true"></i> {label_w}</a>'
+            "</div>"
+        )
+
     def inject_google_maps(
         self,
         html: str,
@@ -511,6 +541,7 @@ class TemplateService:
         website_id: Optional[str] = None,
         generation_count: Optional[int] = None,
         business_name: Optional[str] = None,
+        language: Optional[str] = None,
     ) -> str:
         """
         Inject Google Maps embed into HTML.
@@ -554,6 +585,7 @@ class TemplateService:
         referrerpolicy="no-referrer-when-downgrade">
       </iframe>
     </div>
+    {self.map_direction_buttons(address, language=language)}
   </div>
 """
 
@@ -3730,6 +3762,7 @@ __BINAAPP_WIDGET_THEME_VARS__
                 website_id=website_id_for_log,
                 generation_count=generation_count_for_log,
                 business_name=user_data.get("business_name") or user_data.get("name"),
+                language=user_data.get("language"),
             )
 
         # Shopping Cart

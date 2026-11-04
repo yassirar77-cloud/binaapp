@@ -453,6 +453,36 @@ def normalize_address(raw: Optional[str]) -> str:
     return ", ".join(out)
 
 
+_ADDRESS_LABEL_RE = re.compile(r"^\s*(?:alamat|address|lokasi|location)\s*[:：]\s*(.+?)\s*$", re.IGNORECASE | re.MULTILINE)
+_MY_STATES = (
+    "johor", "kedah", "kelantan", "melaka", "malacca", "negeri sembilan", "pahang", "perak", "perlis", "pulau pinang",
+    "penang", "sabah", "sarawak", "selangor", "terengganu", "kuala lumpur", "labuan", "putrajaya", "wp",
+)
+_POSTCODE_LINE_RE = re.compile(r"^[^\n]*\b\d{5}\b[^\n]*$", re.MULTILINE)
+
+
+def address_from_brief(description: Optional[str]) -> str:
+    """The address a merchant typed INTO the story ("Alamat: No. 44-1, Jalan
+    Bayu Impian 4A/KS9, ... 41200 Klang, Selangor.") when the address field
+    was left empty. A labelled line wins; otherwise a line carrying a
+    5-digit postcode and a state name. '' when nothing qualifies."""
+    text = str(description or "")
+    if not text.strip():
+        return ""
+    m = _ADDRESS_LABEL_RE.search(text)
+    if m:
+        value = m.group(1).strip().rstrip(".")
+        if len(value) >= 10:
+            return value
+    for lm in _POSTCODE_LINE_RE.finditer(text):
+        line = lm.group(0).strip()
+        low = line.lower()
+        if any(st in low for st in _MY_STATES) and len(line) >= 15:
+            line = re.sub(r"^\s*(?:alamat|address|lokasi)\s*[:：]\s*", "", line, flags=re.IGNORECASE)
+            return line.rstrip(".")
+    return ""
+
+
 def address_lines(raw: Optional[str]) -> List[str]:
     """Normalised address split into display lines (unit/street, area, postcode + city, state)."""
     normalized = normalize_address(raw)
