@@ -3016,8 +3016,17 @@ Generate prompts now:"""
         if product:
             base = str(product).strip().title()
             desc_lower = (description or "").lower()
-            if base and re.search(
-                r"\b(topping|toping|perisa|flavou?rs?|pilihan|variasi|rasa)\b", desc_lower
+            # Variants only when the merchant SAID there are toppings or
+            # flavours, and only for a product that takes them. "Pilih tahap
+            # kepedasan" and "Rasa Makin Padu" used to trip the old trigger
+            # and publish "Ayam Goreng Coklat" / "Ayam Goreng Keju" on a
+            # fried-chicken restaurant.
+            _takes_toppings = bool(re.search(
+                r"\b(pisang|kuih|waffle|wafel|crepe|pancake|roti|aiskrim|ais krim|ice cream|donut|cekodok|"
+                r"apam|kek|cake|dessert|pencuci mulut|bubble tea|boba|cendol|abc)\b", base.lower()
+            ))
+            if base and _takes_toppings and re.search(
+                r"\b(topping|toping|perisa|flavou?rs?)\b", desc_lower
             ):
                 on_product = [base] + [f"{base} {v}" for v in self._FALLBACK_TOPPING_VARIANTS]
             elif base:
@@ -3194,9 +3203,12 @@ STRICT RULES:
 7. STAY ON-PRODUCT: every item MUST be something this specific business
    plausibly sells based on its description. If the description centres on
    ONE product (e.g. "kedai jual goreng pisang dengan macam-macam topping"),
-   output that product and its variants/toppings (e.g. "Goreng Pisang",
-   "Goreng Pisang Coklat", "Goreng Pisang Keju") — NEVER unrelated dishes
-   like "Nasi Lemak" or "Roti Canai" that the description does not support.
+   output that product and ONLY the variants the description itself names
+   — NEVER unrelated dishes like "Nasi Lemak" or "Roti Canai", and NEVER
+   toppings, flavours or versions the description does not mention.
+8. Every name must be GROUNDED: each word of it (other than "set", "nasi",
+   "goreng", sizes) must appear in the description. If fewer than {n} grounded
+   items exist, output fewer.
 
 OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
 ["Name 1", "Name 2", "Name 3", "Name 4"]"""
@@ -3242,6 +3254,7 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
             # Nasi Kandar Penang" → one dish fix). Then floor-to-3 top-up with
             # DISTINCT generics — never pad with near-dupes that collapse to the
             # same image.
+            names = self._grounded_item_names(names, description)
             unique = self._dedupe_item_names(names, business_name)
             result = self._finalize_item_names(
                 unique, self._fallback_item_names(description, n, business_name), business_name, n
@@ -3250,6 +3263,28 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
         except Exception as e:
             logger.error(f"🍽️ Item-name extraction error: {e} - using fallback")
             return self._fallback_item_names(description, n, business_name)
+
+    _GROUNDING_FREE_WORDS = frozenset({
+        "set", "nasi", "goreng", "ayam", "ikan", "daging", "mee", "roti", "kuih", "air", "teh", "kopi",
+        "ais", "ice", "panas", "sejuk", "biasa", "special", "istimewa", "dengan", "and", "with", "the",
+        "regular", "large", "small", "besar", "kecil", "cup", "pcs", "pax",
+    })
+
+    def _grounded_item_names(self, names: list, description: str) -> list:
+        """Keep only names the merchant's own words support: every
+        distinctive word of the name appears in the description. The model
+        is told the same rule; this is the floor when it ignores it."""
+        desc_lower = re.sub(r"[^\w\s]", " ", (description or "").lower())
+        desc_tokens = set(desc_lower.split())
+        kept = []
+        for name in names:
+            tokens = [t for t in re.sub(r"[^\w\s]", " ", str(name).lower()).split() if len(t) >= 3]
+            distinctive = [t for t in tokens if t not in self._GROUNDING_FREE_WORDS and not t.isdigit()]
+            if distinctive and not all(t in desc_tokens or any(t.startswith(d[:5]) and len(d) >= 5 for d in desc_tokens if d.startswith(t[:4])) for t in distinctive):
+                logger.info(f"🍽️ Dropping ungrounded item name {name!r} (not in the merchant's description)")
+                continue
+            kept.append(name)
+        return kept
 
     def _fallback_category_names(self, description: str, n: int) -> list:
         """Deterministic product-category fallback for the NON-food path.
@@ -5274,6 +5309,8 @@ IMAGE REUSE — EACH PHOTO APPEARS ONCE:
 - Hero, about/story, and every menu/product/gallery card draw from ONE shared pool of the exact URLs listed in the image section.
 - Use each URL AT MOST ONCE on the entire page. The hero image is for the page header ONLY — never reuse it in an about section or as a menu card.
 - If a section (about image, gallery, portfolio) has no UNUSED image left, OMIT that image or the whole section. Repeating a photo reads as broken; a text-only about section does not.
+- An about/story section with no photo is TWO columns of text (two short paragraphs, then three short facts from the description as a list) — never a copy of the hero's sticker, badge or signature label standing in for the photo.
+- A signature sticker / badge / label ("Set Panglima") appears AT MOST ONCE on the page, in the hero.
 
 CARDS MUST STAY READABLE EVEN IF AN IMAGE FAILS:
 - Every card has its own solid surface background and padding. Never place text directly on an image without a background layer.
@@ -7804,6 +7841,7 @@ IMPORTANT RULES:
         # (the create route strips them too; this covers every caller).
         self._last_placeholder_examples = []
         self._last_poster_uploads = []
+        self._last_menu_source = "none"
         try:
             from app.services.placeholder_guard import strip_brief_placeholders
             _clean_desc, _ph = strip_brief_placeholders(getattr(request, "description", "") or "")
@@ -7941,6 +7979,49 @@ IMPORTANT RULES:
         return final_html
 
     # ==================== FREE AUTO-FILL (missing image slots) ====================
+
+    async def _classify_uploads_and_read_menu_board(self, request: WebsiteGenerationRequest) -> None:
+        """Poster detection for the uploads, then — when the merchant typed
+        no items and a poster is a menu board — the menu read from it.
+
+        Two test merchants uploaded a photo of their menu board into step 06
+        and typed nothing; both sites were built with invented cards. The
+        board is the menu. Items read here are logged and attached to the
+        request exactly like typed ones (``_last_menu_source = "ocr"``).
+        """
+        from app.services import image_roles as _roles
+        _text_check = None
+        if self._image_check_available():
+            async def _text_check(url: str) -> bool:
+                verdict = await image_vision_check.check_image(
+                    url, "a photo for a business website", call_model=self._call_image_check_model,
+                )
+                return bool(verdict.has_text)
+        shapes = await _roles.classify_uploads(request.uploaded_images, text_check=_text_check)
+        posters = _roles.poster_urls(shapes)
+        self._last_poster_uploads = list(posters)
+        if posters:
+            logger.info(f"🖼️ {len(posters)} poster-style upload(s) will be fitted, not cropped, and kept out of hero/about")
+        self._last_menu_source = "supplied" if self._normalize_supplied_menu_items(getattr(request, "menu_items", None)) else "none"
+        if self._last_menu_source == "supplied" or not posters:
+            return
+        if not (self.qwen_api_key or self.zai_api_key):
+            logger.warning("🧾 Menu board uploaded with no typed items, but no vision model is configured — the menu cannot be read")
+            return
+        from app.services.menu_ocr import read_menu_from_image
+        for url in posters[:2]:
+            result = await read_menu_from_image(url, call_model=self._call_image_check_model)
+            if result["is_menu"] and result["items"]:
+                request.menu_items = [
+                    {"name": it["name"], "price": it["price"], "category": it["category"]} for it in result["items"]
+                ]
+                self._last_menu_source = "ocr"
+                priced = sum(1 for it in result["items"] if it["price"])
+                logger.warning(
+                    f"🧾 MENU READ FROM THE UPLOADED MENU BOARD: {len(result['items'])} item(s), {priced} priced "
+                    f"— the merchant typed none. Review the page before publishing."
+                )
+                return
 
     def _enforce_menu_fidelity(
         self,
@@ -9125,6 +9206,16 @@ IMPORTANT RULES:
                 "en" if str(getattr(request, "language", "ms")).lower().endswith("en") else "ms",
             )
 
+        # Which uploads are posters (tall or text-heavy) — classified ONCE,
+        # here, before any slot is filled: a menu board must never become
+        # the about photo, and when the merchant typed no items it IS the
+        # menu, read into items by the vision model.
+        if request.uploaded_images and image_choice != "none":
+            try:
+                await self._classify_uploads_and_read_menu_board(request)
+            except Exception as _roles_err:
+                logger.warning(f"🖼️ Upload role classification skipped: {_roles_err}")
+
         if image_choice == "none":
             logger.info("🚫 Image choice='none' - SKIPPING ALL image generation")
             # Don't generate or use any images
@@ -9199,24 +9290,7 @@ IMPORTANT RULES:
 
         # Which uploads are posters (tall or text-heavy): kept out of the
         # hero/about roles, fitted rather than filled, shown whole.
-        _poster_uploads: List[str] = []
-        if request.uploaded_images:
-            try:
-                from app.services import image_roles as _roles
-                _text_check = None
-                if self._image_check_available():
-                    async def _text_check(url: str) -> bool:
-                        verdict = await image_vision_check.check_image(
-                            url, "a photo for a business website", call_model=self._call_image_check_model,
-                        )
-                        return bool(verdict.has_text)
-                _shapes = await _roles.classify_uploads(request.uploaded_images, text_check=_text_check)
-                _poster_uploads = _roles.poster_urls(_shapes)
-                self._last_poster_uploads = list(_poster_uploads)
-                if _poster_uploads:
-                    logger.info(f"🖼️ {len(_poster_uploads)} poster-style upload(s) will be fitted, not cropped, and kept out of hero/about")
-            except Exception as _roles_err:
-                logger.warning(f"🖼️ Upload role classification skipped: {_roles_err}")
+        _poster_uploads: List[str] = list(getattr(self, "_last_poster_uploads", None) or [])
 
         # Consistent crop ratios per section (§6): hero 16:9, item tiles
         # 4:3 — applied as Cloudinary transforms on every resolved URL (and
@@ -10098,6 +10172,17 @@ IMPORTANT INSTRUCTIONS:
                         logger.info("📱 WhatsApp CTA added to the mobile nav panel")
             except Exception as _mob_err:
                 logger.warning(f"📱 Mobile nav CTA skipped: {_mob_err}")
+            # A Waze link beside the Google Maps link the model wrote (map
+            # feature off): customers here navigate with Waze.
+            try:
+                _addr_for_waze = str(getattr(request, "location_address", "") or "").strip()
+                if _addr_for_waze:
+                    from app.services.map_embed import add_waze_beside_maps_links
+                    html, _n_waze = add_waze_beside_maps_links(html, _addr_for_waze, language=language)
+                    if _n_waze:
+                        logger.info("🗺️ Waze link added beside the Google Maps link")
+            except Exception as _waze_err:
+                logger.warning(f"🗺️ Waze link skipped: {_waze_err}")
             # Every phone number printed as text is a tel: link.
             try:
                 from app.services.contact_links import linkify_phones

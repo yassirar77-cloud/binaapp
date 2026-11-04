@@ -629,6 +629,41 @@ export default function CreatePage() {
     setUploadedImages(prev => ({ ...prev, gallery: [...prev.gallery, { url: '', name: '', price: '' }] }))
   }
 
+  // A photographed menu board IS the menu. Two test merchants uploaded one
+  // into a row and typed nothing, and both sites were built with no items.
+  // The vision model reads the board into rows the merchant reviews here.
+  const [readingMenuIdx, setReadingMenuIdx] = useState<number | null>(null)
+  const readMenuFromImage = async (idx: number) => {
+    const row = uploadedImages.gallery[idx]
+    if (!row?.url) { toast.error('Muat naik gambar papan menu dahulu'); return }
+    setReadingMenuIdx(idx)
+    try {
+      const res = await fetch(`${DIRECT_BACKEND_URL}/api/menu/read-image`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image_url: row.url }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.success) throw new Error(data.error || 'Gagal membaca menu')
+      if (data.available === false) { toast.error('Pembacaan menu dari gambar tidak tersedia buat masa ini — tampal senarai menu anda.'); return }
+      const items = (Array.isArray(data.items) ? data.items : []) as { name: string; price?: string; category?: string }[]
+      if (!data.is_menu || items.length === 0) { toast.error('Tiada item menu dikesan dalam gambar ini. Cuba gambar papan menu yang lebih jelas, atau tampal senarai.'); return }
+      setUploadedImages(prev => {
+        const kept = prev.gallery.filter((g, i) => i === idx || g.name || g.price || (g.url && i !== idx))
+        const existing = new Set(kept.map(g => (g.name || '').trim().toLowerCase()).filter(Boolean))
+        const fresh = items
+          .filter(it => it.name && !existing.has(it.name.trim().toLowerCase()))
+          .map(it => ({ url: '', name: it.name.trim(), price: normalizePriceInput(it.price || ''), category: (it.category || '').trim() }))
+        return { ...prev, gallery: [...kept, ...fresh] }
+      })
+      toast.success(`${items.length} item dibaca dari papan menu — semak nama dan harga sebelum jana`)
+    } catch (err: any) {
+      toast.error(err.message || 'Gagal membaca menu dari gambar')
+    } finally {
+      setReadingMenuIdx(null)
+    }
+  }
+
   // A whole menu pasted at once ("Set Ayam: Set A – Ayam Gepuk 12.50 | ...")
   // becomes rows with their section labels. Appended after the rows that
   // already exist; blank rows are dropped so the list stays tidy.
@@ -1095,7 +1130,7 @@ export default function CreatePage() {
     // is spent; the merchant can still go ahead deliberately.
     const menuWarning = menuRowsWarning(uploadedImages.gallery, businessType, finalDescription)
     if (menuWarning && !o.skipListening) {
-      if (!window.confirm(`${menuWarning}\n\nTeruskan tanpa menu?`)) {
+      if (!window.confirm(`${menuWarning}\n\nPilihan: taip item, tampal senarai menu, atau "Baca menu dari gambar" jika anda muat naik papan menu.\n\nTeruskan tanpa menu?`)) {
         document.getElementById('v3-menu-upload-0')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
         return
       }
@@ -2872,6 +2907,24 @@ export default function CreatePage() {
                     )
                   })}
                 </div>
+                {(() => {
+                  const named = uploadedImages.gallery.filter(g => (g.name || '').trim()).length
+                  const photoIdx = uploadedImages.gallery.findIndex(g => g.url && !(g.name || '').trim())
+                  if (named > 0 || photoIdx < 0) return null
+                  return (
+                    <div className="banner-accent float-in" style={{ marginTop: 10, marginBottom: 0, background: 'linear-gradient(90deg, rgba(199,255,61,.06), transparent)', border: '1px solid rgba(199,255,61,.22)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                      <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: '#C7FF3D' }} />
+                      <span style={{ fontSize: 13, color: '#DDFF7A', flex: 1, minWidth: 220 }}>Gambar ini papan menu? Baca item dan harga terus dari gambar — anda semak sebelum jana.</span>
+                      <button
+                        type="button"
+                        className="cr-btn"
+                        disabled={readingMenuIdx !== null}
+                        onClick={() => readMenuFromImage(photoIdx)}
+                        style={{ background: '#C7FF3D', color: '#05050C', height: 34, padding: '0 12px', fontSize: 12 }}
+                      >{readingMenuIdx !== null ? 'Membaca…' : 'Baca menu dari gambar'}</button>
+                    </div>
+                  )
+                })()}
                 <datalist id="v3-menu-categories">
                   {categoriesOf(uploadedImages.gallery).map(c => <option key={c} value={c} />)}
                 </datalist>
