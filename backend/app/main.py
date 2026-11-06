@@ -4091,7 +4091,7 @@ async def publish_website(
             try:
                 sub_check = (
                     supabase.table("websites")
-                    .select("id, user_id, business_name, name, status, is_published, subdomain")
+                    .select("id, user_id, business_name, name, status, subdomain")
                     .eq("subdomain", subdomain)
                     .limit(1)
                     .execute()
@@ -4502,6 +4502,21 @@ async def publish_website(
                         logger.warning(f"⚠️ Usage tracking increment failed for user {user_id}: {usage_err}")
             except Exception as db_err:
                 logger.error(f"❌ [WEBSITES INSERT] FAILED id={website_id} user_id={user_id}: {db_err}")
+                # The subdomain is taken by a row the ownership check above did
+                # not resolve. Say so plainly instead of a raw 500.
+                if "websites_subdomain_key" in str(db_err):
+                    return JSONResponse(
+                        status_code=409,
+                        content={
+                            "success": False,
+                            "error": "subdomain_in_use",
+                            "message": (
+                                f"Subdomain '{subdomain}.binaapp.my' sudah digunakan. "
+                                f"Sila pilih subdomain lain."
+                            ),
+                            "subdomain": subdomain,
+                        },
+                    )
                 # Don't continue - if DB fails, the website will be orphaned
                 return JSONResponse(
                     status_code=500,
@@ -4820,7 +4835,7 @@ async def serve_published_site(subdomain: str):
 
     try:
         # Try to get HTML from database first (faster)
-        result = supabase.table("websites").select("html_code").eq("subdomain", subdomain).eq("is_published", True).execute()
+        result = supabase.table("websites").select("html_code").eq("subdomain", subdomain).eq("status", "published").execute()
 
         if result.data and result.data[0].get("html_code"):
             logger.info("✅ Serving from database")
