@@ -111,6 +111,7 @@ def _menu_rules(S: Dict[str, str], has_whatsapp: bool, item_count: int, has_item
 - The section = heading, ONE short intro line, then exactly this empty slot as a direct child of the content container: <div id="binaapp-menu-slot"></div>
 - The slot is filled with every item (grouped by the merchant's categories, names and prices verbatim). Do NOT write any item name, price, tile, list row or table yourself — not in this section and not anywhere else (the hero may name ONE signature item without a price).
 - Give the section the page's surface colour and generous padding; the rendered cards inherit --primary-color / --accent-color / --surface-color / --text-color, so declare those CSS variables on :root.
+- The slot replaces ONLY the item cards. Every other section and fact in the merchant's brief MUST still be rendered in full: spice levels (Level 1/2/3), refill / dine-in perks, take-away / delivery / service charges with their exact RM amounts, a Coming Soon list (not menu items: a Coming Soon heading, names only, no price), ordering notes — as short notes under the slot or their own section.
 """
     featured = min(item_count, MAX_FEATURED_MENU_ITEMS) if item_count else 0
     more = ""

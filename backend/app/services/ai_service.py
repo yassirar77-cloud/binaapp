@@ -4962,7 +4962,12 @@ The merchant's own business data states the following: {_labels}.
                 f'  <div id="{_mf.MENU_SLOT_ID}"></div>\n'
                 f"  Emit the slot ONCE, as a direct child of the section's content container, after the\n"
                 f"  heading. Do NOT write any item name, price, card, tile, list row or table for these\n"
-                f"  items anywhere else on the page (the hero may name ONE signature item, without a price)."
+                f"  items anywhere else on the page (the hero may name ONE signature item, without a price).\n"
+                f"- The slot replaces ONLY the item cards. EVERY other section and fact in the merchant's\n"
+                f"  brief MUST still be on the page, in full: spice levels (Level 1/2/3), refill or dine-in\n"
+                f"  perks, take-away / delivery / service charges with their exact RM amounts, a Coming Soon\n"
+                f"  list (those names are NOT menu items — list them under a Coming Soon heading, no price),\n"
+                f"  ordering notes. Put them as short notes under the slot or in their own section."
             )
         else:
             _render_rule = "- Render EVERY item listed above. Do not drop, merge, or summarise any of them."
@@ -8023,6 +8028,33 @@ IMPORTANT RULES:
                 )
                 return
 
+    def _enforce_brief_facts(self, html: str, request: WebsiteGenerationRequest, language: str = "ms") -> str:
+        """Log every brief fact missing from the page and inject the
+        merchant's own sentences as a notes block under the menu. Never
+        raises; the missing list is kept on ``self._last_brief_facts``."""
+        self._last_brief_facts = None
+        try:
+            from app.services import brief_facts as _bf
+            facts = _bf.extract_key_facts(getattr(request, "description", None), getattr(request, "design_brief", None))
+            if not facts:
+                return html
+            missing = _bf.missing_facts(html, facts)
+            self._last_brief_facts = {"facts": len(facts), "missing": [f.text for f in missing]}
+            if not missing:
+                logger.info(f"📝 Brief facts: all {len(facts)} key fact(s) from the brief are on the page")
+                return html
+            for f in missing:
+                logger.warning(f"📝 BRIEF FACT MISSING from the page ({f.kind}): {f.text!r}")
+            html, injected = _bf.inject_notes_block(
+                html, missing, language, items=self._normalize_supplied_menu_items(getattr(request, "menu_items", None)),
+            )
+            if injected:
+                logger.warning(f"📝 Injected a notes block under the menu with {len(missing)} missing brief fact(s)")
+            return html
+        except Exception as err:
+            logger.warning(f"📝 Brief facts check skipped: {err}")
+            return html
+
     def _menu_item_image_pairs(self, request: WebsiteGenerationRequest, image_urls: Optional[Dict]) -> List[Tuple[str, str]]:
         """(item name, url) for every photo made or uploaded FOR an item:
         the auto-fill's ``gallery{i}``/``gallery{i}_name`` pairs, then named
@@ -10151,6 +10183,12 @@ IMPORTANT INSTRUCTIONS:
                     logger.info(f"🧽 Section hygiene: {_hyg.as_dict()}")
             except Exception as _hyg_err:
                 logger.warning(f"🧽 Section hygiene skipped: {_hyg_err}")
+            # Key facts in the merchant's brief (spice levels, free refill,
+            # charges such as "Take away caj RM2.00", a Coming Soon list)
+            # must be on the page. The deterministic menu block replaces the
+            # model's menu section and has taken those lines with it before;
+            # any still missing are added under the menu, verbatim.
+            html = self._enforce_brief_facts(html, request, language)
             # Round 2 (§D14): a single-letter logo badge takes the plan's
             # accent colour and display font, never a default blue square.
             if plan is not None:
