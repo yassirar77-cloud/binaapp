@@ -8088,7 +8088,7 @@ IMPORTANT RULES:
             # Per-item order links carry the ordering choices the brief
             # mentions (spice level, dine-in / take away) as blanks.
             from app.services.whatsapp_prefill import enrich_order_links
-            html, _n_links = enrich_order_links(html, getattr(request, "description", ""), language)
+            html, _n_links = enrich_order_links(html, getattr(request, "description", ""), language, items=items)
             if _n_links:
                 logger.info(f"💬 {_n_links} item order link(s) now carry the ordering choices from the brief")
             return html
