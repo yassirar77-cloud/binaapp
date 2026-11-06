@@ -278,7 +278,7 @@ def head_block(plan: DesignPlan, fonts_cdn: str, tw_config: str, palette: Dict[s
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <style>
 html {{ scroll-behavior: smooth; scroll-padding-top: 5rem; }}
-:root {{ --bg-color: {palette['background']}; --surface-color: {palette['surface']}; --text-color: {palette['text']}; --text-muted-color: {palette['text_muted']}; --accent-color: {accent_fill}; --accent-strong: {accent_strong}; }}
+:root {{ --bg-color: {palette['background']}; --surface-color: {palette['surface']}; --text-color: {palette['text']}; --text-muted-color: {palette['text_muted']}; --accent-color: {accent_fill}; --accent-strong: {accent_strong}; --primary-color: {accent_strong}; --font-heading: '{plan.type['display']}', {body_fallback}; --font-body: '{body_font}', {body_fallback}; }}
 body {{ background-color: var(--bg-color); color: var(--text-color); font-family: '{body_font}', {body_fallback}; }}
 :focus-visible {{ outline: 2px solid var(--accent-strong); outline-offset: 2px; }}
 @media (prefers-reduced-motion: reduce) {{ *, *::before, *::after {{ animation: none !important; transition: none !important; }} }}

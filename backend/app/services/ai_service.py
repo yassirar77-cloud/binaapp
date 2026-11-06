@@ -8104,9 +8104,16 @@ IMPORTANT RULES:
             from app.services.whatsapp_prefill import order_prefill_for
             show_prices = bool(getattr(request, "show_prices", True))
             prefill = order_prefill_for(getattr(request, "description", ""), language, business_type="food")
+            # A page styled with thick black outlines gets the bold/outline
+            # menu block (square corners, 3px black borders).
+            variant = "outline" if _mf.detect_outline_style(html) else "default"
+            html, _font_var = _mf.ensure_font_heading_var(html)
+            if _font_var:
+                logger.info("🔤 Declared --font-heading on :root for the menu block")
             if _mf.use_deterministic_menu(items):
                 block = _mf.render_menu_block(
                     items, language=language, wa_digits=wa_digits, show_prices=show_prices, order_prefill=prefill,
+                    variant=variant,
                 )
                 html, filled = _mf.fill_menu_slot(html, block)
                 logger.info(
@@ -8115,6 +8122,7 @@ IMPORTANT RULES:
                 )
             html, report = _mf.reconcile_menu(
                 html, items, language=language, wa_digits=wa_digits, show_prices=show_prices, order_prefill=prefill,
+                variant=variant,
             )
             _mf.log_report(report, business=getattr(request, "business_name", ""), model=model)
             self._last_menu_fidelity = report.as_dict()

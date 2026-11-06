@@ -277,6 +277,13 @@ _BLOCK_CSS = """
 .binaapp-menu-block .bmf-card.bmf-text-only .bmf-badge{position:static;align-self:flex-start;margin-bottom:.35rem}
 .binaapp-menu-block .bmf-card.bmf-signature{border:2px solid var(--bmf-accent);box-shadow:0 0 0 4px color-mix(in srgb,var(--bmf-accent) 18%,transparent),0 10px 30px rgba(0,0,0,.10);background:color-mix(in srgb,var(--bmf-accent) 7%,var(--bmf-surface))}
 .binaapp-menu-block .bmf-card.bmf-signature .bmf-badge{z-index:1;box-shadow:0 2px 8px rgba(0,0,0,.18)}
+.binaapp-menu-block.bmf-outline .bmf-card{border-radius:0;border:3px solid #000;box-shadow:5px 5px 0 #000}
+.binaapp-menu-block.bmf-outline .bmf-card img{border-bottom:3px solid #000}
+.binaapp-menu-block.bmf-outline .bmf-card.bmf-text-only .bmf-body{border-top:0}
+.binaapp-menu-block.bmf-outline .bmf-card.bmf-signature{border-width:4px;box-shadow:6px 6px 0 var(--bmf-accent)}
+.binaapp-menu-block.bmf-outline .bmf-badge,.binaapp-menu-block.bmf-outline .bmf-order{border-radius:0;border:2px solid #000}
+.binaapp-menu-block.bmf-outline .bmf-cat h3{text-transform:uppercase;letter-spacing:.02em}
+.binaapp-menu-block.bmf-outline .bmf-cat .bmf-rule{border-radius:0;height:4px;background:#000}
 </style>
 """
 
@@ -319,14 +326,18 @@ def render_menu_block(
     order_prefill: str = "",
     order_label: Optional[str] = None,
     with_css: bool = True,
+    variant: str = "default",
 ) -> str:
     """The merchant's items as grouped cards. Names and prices are copied
-    from the data; nothing is invented, so there is nothing to validate."""
+    from the data; nothing is invented, so there is nothing to validate.
+    ``variant="outline"`` = square corners, 3px black borders (for pages
+    styled with thick outlines — see ``detect_outline_style``)."""
     if not items:
         return ""
     lang = _lang(language)
     order_label = order_label or ("Order" if lang == "en" else "Pesan")
-    parts: List[str] = [_BLOCK_CSS if with_css else "", f'<div class="{MENU_BLOCK_CLASS}" data-binaapp-menu-items="{len(items)}">']
+    block_cls = MENU_BLOCK_CLASS + (" bmf-outline" if variant == "outline" else "")
+    parts: List[str] = [_BLOCK_CSS if with_css else "", f'<div class="{block_cls}" data-binaapp-menu-items="{len(items)}">']
     groups = group_by_category(items)
     show_headings = any(k for k, _ in groups)
     for cat, members in groups:
@@ -363,6 +374,59 @@ def render_menu_block(
         parts.append("</ul>")
     parts.append("</div>")
     return "\n".join(p for p in parts if p)
+
+
+_OUTLINE_BLACK = r"border-(?:black|\[#0{3,6}\]|\[#111(?:111)?\]|neutral-900|zinc-900|stone-900|gray-900)(?![\w-])"
+_OUTLINE_WIDTH = r"border-(?:\[[34]px\]|4)(?![\w-])"
+_OUTLINE_UTIL_RE = re.compile(
+    rf"\b{_OUTLINE_WIDTH}[^\"'<>]*\b{_OUTLINE_BLACK}|\b{_OUTLINE_BLACK}[^\"'<>]*\b{_OUTLINE_WIDTH}",
+    re.IGNORECASE,
+)
+_OUTLINE_CSS_RE = re.compile(
+    r"border(?:-width)?\s*:\s*[34]px\s+solid\s+(?:#0{3}\b|#0{6}\b|#111\b|#111111\b|black\b|var\(--text)",
+    re.IGNORECASE,
+)
+
+
+def detect_outline_style(html: str, min_hits: int = 3) -> bool:
+    """The page uses thick black outlines (3–4px) on its cards / buttons."""
+    if not html:
+        return False
+    return len(_OUTLINE_UTIL_RE.findall(html)) + len(_OUTLINE_CSS_RE.findall(html)) >= min_hits
+
+
+_FONT_HEADING_DECL_RE = re.compile(r"--font-heading\s*:", re.IGNORECASE)
+
+
+def heading_font_of(html: str) -> str:
+    """The page's heading/display face: the Tailwind config's
+    display/heading family, else the h1/h2 CSS font-family, else the first
+    Google Fonts family loaded."""
+    m = re.search(r"fontFamily\s*:\s*\{[^}]*?\b(?:display|heading|head|title)\s*:\s*\[\s*['\"]([^'\"]+)", html or "", re.IGNORECASE | re.DOTALL)
+    if m:
+        return m.group(1).strip()
+    m = re.search(r"\bh[12]\b[^{]*\{[^}]*font-family\s*:\s*['\"]?([^,'\";}]+)", html or "", re.IGNORECASE)
+    if m and "var(" not in m.group(1):
+        return m.group(1).strip()
+    m = re.search(r"fonts\.googleapis\.com/css2?\?family=([^:&\"']+)", html or "", re.IGNORECASE)
+    if m:
+        return m.group(1).replace("+", " ").strip()
+    return ""
+
+
+def ensure_font_heading_var(html: str) -> Tuple[str, bool]:
+    """Declare ``--font-heading`` on :root when the page does not, so the
+    menu block's category titles and item names use the heading face."""
+    if not html or _FONT_HEADING_DECL_RE.search(html):
+        return html, False
+    font = heading_font_of(html)
+    if not font:
+        return html, False
+    style = f'<style id="binaapp-font-heading">:root{{--font-heading:\'{_esc(font)}\',system-ui,sans-serif}}</style>'
+    m = re.search(r"</head>", html, re.IGNORECASE)
+    if m:
+        return html[: m.start()] + style + html[m.start():], True
+    return style + html, True
 
 
 _SLOT_RE = re.compile(
@@ -581,6 +645,7 @@ def reconcile_menu(
     wa_digits: str = "",
     show_prices: bool = True,
     order_prefill: str = "",
+    variant: str = "default",
 ) -> Tuple[str, MenuFidelityReport]:
     """Make the page's menu agree with the merchant's items. Returns the
     corrected HTML and a report of every correction."""
@@ -591,7 +656,7 @@ def reconcile_menu(
     span = find_menu_section(html, items)
     if span is None:
         report.notes.append("no menu section found — injecting a full menu block before the footer")
-        block = render_menu_block(items, language=language, wa_digits=wa_digits, show_prices=show_prices, order_prefill=order_prefill)
+        block = render_menu_block(items, language=language, wa_digits=wa_digits, show_prices=show_prices, order_prefill=order_prefill, variant=variant)
         html2 = _insert_before_footer(html, f'<section id="menu" class="py-16 md:py-24"><div class="max-w-6xl mx-auto px-4">{block}</div></section>')
         report.injected = [it.name for it in items]
         return html2, report
@@ -638,7 +703,7 @@ def reconcile_menu(
     if missing:
         block = render_menu_block(
             missing, language=language, wa_digits=wa_digits, show_prices=show_prices,
-            order_prefill=order_prefill, with_css=("binaapp-menu-block-css" not in html),
+            order_prefill=order_prefill, with_css=("binaapp-menu-block-css" not in html), variant=variant,
         )
         wrapper = BeautifulSoup(block, "html.parser")
         target = authoritative if authoritative is not None else root

@@ -37,7 +37,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -668,6 +668,7 @@ def _validate_palette(
     color_mode: str,
     adjustments: List[str],
     brand_colors: Optional[Dict[str, str]] = None,
+    brief_texts: Sequence[Optional[str]] = (),
 ) -> Dict[str, str]:
     """Return a complete, readable palette. Every problem is repaired from
     the fallback palette and recorded in ``adjustments`` for the logs."""
@@ -706,6 +707,17 @@ def _validate_palette(
     if not surface_ok:
         palette["surface"] = normalize_hex(fallback.get("surface")) or palette["background"]
         adjustments.append("palette.surface: did not match colour mode — reset")
+
+    # The merchant named their colours in the brief: only those + neutrals.
+    from app.services.brand_palette import brief_colour_set, constrain_palette
+    _named = brief_colour_set(brief_texts, brand_colors)
+    if _named:
+        palette, _notes = constrain_palette(
+            palette, _named, accent_keys=("primary", "secondary", "accent"),
+            neutral_keys={"background": "bg", "surface": "surface", "text": "text", "text_muted": "muted"},
+            background_key="background", dark=wants_dark,
+        )
+        adjustments.extend(_notes)
 
     # Readability: text on background, muted text on background.
     if contrast_ratio(palette["text"], palette["background"]) < MIN_TEXT_CONTRAST:
@@ -894,6 +906,7 @@ def parse_concept(
     palette = _validate_palette(
         data.get("palette"), fallback_palette, brief.color_mode, adjustments,
         brand_colors=brief.brand_colors,
+        brief_texts=(brief.description, brief.design_brief),
     )
     fonts = _validate_fonts(data.get("fonts"), fallback_fonts, adjustments)
     sections = _validate_sections(data.get("sections"), brief.language, adjustments)
