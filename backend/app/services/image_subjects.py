@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, Optional, Tuple
 
 #: The universal negative prompt (§A1). Providers with a negative_prompt
 #: field receive NEGATIVE_TERMS; providers without one get NEGATIVE_PROMPT

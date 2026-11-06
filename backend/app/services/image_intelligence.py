@@ -24,7 +24,6 @@ in-memory images. Pillow is optional: without it the quality gate says
 
 from __future__ import annotations
 
-import asyncio
 import colorsys
 import io
 import logging
@@ -172,8 +171,8 @@ async def hero_quality(url: Optional[str]) -> HeroQuality:
 
 def _saturated_enough(rgb: Tuple[int, int, int]) -> bool:
     r, g, b = (c / 255 for c in rgb)
-    h, l, s = colorsys.rgb_to_hls(r, g, b)
-    return 0.12 <= l <= 0.88 and s >= 0.25
+    _h, light, sat = colorsys.rgb_to_hls(r, g, b)
+    return 0.12 <= light <= 0.88 and sat >= 0.25
 
 
 def dominant_colours_from_bytes(data: Optional[bytes], n: int = 2) -> List[str]:

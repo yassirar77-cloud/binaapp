@@ -10,7 +10,7 @@ Multi-style preview, the merchant's pick (preferred plan) and AI listening.
 """
 
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -19,7 +19,7 @@ import app.main as main_module
 import app.services.ai_service as ai_service_module
 from app.models.schemas import Language, MenuItemInput, WebsiteGenerationRequest
 from app.services.ai_service import AIService
-from app.services.design_plan import PlanBrief, fallback_plan
+from app.services.design_plan import fallback_plan
 
 
 def _request(**kw):

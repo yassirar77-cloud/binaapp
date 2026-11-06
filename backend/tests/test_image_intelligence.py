@@ -42,7 +42,8 @@ def test_dominant_colours_skip_plate_white_and_shadow_black():
     for x in range(45, 55):
         for y in range(60):
             img.putpixel((x, y), (40, 120, 60))  # pandan green
-    buf = io.BytesIO(); img.save(buf, format="PNG")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
     colours = ii.dominant_colours_from_bytes(buf.getvalue(), n=2)
     assert len(colours) == 2
     assert colours[0].startswith("#D") or colours[0].startswith("#C")  # red first

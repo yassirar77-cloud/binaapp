@@ -23,3 +23,8 @@
 [lint]
 select = ["E4", "E7", "E9", "F"]
 ignore = ["E402", "F841"]
+
+# Shared pytest fixtures imported from another test module are "redefined"
+# as test parameters — that is how pytest injects them, not a bug.
+[lint.per-file-ignores]
+"tests/test_hero_video_features.py" = ["F811"]
