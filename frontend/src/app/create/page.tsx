@@ -1076,7 +1076,7 @@ export default function CreatePage() {
         } else if (statusData.status === 'failed') {
           if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
           pollIntervalRef.current = null;
-          setError(statusData.error || 'Generation failed. Please try again.');
+          setError(statusData.error || 'Penjanaan gagal. Sila cuba lagi.');
           // Keep loading=true so the modal stays open with retry button
           // User can click Cancel or Try Again in the modal
         }
@@ -3287,14 +3287,14 @@ export default function CreatePage() {
                   <div className="cr-card cr-card-hairline" style={{ padding: 40, maxWidth: 560, width: '100%', position: 'relative', zIndex: 1 }}>
                     <div style={{ textAlign: 'center' }}>
                       <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', fontSize: 28 }}>❌</div>
-                      <h3 style={{ fontSize: 22, fontWeight: 700, color: '#F5F5FA', margin: '0 0 8px' }}>Generation Failed</h3>
-                      <p style={{ fontSize: 14, color: '#86869A', margin: '0 0 20px' }}>Something went wrong while generating your website</p>
+                      <h3 style={{ fontSize: 22, fontWeight: 700, color: '#F5F5FA', margin: '0 0 8px' }}>Penjanaan Gagal</h3>
+                      <p style={{ fontSize: 14, color: '#86869A', margin: '0 0 20px' }}>Website anda tidak dapat dijana kali ini. Sila cuba lagi — maklumat anda masih tersimpan.</p>
                       <div style={{ padding: 14, background: 'rgba(239,68,68,.06)', border: '1px solid rgba(239,68,68,.2)', borderRadius: 12, marginBottom: 24, textAlign: 'left' }}>
                         <p style={{ fontSize: 13, color: '#FCA5A5', margin: 0 }}>{error}</p>
                       </div>
                       <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-                        <button onClick={() => { setLoading(false); setError(''); setProgress(0); }} className="cr-btn-ghost cr-btn">Cancel</button>
-                        <button onClick={() => { setError(''); setProgress(0); handleGenerate(); }} className="cr-btn" style={{ background: 'linear-gradient(180deg, #6B5CFF, #4F3DFF)', color: '#fff', boxShadow: '0 0 0 1px rgba(107,92,255,.5), 0 8px 24px rgba(79,61,255,.35)' }}>Try Again</button>
+                        <button onClick={() => { setLoading(false); setError(''); setProgress(0); }} className="cr-btn-ghost cr-btn">Batal</button>
+                        <button onClick={() => { setError(''); setProgress(0); handleGenerate(); }} className="cr-btn" style={{ background: 'linear-gradient(180deg, #6B5CFF, #4F3DFF)', color: '#fff', boxShadow: '0 0 0 1px rgba(107,92,255,.5), 0 8px 24px rgba(79,61,255,.35)' }}>Cuba Lagi</button>
                       </div>
                     </div>
                   </div>

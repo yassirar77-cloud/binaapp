@@ -465,6 +465,16 @@ class StuckGenerationScheduler:
             self._last_hero_video_count = await self._sweep_hero_video_jobs()
         except Exception as e:
             logger.error(f"[stuck-sweep] job #{self._job_run_count} hero-video sweep errored: {e}")
+        # generation_jobs rows a restarted worker left 'processing' (job
+        # 7f29bbb4 sat at 55% after a redeploy): failed with a retry
+        # message, never left hanging. Own try, same reason as above.
+        try:
+            from app.services.generation_heartbeat import sweep_stale_jobs
+            _stale = await sweep_stale_jobs()
+            if _stale.get("count"):
+                logger.warning(f"[stuck-sweep] job #{self._job_run_count} failed {_stale['count']} interrupted generation job(s): {_stale.get('ids')}")
+        except Exception as e:
+            logger.error(f"[stuck-sweep] job #{self._job_run_count} stale-job sweep errored: {e}")
 
     async def _sweep_hero_video_jobs(self) -> int:
         from app.services.zai_video_service import hero_video_enabled
