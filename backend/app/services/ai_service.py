@@ -301,6 +301,11 @@ IMAGE_CHECK_TIMEOUT_SECONDS = float(os.getenv("IMAGE_CHECK_TIMEOUT_SECONDS", "30
 IMAGE_CHECK_MAX_TOKENS = int(os.getenv("IMAGE_CHECK_MAX_TOKENS", "1024"))
 
 
+def _is_drink_name(name: str) -> bool:
+    from app.services.whatsapp_prefill import _DRINK_NAME_RE
+    return bool(_DRINK_NAME_RE.search(str(name or "")))
+
+
 def image_check_enabled() -> bool:
     raw = os.getenv("IMAGE_CHECK_ENABLED", "true").strip().lower()
     return raw in ("1", "true", "yes", "on")
@@ -2488,7 +2493,9 @@ Format: Just the image description, no explanations."""
 
         # Generic food prompt
         return self._with_no_text_suffix(
-            f"Professional close-up photo of {item}, Malaysian style, food photography, high quality, realistic, appetizing"
+            f"Professional close-up photo of {item}, "
+            + ("a drink served in a glass" if _is_drink_name(item) else "a cooked dish served plated on a table")
+            + ", Malaysian style, food photography, high quality, realistic, appetizing"
         )
 
     # Known dish vocabulary — the single source for both keyword extraction
@@ -8067,10 +8074,11 @@ IMPORTANT RULES:
             _same = lambda a, b: a == b  # noqa: E731
         pairs: List[Tuple[str, str]] = []
         urls = image_urls or {}
-        for i in range(1, 10):
-            url, name = urls.get(f"gallery{i}"), urls.get(f"gallery{i}_name")
-            if isinstance(url, str) and url and name:
-                pairs.append((str(name), url))
+        for prefix, top in (("gallery", 10), ("menuphoto", 60)):
+            for i in range(1, top):
+                url, name = urls.get(f"{prefix}{i}"), urls.get(f"{prefix}{i}_name")
+                if isinstance(url, str) and url and name:
+                    pairs.append((str(name), url))
         for img in (getattr(request, "uploaded_images", None) or []):
             if isinstance(img, dict) and img.get("url") and img.get("name"):
                 pairs.append((str(img["name"]), str(img["url"])))
@@ -8822,7 +8830,10 @@ IMPORTANT RULES:
         """
         ctx = f", for the business: {business_context}" if business_context else ""
         if category == "food":
-            return name
+            # The DISH, not the menu label: "Set Panglima Signature – Ayam
+            # Gepuk Telur Mata" made glm-image letter the label into every
+            # photo (rejected twice by the text gate, card left text-only).
+            return image_subjects.food_dish_subject(name)
         if subject is None:
             # The business decides the subject (its words and vertical), not
             # the item name — a "Studio Lighting Kit" sold by a camera shop is
@@ -9195,6 +9206,24 @@ IMPORTANT RULES:
                     self._autofill_item_prompt(category, name, _biz_type, _biz_context, subject=_subject),
                 )
             )
+        # F&B: every item of the first / "Set" category gets a photo before
+        # anything else, even past the four gallery slots the page prompt
+        # shows. Extra photos go to menu-only slots (menuphoto{n}) that the
+        # deterministic menu block reads; the cap still bounds the total.
+        if is_food and _supplied:
+            _tier = [it.name for it in _mf.photo_tier(_mf.normalize_items(_supplied))]
+            _taken = set(slot_names)
+            _extra = [n for n in _tier if n not in _taken and not _covered(n)]
+            for _n_extra, name in enumerate(_extra, 1):
+                work.append(
+                    (
+                        f"menuphoto{_n_extra}",
+                        name,
+                        self._autofill_item_prompt(category, name, _biz_type, _biz_context, subject=_subject),
+                    )
+                )
+            if _extra:
+                logger.info(f"🍽️ {len(_extra)} more set item(s) queued for menu-only photos: {', '.join(_extra)}")
 
         if len(work) > cap:
             logger.info(f"✂️ Auto-fill capped at {cap} of {len(work)} missing image slot(s)")
@@ -10373,6 +10402,16 @@ IMPORTANT INSTRUCTIONS:
                     logger.info(f"📞 {_n_tel} phone number(s) turned into tel: links")
             except Exception as _tel_err:
                 logger.warning(f"📞 tel: linking skipped: {_tel_err}")
+            # A tap-to-call link beside WhatsApp in the contact section and
+            # the footer: restaurants take both messages and calls.
+            try:
+                if wa_digits:
+                    from app.services.contact_links import add_call_links
+                    html, _n_call = add_call_links(html, wa_digits, language=language)
+                    if _n_call:
+                        logger.info(f"📞 {_n_call} tap-to-call link(s) added beside WhatsApp")
+            except Exception as _call_err:
+                logger.warning(f"📞 Call links skipped: {_call_err}")
             # A poster-style upload that still ended up outside the menu is
             # shown whole rather than cropped.
             try:

@@ -195,3 +195,89 @@ async def sweep_stuck_generations(
             flipped.append(website_id)
 
     return {"checked": True, "count": len(flipped), "ids": flipped}
+
+
+# ---------------------------------------------------------------------------
+# generation_jobs: an interrupted job is failed, never left 'processing'
+# ---------------------------------------------------------------------------
+# A Render redeploy restarted the worker under job 7f29bbb4 at 55%; the row
+# stayed 'processing' for good (the sweep above only watches `websites`).
+# run_generation_task's heartbeat touches generation_jobs.updated_at every
+# JOB_HEARTBEAT_SECONDS (30s), so a row silent for STALE_JOB_SECONDS has no
+# worker. It is flipped to 'failed' with a retry message — by the status
+# endpoint the moment the page polls it, and by the scheduler sweep.
+
+STALE_JOB_SECONDS = _env_float("STALE_JOB_SECONDS", 180.0)
+JOB_INTERRUPTED_ERROR = (
+    "Penjanaan terganggu kerana pelayan dimulakan semula. Sila cuba lagi."
+)
+
+
+def _parse_ts(value: Any) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        text = str(value).replace("Z", "+00:00")
+        ts = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+
+
+def job_is_stale(job: Optional[Dict[str, Any]], *, now: Optional[datetime] = None,
+                 stale_seconds: Optional[float] = None) -> bool:
+    """A 'processing' job whose row has not been touched for
+    STALE_JOB_SECONDS: the worker that owned it is gone."""
+    if not job or str(job.get("status") or "") != "processing":
+        return False
+    ts = _parse_ts(job.get("updated_at"))
+    if ts is None:
+        return False
+    now = now or datetime.now(timezone.utc)
+    return (now - ts).total_seconds() >= (stale_seconds or STALE_JOB_SECONDS)
+
+
+async def fail_stale_job(job_id: str, *, stale_seconds: Optional[float] = None) -> bool:
+    """Flip one job to 'failed' — only while it is still 'processing' AND
+    still stale, so a heartbeat that lands meanwhile wins. True when this
+    call changed the row."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=stale_seconds or STALE_JOB_SECONDS)).isoformat()
+    url = f"{supabase_service.url}/rest/v1/generation_jobs"
+    params = {"job_id": f"eq.{job_id}", "status": "eq.processing", "updated_at": f"lt.{cutoff}"}
+    headers = {**supabase_service.headers, "Prefer": "return=representation"}
+    body = {"status": "failed", "error": JOB_INTERRUPTED_ERROR, "updated_at": _utcnow_iso()}
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.patch(url, headers=headers, params=params, json=body)
+        if resp.status_code not in (200, 204):
+            logger.warning(f"[stale-job] PATCH {job_id[:8]} returned {resp.status_code}: {resp.text[:160]}")
+            return False
+        rows = resp.json() if resp.content else []
+        changed = bool(rows)
+        if changed:
+            logger.warning(f"[stale-job] job {job_id[:8]} had no heartbeat for {STALE_JOB_SECONDS:.0f}s — marked failed (worker restarted)")
+        return changed
+    except Exception as e:
+        logger.error(f"[stale-job] could not fail job {job_id[:8]}: {e}")
+        return False
+
+
+async def sweep_stale_jobs(stale_seconds: Optional[float] = None) -> Dict[str, Any]:
+    """Every 'processing' job with no heartbeat for STALE_JOB_SECONDS is
+    failed with JOB_INTERRUPTED_ERROR."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=stale_seconds or STALE_JOB_SECONDS)).isoformat()
+    url = f"{supabase_service.url}/rest/v1/generation_jobs"
+    params = {"status": "eq.processing", "updated_at": f"lt.{cutoff}", "select": "job_id,updated_at"}
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(url, headers=supabase_service.headers, params=params)
+        rows = resp.json() if resp.status_code == 200 else []
+    except Exception as e:
+        logger.error(f"[stale-job] sweep query failed: {e}")
+        return {"checked": False, "count": 0, "ids": []}
+    failed: List[str] = []
+    for row in rows if isinstance(rows, list) else []:
+        jid = row.get("job_id")
+        if jid and await fail_stale_job(jid, stale_seconds=stale_seconds):
+            failed.append(jid)
+    return {"checked": True, "count": len(failed), "ids": failed}

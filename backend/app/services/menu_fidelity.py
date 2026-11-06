@@ -185,13 +185,24 @@ def _price_value(price: str) -> Optional[float]:
         return None
 
 
+_SET_CATEGORY_RE = re.compile(r"^\s*(?:set|paket|pakej|combo)\b", re.IGNORECASE)
+
+
+def is_set_category(category: str) -> bool:
+    """"Set Ayam", "Set Seafood Krispy", "Paket Jimat" — a category of
+    complete meals."""
+    return bool(_SET_CATEGORY_RE.search(str(category or "")))
+
+
 def image_priority(items: Sequence[MenuItemSpec]) -> List[MenuItemSpec]:
     """Items that may carry a photo, most deserving first.
 
     Drinks, kids' items and add-ons are excluded (unless the whole menu is
-    such items — a drinks-only kiosk still gets photos). Among the rest:
-    signature items, then items in the first category, then "Set" items,
-    then items priced above the median; menu order breaks ties."""
+    such items — a drinks-only kiosk still gets photos). EVERY item in the
+    first category or in a "Set …" category comes before anything else
+    (agp: all 7 sets, seafood sets included); within that tier and below
+    it, signature items lead, then "Set" names, then prices above the
+    median; menu order breaks ties."""
     items = list(items)
     eligible = [it for it in items if not text_only_category(it.category)] or items
     if not eligible:
@@ -202,10 +213,12 @@ def image_priority(items: Sequence[MenuItemSpec]) -> List[MenuItemSpec]:
 
     def _score(it: MenuItemSpec) -> int:
         score = 0
+        if (first_cat and it.category == first_cat) or is_set_category(it.category) or (
+            not it.category and re.match(r"\s*set\b", it.name, re.IGNORECASE)
+        ):
+            score += 100
         if it.signature:
             score += 8
-        if first_cat and it.category == first_cat:
-            score += 4
         if re.match(r"\s*set\b", it.name, re.IGNORECASE):
             score += 2
         v = _price_value(it.price)
@@ -215,6 +228,18 @@ def image_priority(items: Sequence[MenuItemSpec]) -> List[MenuItemSpec]:
 
     order = {id(it): i for i, it in enumerate(eligible)}
     return sorted(eligible, key=lambda it: (-_score(it), order[id(it)]))
+
+
+def photo_tier(items: Sequence[MenuItemSpec]) -> List[MenuItemSpec]:
+    """The items that must all get a photo before any other item: the
+    first category plus every "Set …" category (eligible items only)."""
+    ranked = image_priority(items)
+    first_cat = next((it.category for it in ranked if it.category), "")
+    return [
+        it for it in ranked
+        if (first_cat and it.category == first_cat) or is_set_category(it.category)
+        or (not it.category and re.match(r"\s*set\b", it.name, re.IGNORECASE))
+    ]
 
 
 def attach_item_images(
@@ -376,23 +401,55 @@ def render_menu_block(
     return "\n".join(p for p in parts if p)
 
 
-_OUTLINE_BLACK = r"border-(?:black|\[#0{3,6}\]|\[#111(?:111)?\]|neutral-900|zinc-900|stone-900|gray-900)(?![\w-])"
-_OUTLINE_WIDTH = r"border-(?:\[[34]px\]|4)(?![\w-])"
-_OUTLINE_UTIL_RE = re.compile(
-    rf"\b{_OUTLINE_WIDTH}[^\"'<>]*\b{_OUTLINE_BLACK}|\b{_OUTLINE_BLACK}[^\"'<>]*\b{_OUTLINE_WIDTH}",
-    re.IGNORECASE,
-)
+#: Thick-outline styling: a 3-4px border in black or a near-black ink
+#: (agp used #1A120B, the page's own text colour), as CSS or Tailwind.
 _OUTLINE_CSS_RE = re.compile(
-    r"border(?:-width)?\s*:\s*[34]px\s+solid\s+(?:#0{3}\b|#0{6}\b|#111\b|#111111\b|black\b|var\(--text)",
+    r"border(?:-(?:top|bottom|left|right))?(?:-width)?\s*:\s*[34]px\s+solid\s+(#[0-9a-fA-F]{3,6}\b|black\b|var\(--text[\w-]*\))",
     re.IGNORECASE,
 )
+_TW_WIDTH_RE = re.compile(r"(?<![\w:-])border-(?:\[[34]px\]|[34])(?![\w-])")
+_TW_COLOUR_RE = re.compile(
+    r"(?<![\w:-])border-(black|\[#[0-9a-fA-F]{3,6}\]|(?:neutral|zinc|stone|gray|slate)-(?:800|900|950))(?![\w-])"
+)
+_CLASS_VALUE_RE = re.compile(r"""\bclass\s*=\s*["']([^"']*)["']""", re.IGNORECASE)
+
+
+def _is_dark_hex(value: str) -> bool:
+    h = value.strip().lstrip("#")
+    if len(h) == 3:
+        h = "".join(c * 2 for c in h)
+    if len(h) != 6:
+        return False
+    try:
+        r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
+    except ValueError:
+        return False
+    return max(r, g, b) <= 0x40
+
+
+def _is_ink(colour: str) -> bool:
+    c = colour.strip().lower()
+    if c in ("black",) or c.startswith("var(--text"):
+        return True
+    return c.startswith("#") and _is_dark_hex(c)
 
 
 def detect_outline_style(html: str, min_hits: int = 3) -> bool:
-    """The page uses thick black outlines (3–4px) on its cards / buttons."""
+    """The page uses thick black / near-black outlines (3-4px) on its cards
+    and buttons."""
     if not html:
         return False
-    return len(_OUTLINE_UTIL_RE.findall(html)) + len(_OUTLINE_CSS_RE.findall(html)) >= min_hits
+    hits = sum(1 for m in _OUTLINE_CSS_RE.finditer(html) if _is_ink(m.group(1)))
+    for m in _CLASS_VALUE_RE.finditer(html):
+        cls = m.group(1)
+        if not _TW_WIDTH_RE.search(cls):
+            continue
+        col = _TW_COLOUR_RE.search(cls)
+        if col and (not col.group(1).startswith("[") or _is_dark_hex(col.group(1).strip("[]"))):
+            hits += 1
+        if hits >= min_hits:
+            return True
+    return hits >= min_hits
 
 
 _FONT_HEADING_DECL_RE = re.compile(r"--font-heading\s*:", re.IGNORECASE)

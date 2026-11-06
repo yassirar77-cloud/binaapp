@@ -34,11 +34,17 @@ _COLOUR_WORDS: Sequence[Tuple[str, str]] = (
     ("krim", "#FFF8E7"), ("cream", "#FFF8E7"),
 )
 
-#: A sentence must talk about colour/branding for its colour words to count
-#: ("nasi putih" and "sambal merah" are food, not a palette).
+#: The palette is LOCKED only when the brief explicitly lists brand
+#: colours ("Warna jenama: kuning, merah, hitam", "Brand colours: red &
+#: black"). A descriptive mention — "Cari kedai kuning terang dengan
+#: signboard …", "logo kami merah" — describes the shop, not the palette:
+#: locking on it turned the yellow/red/black brand into yellow-only and
+#: would have removed the logo's red and black. Food words never count
+#: either ("nasi putih", "sambal merah").
 _CONTEXT_RE = re.compile(
-    r"\b(warna|colou?rs?|tema|theme|jenama|brand(?:ing)?|palet(?:te)?|signboard|papan\s+tanda|logo|identiti|"
-    r"identity|bertemakan|nuansa|kedai\s+(?:berwarna|kuning|merah|hijau|biru|hitam|oren))\b",
+    r"\b(?:warna\s+(?:jenama|tema|utama|rasmi|korporat|brand|kedai\s+kami\s+ialah)|tema\s+warna|skema\s+warna|"
+    r"palet(?:te)?\s+warna|brand\s+colou?rs?|brand\s+palette|colou?r\s+(?:scheme|palette)|"
+    r"(?:colou?rs?|warna)\s*[:：=])",
     re.IGNORECASE,
 )
 
@@ -81,8 +87,8 @@ def _hue_distance(a: float, b: float) -> float:
 
 
 def named_colours(*texts: Optional[str]) -> List[str]:
-    """Hexes for the colours the brief names in a colour/branding context,
-    in first-mentioned order, de-duplicated."""
+    """Hexes for the colours the brief EXPLICITLY lists as its brand
+    colours, in first-mentioned order, de-duplicated. Empty = no lock."""
     found: List[Tuple[Tuple[int, int], str]] = []
     n_sent = 0
     for text in texts:

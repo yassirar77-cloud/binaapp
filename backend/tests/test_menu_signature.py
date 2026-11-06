@@ -41,9 +41,11 @@ def test_signature_card_is_badged_and_highlighted():
     assert ".bmf-card.bmf-signature{" in block  # the highlight style ships with the block
 
 
-def test_signature_ranks_first_for_photos():
+def test_signature_ranks_first_within_the_set_tier():
     items = mf.normalize_items([
         {"name": "Set A", "price": "12.50", "category": "Set Ayam"},
+        {"name": "Set Signature", "price": "15", "category": "Set Ayam"},
         {"name": "Ayam Signature", "price": "9", "category": "Lauk"},
     ])
-    assert mf.image_priority(items)[0].name == "Ayam Signature"
+    # Every set item before anything else; the signature set leads them.
+    assert [it.name for it in mf.image_priority(items)] == ["Set Signature", "Set A", "Ayam Signature"]

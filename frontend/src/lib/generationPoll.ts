@@ -112,12 +112,17 @@ export function pollVerdict(liveness: PollLiveness, startedAt: number, now: numb
   return 'continue';
 }
 
-/** The error shown in the modal when polling gives up. */
+/**
+ * The error shown in the modal when polling gives up. Malay, ending with
+ * "Sila cuba lagi." — the modal's "Cuba Lagi" button retries. (The
+ * backend also fails a job with no heartbeat, so a poll usually returns
+ * status 'failed' with its own Malay message before this triggers.)
+ */
 export function pollGiveUpMessage(verdict: Exclude<PollVerdict, 'continue'>, liveness: PollLiveness, jobId: string): string {
   const job = jobId.slice(0, 8);
-  const at = liveness.progress > 0 ? ` (stuck at ${liveness.progress}%)` : '';
+  const at = liveness.progress > 0 ? ` (terhenti pada ${liveness.progress}%)` : '';
   if (verdict === 'exceeded') {
-    return `Generation is taking longer than ${GENERATION_HARD_CAP_MS / 60_000} minutes${at}. Job: ${job}. Please try again.`;
+    return `Penjanaan mengambil masa lebih ${GENERATION_HARD_CAP_MS / 60_000} minit${at}. Sila cuba lagi. (Job: ${job})`;
   }
-  return `Generation stalled: no update from the server for ${GENERATION_STALL_MS / 60_000} minutes${at}. Job: ${job}. Please try again.`;
+  return `Penjanaan terganggu — tiada kemas kini daripada pelayan selama ${GENERATION_STALL_MS / 60_000} minit${at}. Sila cuba lagi. (Job: ${job})`;
 }

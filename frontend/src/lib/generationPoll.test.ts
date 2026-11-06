@@ -127,10 +127,10 @@ describe('generation polling liveness', () => {
     live = observePoll(live, { status: 'processing', progress: 55, updated_at: 'a' }, 2);
     expect(live.progress).toBe(55);
     expect(pollGiveUpMessage('stalled', live, '44294844-580c-4bff')).toBe(
-      'Generation stalled: no update from the server for 6 minutes (stuck at 55%). Job: 44294844. Please try again.'
+      'Penjanaan terganggu — tiada kemas kini daripada pelayan selama 6 minit (terhenti pada 55%). Sila cuba lagi. (Job: 44294844)'
     );
     expect(pollGiveUpMessage('exceeded', initialLiveness(0), '44294844-580c-4bff')).toBe(
-      'Generation is taking longer than 30 minutes. Job: 44294844. Please try again.'
+      'Penjanaan mengambil masa lebih 30 minit. Sila cuba lagi. (Job: 44294844)'
     );
   });
 });

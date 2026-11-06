@@ -985,6 +985,16 @@ async def get_generation_status(job_id: str):
             }
         )
 
+    # A job whose worker died (redeploy, crash) stops getting heartbeats;
+    # fail it now so the page shows "Sila cuba lagi" + retry instead of
+    # polling a row that will never move.
+    try:
+        from app.services.generation_heartbeat import JOB_INTERRUPTED_ERROR, fail_stale_job, job_is_stale
+        if job_is_stale(job) and await fail_stale_job(job_id):
+            job = {**job, "status": "failed", "error": JOB_INTERRUPTED_ERROR}
+    except Exception as _stale_err:
+        logger.warning(f"⏱️ Stale-job check skipped for {job_id[:8]}: {_stale_err}")
+
     job_status = job.get("status", "unknown")
     job_progress = job.get("progress", 0)
     job_html = job.get("html")

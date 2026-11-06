@@ -8,6 +8,8 @@ soft-shadow cards sat on a page of square 3px-outlined cards.
 """
 
 
+import pytest
+
 from app.services import brand_palette as bp
 from app.services import menu_fidelity as mf
 
@@ -22,7 +24,8 @@ AGP_PLAN_PALETTE = {"bg": "#FFF200", "surface": "#FFFFFF", "text": "#1A1208", "m
 class TestNamedColours:
     def test_colour_words_only_count_in_a_colour_context(self):
         assert bp.named_colours("Nasi putih dengan sambal merah dan sayur hijau.") == []
-        assert bp.named_colours(AGP_BRIEF) == ["#FACC15"]
+        # A descriptive signboard mention is not a palette (see TestExplicitOnly).
+        assert bp.named_colours(AGP_BRIEF) == []
 
     def test_design_brief_order_and_multiword(self):
         assert bp.named_colours(AGP_DESIGN) == ["#FACC15", "#D7261E", "#111111"]
@@ -132,3 +135,41 @@ class TestOutlineVariant:
         html = f'<html><head></head><body>{self.OUTLINED}<section id="menu"><div id="binaapp-menu-slot"></div></section></body></html>'
         out = svc._enforce_menu_fidelity(html, req, image_urls=None)
         assert "binaapp-menu-block bmf-outline" in out
+
+
+class TestExplicitOnly:
+    """Lock the palette only when the brief explicitly lists brand colours."""
+
+    @pytest.mark.parametrize("brief", [
+        "Cari kedai kuning terang dengan signboard Ayam Gepuk Panglima!",
+        "Logo kami merah dan hitam, kedai berwarna kuning.",
+        "Papan tanda kuning dengan tulisan merah.",
+        "Nasi putih panas dengan sambal merah.",
+        "Tema: ceria dan mesra keluarga.",
+    ])
+    def test_descriptive_mentions_do_not_lock(self, brief):
+        assert bp.named_colours(brief) == []
+        assert bp.brief_colour_set((brief,)) == []
+
+    @pytest.mark.parametrize("brief,expected", [
+        ("Warna jenama: kuning terang, merah cili dan hitam.", ["#FACC15", "#D7261E", "#111111"]),
+        ("Brand colours: red & black", ["#DC2626", "#111111"]),
+        ("Colours: yellow, red, black", ["#FACC15", "#DC2626", "#111111"]),
+        ("Skema warna kedai kuning dan hijau", ["#FACC15", "#16A34A"]),
+    ])
+    def test_explicit_lists_lock(self, brief, expected):
+        assert bp.named_colours(brief) == expected
+
+    def test_kedai_kuning_terang_keeps_the_red_and_black(self):
+        """agp's own description, with no explicit colour list: the plan's red
+        accent and black outline ink survive untouched."""
+        from app.services import design_directions as dd
+        from app.services.design_plan import PlanBrief, _validate_palette
+
+        brief = PlanBrief(business_name="AGP", description=AGP_BRIEF, design_brief="Berani, pedas, ceria — jangan gelap.",
+                          theme="bright")
+        raw = {"bg": "#FFF7D6", "surface": "#FFFFFF", "text": "#1A120B", "muted": "#5C4A3A", "accent": "#D62E12", "accent_2": "#111111"}
+        adjustments = []
+        pal = _validate_palette(raw, dd.DIRECTIONS[0], brief, adjustments)
+        assert pal["accent"] == "#D62E12" and pal["accent_2"] == "#111111"
+        assert not any("not a merchant colour" in a for a in adjustments)
