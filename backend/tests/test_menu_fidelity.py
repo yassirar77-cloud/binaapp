@@ -133,7 +133,7 @@ class TestDeterministicRender:
         cats = re.findall(r'<div class="bmf-cat"><h3>(.*?)</h3>', block)
         assert cats == ["Set Ayam", "Set Seafood Krispy", "Tambahan", "Minuman", "Special Drink", "Kid&#x27;s Menu"]
         assert block.count('class="bmf-order"') == 32
-        assert 'class="bmf-badge">Signature' in block
+        assert 'class="bmf-badge">SIGNATURE' in block
         assert "justify-content:center" in block  # a short last row is centred
 
     def test_slot_is_filled_and_model_written_duplicates_are_dropped(self, panglima):

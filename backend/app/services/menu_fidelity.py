@@ -58,7 +58,13 @@ _ID_RE = re.compile(r"\bid\s*=\s*[\"']([^\"']+)[\"']", re.IGNORECASE)
 _MENU_ID_WORDS = ("menu", "produk", "product", "servis", "service", "perkhidmatan", "koleksi", "harga", "price", "offer")
 _CTA_WORDS = {"pesan", "order", "tempah", "beli", "whatsapp", "add", "tambah", "pesan sekarang", "order now", "book"}
 _UNCATEGORISED = {"ms": "Lain-lain", "en": "Others"}
-_SIGNATURE_LABEL = {"ms": "Signature", "en": "Signature"}
+_SIGNATURE_LABEL = {"ms": "SIGNATURE", "en": "SIGNATURE"}
+_SIGNATURE_NAME_RE = re.compile(r"\bsignature\b", re.IGNORECASE)
+
+
+def is_signature_name(name: str) -> bool:
+    """An item whose own name says it is the signature dish."""
+    return bool(_SIGNATURE_NAME_RE.search(str(name or "")))
 
 
 # ---------------------------------------------------------------------------
@@ -125,7 +131,10 @@ def normalize_items(raw: Optional[Iterable[Any]]) -> List[MenuItemSpec]:
                 category=category[:60],
                 description=str(d.get("description") or "").strip()[:400],
                 image_url=str(d.get("image_url") or d.get("url") or "").strip(),
-                signature=bool(d.get("signature") or d.get("is_signature") or d.get("is_popular") or d.get("featured")),
+                signature=bool(
+                    d.get("signature") or d.get("is_signature") or d.get("is_popular") or d.get("featured")
+                    or is_signature_name(name)
+                ),
             )
             if spec.key in seen:
                 continue
@@ -266,6 +275,8 @@ _BLOCK_CSS = """
 .binaapp-menu-block .bmf-order:hover{filter:brightness(1.08)}
 .binaapp-menu-block .bmf-badge{position:absolute;top:.75rem;left:.75rem;padding:.25rem .6rem;border-radius:999px;background:var(--bmf-accent);color:#fff;font-size:.7rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
 .binaapp-menu-block .bmf-card.bmf-text-only .bmf-badge{position:static;align-self:flex-start;margin-bottom:.35rem}
+.binaapp-menu-block .bmf-card.bmf-signature{border:2px solid var(--bmf-accent);box-shadow:0 0 0 4px color-mix(in srgb,var(--bmf-accent) 18%,transparent),0 10px 30px rgba(0,0,0,.10);background:color-mix(in srgb,var(--bmf-accent) 7%,var(--bmf-surface))}
+.binaapp-menu-block .bmf-card.bmf-signature .bmf-badge{z-index:1;box-shadow:0 2px 8px rgba(0,0,0,.18)}
 </style>
 """
 
@@ -326,6 +337,8 @@ def render_menu_block(
         for it in members:
             text_only = not it.image_url
             card_cls = "bmf-card bmf-text-only" if text_only else "bmf-card"
+            if it.signature:
+                card_cls += " bmf-signature"
             card = [f'<li class="{card_cls}">']
             if it.image_url:
                 card.append(f'<img src="{_esc(it.image_url)}" alt="{_esc(it.name)}" loading="lazy" decoding="async">')
