@@ -63,7 +63,16 @@ _CONTAINER_OPEN_RE = re.compile(
 )
 _WA_ANCHOR_RE = re.compile(r"<a\b[^>]*href=[\"']https?://(?:api\.)?(?:wa\.me|whatsapp\.com)/[^\"']*[\"'][^>]*>.*?</a>", re.IGNORECASE | re.DOTALL)
 _CLASS_ATTR_RE = re.compile(r"""\bclass\s*=\s*["']([^"']*)["']""", re.IGNORECASE)
-_GREEN_CLASS_RE = re.compile(r"green|emerald|25d366|128c7e|075e54|whatsapp", re.IGNORECASE)
+#: Colour utilities in WhatsApp green — dropped from the call link's copy
+#: of the classes. Shape/spacing classes (and a custom .btn-whatsapp that
+#: carries the padding and radius) are KEPT: stripping every class with
+#: "whatsapp" in it left agp's call link as bare highlighted text.
+_GREEN_CLASS_RE = re.compile(
+    r"^(?:[\w-]+:)*(?:bg|text|border|ring|from|via|to|shadow|fill|stroke)-(?:\[#?(?:25d366|128c7e|075e54|1da851|20ba5a|22c55e)\]|(?:green|emerald|lime)-\d+(?:/\d+)?)$",
+    re.IGNORECASE,
+)
+_BRAND_CLASS_RE = re.compile(r"whatsapp|\bwa\b|-wa\b|wa-", re.IGNORECASE)
+_NEUTRAL_CALL_STYLE = "background:#FFFFFF;color:#141414;border-color:#141414"
 
 
 def display_phone(digits: str) -> str:
@@ -124,14 +133,21 @@ def add_call_links(html: str, wa_digits: str, *, language: str = "ms") -> Tuple[
         if not wa:
             continue
         cls_m = _CLASS_ATTR_RE.search(wa.group(0))
-        classes = " ".join(c for c in (cls_m.group(1).split() if cls_m else []) if not _GREEN_CLASS_RE.search(c))
+        classes = " ".join(c for c in (cls_m.group(1).split() if cls_m else []) if not _GREEN_CLASS_RE.match(c))
+        # A WhatsApp-named class (.btn-whatsapp) keeps the button's shape
+        # but paints it green: neutralise the colour inline, not the shape.
+        # A footer text link only gets a neutral colour when it is green.
+        style_attr = ""
+        if _BRAND_CLASS_RE.search(classes):
+            style_attr = f' style="{_NEUTRAL_CALL_STYLE}"'
+
         anchor_text = re.sub(r"<[^>]+>", "", wa.group(0)).strip()
         # A footer line that already prints the number in the WhatsApp link
         # gets a short "Telefon" link; elsewhere the number is shown.
         text = label if re.sub(r"\D", "", anchor_text).endswith(digits[-7:]) else f"{label} {number}"
         sep = " · " if tag == "footer" else " "
         call = (
-            f'{sep}<a href="tel:+{digits}" class="{(classes + " binaapp-call").strip()}" '
+            f'{sep}<a href="tel:+{digits}" class="{(classes + " binaapp-call").strip()}"{style_attr} '
             f'aria-label="{label} {number}"><i class="fa-solid fa-phone" aria-hidden="true"></i> {text}</a>'
         )
         insert_at = m.start() + wa.end()

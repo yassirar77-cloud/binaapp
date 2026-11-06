@@ -10366,6 +10366,16 @@ IMPORTANT INSTRUCTIONS:
                         logger.info(f"🌤️ Light hero kept light: {_scrim.as_dict()}")
             except Exception as _scrim_err:
                 logger.warning(f"🌤️ Hero scrim guard skipped: {_scrim_err}")
+            # A strip pinned to the bottom of the hero (agp's spice-level
+            # chips) is docked into the hero's flow so it never covers the
+            # hero's CTA buttons on a phone.
+            try:
+                from app.services.hero_strip import dock_hero_bottom_strip
+                html, _n_strip = dock_hero_bottom_strip(html)
+                if _n_strip:
+                    logger.info("🦸 Hero bottom strip docked under the hero copy (it covered the CTA on mobile)")
+            except Exception as _strip_err:
+                logger.warning(f"🦸 Hero strip guard skipped: {_strip_err}")
             # The mobile nav panel carries the WhatsApp / order CTA.
             try:
                 if wa_digits:

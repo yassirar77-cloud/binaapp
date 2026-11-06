@@ -982,7 +982,7 @@ function handleContactSubmit(e) {{
             )
         return form
 
-    def inject_qr_code(self, html: str, url: str) -> str:
+    def inject_qr_code(self, html: str, url: str, language: Optional[str] = "ms") -> str:
         """
         Inject QR code for the website
         """
@@ -996,10 +996,11 @@ function handleContactSubmit(e) {{
         # it is dropped into. The old version painted itself #f9fafb with
         # #1f2937 text, so inside a dark footer it read as a white sticker
         # someone had pasted over the design.
+        label = "📱 Scan to Visit" if str(language or "ms").lower().startswith("en") else "📱 Imbas untuk Lawat"
         qr_html = f"""
 <!-- QR Code Section -->
 <div style="text-align:center;padding:32px 20px 8px;background:inherit;color:inherit;">
-  <p style="font-size:1.1rem;font-weight:600;margin:0 0 1rem;color:inherit;">📱 Scan to Visit</p>
+  <p style="font-size:1.1rem;font-weight:600;margin:0 auto 1rem;text-align:center;color:inherit;">{label}</p>
   <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data={url}"
        alt="QR Code" width="200" height="200"
        style="margin:0 auto;display:block;background:#fff;padding:8px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.15);">
@@ -3817,7 +3818,7 @@ __BINAAPP_WIDGET_THEME_VARS__
         # QR Code - Inject BEFORE delivery system so it ends up inside page-home div
         # SKIP if widget is enabled (widget has its own flow)
         if user_data.get("url") and not delivery_widget_enabled:
-            html = self.inject_qr_code(html, user_data["url"])
+            html = self.inject_qr_code(html, user_data["url"], language=user_data.get("language"))
 
         # Delivery System handling
         if "delivery_system" in features or user_data.get("delivery"):
