@@ -9002,11 +9002,17 @@ IMPORTANT RULES:
         is_food: bool,
         zai_phase: Optional[Dict] = None,
         doodle: bool = False,
+        final_prompt: Optional[str] = None,
     ) -> Optional[str]:
         """Round 2 (§A2): check a generated image; regenerate once with a
         stricter prompt on failure; drop it on a second failure. The
         rejection reason is always logged. Without a vision model the image
-        passes (never blocks generation)."""
+        passes (never blocks generation).
+
+        ``final_prompt`` (first/"Set" category menu items) buys a THIRD
+        attempt with a plain dish-only prompt, sent verbatim, before the
+        photo is dropped — Set Panglima Krispy lost its photo to two
+        lettered images."""
         if not self._image_check_available():
             return url
         label = subject.vision_label if subject is not None else "food or drink for a restaurant, café or bakery"
@@ -9031,9 +9037,28 @@ IMPORTANT RULES:
             if not failures2:
                 logger.info(f"👁️ Image check {slot_key}: pass on stricter retry")
                 return retry
-            logger.warning(f"👁️ Image check {slot_key}: REJECTED AGAIN — {'; '.join(failures2)} [{verdict2.reason}] — dropping image, typographic tile instead")
+            logger.warning(
+                f"👁️ Image check {slot_key}: REJECTED AGAIN — {'; '.join(failures2)} [{verdict2.reason}]"
+                + (" — final dish-only attempt" if final_prompt else " — dropping image, typographic tile instead")
+            )
         else:
-            logger.warning(f"👁️ Image check {slot_key}: no stricter image produced — dropping image, typographic tile instead")
+            logger.warning(f"👁️ Image check {slot_key}: no stricter image produced"
+                           + (" — final dish-only attempt" if final_prompt else " — dropping image, typographic tile instead"))
+        if final_prompt:
+            try:
+                last = await self._generate_image(final_prompt, food=False, zai_phase=zai_phase, doodle=doodle)
+            except Exception as err:
+                logger.warning(f"👁️ Image check {slot_key}: dish-only regeneration failed: {err}")
+                last = None
+            if last:
+                verdict3 = await image_vision_check.check_image(last, label, call_model=self._call_image_check_model)
+                self._remember_image_verdict(last, verdict3)
+                failures3 = verdict3.failures(food_allowed=is_food)
+                if not failures3:
+                    logger.info(f"👁️ Image check {slot_key}: pass on the dish-only attempt (3/3)")
+                    self._last_image_rejections.append({"slot": slot_key, "reasons": failures, "reason": verdict.reason, "outcome": "passed_on_attempt_3"})
+                    return last
+                logger.warning(f"👁️ Image check {slot_key}: REJECTED 3/3 — {'; '.join(failures3)} [{verdict3.reason}] — dropping image, typographic tile instead")
         self._last_image_rejections.append({"slot": slot_key, "reasons": failures, "reason": verdict.reason, "outcome": "dropped"})
         return None
 
@@ -9196,6 +9221,7 @@ IMPORTANT RULES:
         # budget and later items are the ones dropped. Item prompts always
         # make the item itself the subject (see _autofill_item_prompt).
         work: List[Tuple[str, Optional[str], str]] = []  # (slot_key, item_name, prompt)
+        _tier_is_set: Dict[str, bool] = {}  # first/"Set" category item → is a set meal
         if hero_missing:
             work.append(("hero", None, hero_prompt))
         for slot_no, name in zip(missing_slots, slot_names):
@@ -9211,7 +9237,9 @@ IMPORTANT RULES:
         # shows. Extra photos go to menu-only slots (menuphoto{n}) that the
         # deterministic menu block reads; the cap still bounds the total.
         if is_food and _supplied:
-            _tier = [it.name for it in _mf.photo_tier(_mf.normalize_items(_supplied))]
+            _tier_specs = _mf.photo_tier(_mf.normalize_items(_supplied))
+            _tier_is_set.update({it.name: _mf.is_set_category(it.category) for it in _tier_specs})
+            _tier = [it.name for it in _tier_specs]
             _taken = set(slot_names)
             _extra = [n for n in _tier if n not in _taken and not _covered(n)]
             for _n_extra, name in enumerate(_extra, 1):
@@ -9274,6 +9302,11 @@ IMPORTANT RULES:
                 url = await self._vision_gate_image(
                     url, _p, slot_key, subject=_subject, is_food=is_food,
                     zai_phase=zai_phase, doodle=is_doodle,
+                    # First/"Set" category items get a third, dish-only try.
+                    final_prompt=(
+                        image_subjects.plain_dish_prompt(item_name, set_meal=_tier_is_set.get(item_name, False))
+                        if (is_food and item_name and item_name in _tier_is_set) else None
+                    ),
                 )
                 if url:
                     generated += 1
@@ -10366,6 +10399,16 @@ IMPORTANT INSTRUCTIONS:
                         logger.info(f"🌤️ Light hero kept light: {_scrim.as_dict()}")
             except Exception as _scrim_err:
                 logger.warning(f"🌤️ Hero scrim guard skipped: {_scrim_err}")
+            # A strip pinned to the bottom of the hero (agp's spice-level
+            # chips) is docked into the hero's flow so it never covers the
+            # hero's CTA buttons on a phone.
+            try:
+                from app.services.hero_strip import dock_hero_bottom_strip
+                html, _n_strip = dock_hero_bottom_strip(html)
+                if _n_strip:
+                    logger.info("🦸 Hero bottom strip docked under the hero copy (it covered the CTA on mobile)")
+            except Exception as _strip_err:
+                logger.warning(f"🦸 Hero strip guard skipped: {_strip_err}")
             # The mobile nav panel carries the WhatsApp / order CTA.
             try:
                 if wa_digits:

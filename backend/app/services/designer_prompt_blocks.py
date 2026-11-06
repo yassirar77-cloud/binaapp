@@ -269,6 +269,23 @@ QUALITY_FLOOR_RULES = """===== QUALITY FLOOR (always, invisible) =====
 """
 
 
+def _primary_colour(palette: Dict[str, str], accent_strong: str) -> str:
+    """--primary-color for the injected blocks (menu prices, order buttons):
+    the plan's PRIMARY accent (agp: chilli red #C81E1E), not accent_strong —
+    that is the darkened SECONDARY colour (agp: mustard #8C6B00 from the
+    yellow), which put every price and 'Pesan' button in mustard. Falls back
+    to accent_strong when the primary is not readable as text (< 4.5:1)."""
+    from app.services.contrast_guard import AA_TEXT, contrast_ratio
+    primary = (palette or {}).get("primary")
+    bg = (palette or {}).get("background") or "#FFFFFF"
+    try:
+        if primary and contrast_ratio(primary, bg) >= AA_TEXT:
+            return primary
+    except Exception:
+        pass
+    return accent_strong
+
+
 def head_block(plan: DesignPlan, fonts_cdn: str, tw_config: str, palette: Dict[str, str], accent_fill: str, accent_strong: str, body_font: str, body_fallback: str) -> str:
     """HEAD contract for plan mode — no AOS."""
     return f"""===== HEAD SECTION (MUST INCLUDE ALL — and NOTHING else external) =====
@@ -278,7 +295,7 @@ def head_block(plan: DesignPlan, fonts_cdn: str, tw_config: str, palette: Dict[s
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <style>
 html {{ scroll-behavior: smooth; scroll-padding-top: 5rem; }}
-:root {{ --bg-color: {palette['background']}; --surface-color: {palette['surface']}; --text-color: {palette['text']}; --text-muted-color: {palette['text_muted']}; --accent-color: {accent_fill}; --accent-strong: {accent_strong}; --primary-color: {accent_strong}; --font-heading: '{plan.type['display']}', {body_fallback}; --font-body: '{body_font}', {body_fallback}; }}
+:root {{ --bg-color: {palette['background']}; --surface-color: {palette['surface']}; --text-color: {palette['text']}; --text-muted-color: {palette['text_muted']}; --accent-color: {accent_fill}; --accent-strong: {accent_strong}; --primary-color: {_primary_colour(palette, accent_strong)}; --font-heading: '{plan.type['display']}', {body_fallback}; --font-body: '{body_font}', {body_fallback}; }}
 body {{ background-color: var(--bg-color); color: var(--text-color); font-family: '{body_font}', {body_fallback}; }}
 :focus-visible {{ outline: 2px solid var(--accent-strong); outline-offset: 2px; }}
 @media (prefers-reduced-motion: reduce) {{ *, *::before, *::after {{ animation: none !important; transition: none !important; }} }}
