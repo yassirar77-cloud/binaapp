@@ -301,6 +301,11 @@ IMAGE_CHECK_TIMEOUT_SECONDS = float(os.getenv("IMAGE_CHECK_TIMEOUT_SECONDS", "30
 IMAGE_CHECK_MAX_TOKENS = int(os.getenv("IMAGE_CHECK_MAX_TOKENS", "1024"))
 
 
+def _is_drink_name(name: str) -> bool:
+    from app.services.whatsapp_prefill import _DRINK_NAME_RE
+    return bool(_DRINK_NAME_RE.search(str(name or "")))
+
+
 def image_check_enabled() -> bool:
     raw = os.getenv("IMAGE_CHECK_ENABLED", "true").strip().lower()
     return raw in ("1", "true", "yes", "on")
@@ -2488,7 +2493,9 @@ Format: Just the image description, no explanations."""
 
         # Generic food prompt
         return self._with_no_text_suffix(
-            f"Professional close-up photo of {item}, Malaysian style, food photography, high quality, realistic, appetizing"
+            f"Professional close-up photo of {item}, "
+            + ("a drink served in a glass" if _is_drink_name(item) else "a cooked dish served plated on a table")
+            + ", Malaysian style, food photography, high quality, realistic, appetizing"
         )
 
     # Known dish vocabulary — the single source for both keyword extraction
@@ -8822,7 +8829,10 @@ IMPORTANT RULES:
         """
         ctx = f", for the business: {business_context}" if business_context else ""
         if category == "food":
-            return name
+            # The DISH, not the menu label: "Set Panglima Signature – Ayam
+            # Gepuk Telur Mata" made glm-image letter the label into every
+            # photo (rejected twice by the text gate, card left text-only).
+            return image_subjects.food_dish_subject(name)
         if subject is None:
             # The business decides the subject (its words and vertical), not
             # the item name — a "Studio Lighting Kit" sold by a camera shop is

@@ -257,6 +257,34 @@ def lock_prompt(
     return with_negative(scrub_fnb_wording(body))
 
 
+_MENU_LABEL_SPLIT_RE = re.compile(r"\s+[–—-]\s+")
+_SET_PREFIX_RE = re.compile(r"^\s*(?:set|combo|paket|pakej|menu)\s+(?:[a-z0-9]\b\s*)?", re.IGNORECASE)
+_LABEL_WORDS_RE = re.compile(r"\b(?:signature|special|istimewa|best\s*seller|favourite|favorite|hot|new|baru|promo)\b", re.IGNORECASE)
+_PORTION_RE = re.compile(r"\(\s*\d+\s*(?:pcs?|pieces?|keping|biji|ketul)\s*\)", re.IGNORECASE)
+
+
+def food_dish_subject(name: str) -> str:
+    """What a food photo should show for a menu row: the dish, with the
+    menu label (set code, signature/special badge words, portion counts)
+    taken off. "Set Panglima Signature – Ayam Gepuk Telur Mata" →
+    "Ayam Gepuk Telur Mata"; "Set Sotong Krispy" → "Sotong Krispy";
+    "Pedal Ayam Goreng (3 pcs)" → "Pedal Ayam Goreng". An image model
+    given the full label writes it into the picture."""
+    text = re.sub(r"\s+", " ", str(name or "")).strip()
+    if not text:
+        return text
+    parts = _MENU_LABEL_SPLIT_RE.split(text, maxsplit=1)
+    if len(parts) == 2 and parts[1].strip():
+        head, tail = parts
+        if _SET_PREFIX_RE.match(head) or _LABEL_WORDS_RE.search(head):
+            text = tail
+    text = _PORTION_RE.sub("", text)
+    stripped = _SET_PREFIX_RE.sub("", text)
+    text = stripped if stripped.strip() else text
+    text = _LABEL_WORDS_RE.sub("", text)
+    return re.sub(r"\s+", " ", text).strip(" -–—,") or str(name).strip()
+
+
 def stricter_prompt(prompt: str) -> str:
     """Second attempt after a failed vision check: an empty scene, nothing
     written anywhere, nobody in frame."""
