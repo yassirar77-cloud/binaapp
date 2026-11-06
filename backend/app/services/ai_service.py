@@ -298,6 +298,7 @@ DESIGN_GATE_MAX_RETRIES = int(os.getenv("DESIGN_GATE_MAX_RETRIES", str(design_cr
 # Round 2 (§A2): post-generation image check with the Qwen vision model.
 IMAGE_CHECK_ENABLED = os.getenv("IMAGE_CHECK_ENABLED", "true").strip().lower() in ("1", "true", "yes", "on")
 IMAGE_CHECK_TIMEOUT_SECONDS = float(os.getenv("IMAGE_CHECK_TIMEOUT_SECONDS", "30"))
+IMAGE_CHECK_MAX_TOKENS = int(os.getenv("IMAGE_CHECK_MAX_TOKENS", "1024"))
 
 
 def image_check_enabled() -> bool:
@@ -8860,33 +8861,114 @@ IMPORTANT RULES:
             f"sharp focus, {self._NO_TEXT_SUFFIX}"
         )
 
+    #: Vision models the provider said do not exist (404 model_not_found),
+    #: skipped for the rest of the process instead of costing a round trip
+    #: on every image. agp.binaapp.my: qwen-vl-max 404'd on every check.
+    _missing_vision_models: set = set()
+
     async def _call_image_check_model(self, messages: List[Dict]) -> Optional[str]:
         """Vision call for the image check: Qwen-VL first (the brief's
-        reviewer), GLM-4.5V as the fallback. None when neither answers."""
-        attempts: List[Tuple[str, str, str]] = []
+        reviewer), GLM-4.5V as the fallback. None when neither answers.
+
+        GLM-4.5V is a reasoning model: with thinking on and a 300-token cap
+        it spent the whole budget reasoning and answered 200 with empty
+        content, so every image "passed (unchecked)". Thinking is disabled
+        for the check (a 400 about the field retries without it), the cap is
+        IMAGE_CHECK_MAX_TOKENS, and a verdict left in ``reasoning_content``
+        is still used."""
+        attempts: List[Tuple[str, str, str, bool]] = []
         if self.qwen_api_key:
-            attempts.append((self.qwen_base_url, self.qwen_api_key, os.getenv("IMAGE_CHECK_QWEN_MODEL", "qwen-vl-max")))
+            attempts.append((self.qwen_base_url, self.qwen_api_key, os.getenv("IMAGE_CHECK_QWEN_MODEL", "qwen-vl-max"), False))
         if self.zai_api_key:
-            attempts.append((self.zai_base_url, self.zai_api_key, DESIGN_CRITIQUE_MODEL))
-        for base_url, key, model in attempts:
+            attempts.append((self.zai_base_url, self.zai_api_key, DESIGN_CRITIQUE_MODEL, True))
+        for base_url, key, model, is_glm in attempts:
+            if (base_url, model) in self._missing_vision_models:
+                continue
+            body = {"model": model, "messages": messages, "temperature": 0.0, "max_tokens": IMAGE_CHECK_MAX_TOKENS}
+            if is_glm:
+                body["thinking"] = {"type": "disabled"}
             try:
                 async with httpx.AsyncClient(timeout=IMAGE_CHECK_TIMEOUT_SECONDS) as client:
-                    r = await client.post(
-                        f"{base_url.rstrip('/')}/chat/completions",
-                        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-                        json={"model": model, "messages": messages, "temperature": 0.0, "max_tokens": 300},
+                    url = f"{base_url.rstrip('/')}/chat/completions"
+                    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+                    r = await client.post(url, headers=headers, json=body)
+                    if r.status_code == 400 and "thinking" in body and self._is_thinking_rejection(r):
+                        body.pop("thinking", None)
+                        r = await client.post(url, headers=headers, json=body)
+                if r.status_code == 404 and re.search(r"model_not_found|model not exist|does not exist", r.text or "", re.IGNORECASE):
+                    self._missing_vision_models.add((base_url, model))
+                    logger.error(
+                        f"👁️ Image check model {model} does not exist on {base_url} (404) — skipped from now on. "
+                        f"Set IMAGE_CHECK_QWEN_MODEL to a vision model this key can use."
                     )
+                    continue
                 if r.status_code != 200:
                     logger.warning(f"👁️ Image check model {model} ❌ {r.status_code}: {r.text[:160]}")
                     continue
-                content = ((r.json().get("choices") or [{}])[0].get("message") or {}).get("content", "")
+                choice = (r.json().get("choices") or [{}])[0]
+                message = choice.get("message") or {}
+                content = message.get("content", "")
                 if isinstance(content, list):
                     content = "".join(part.get("text", "") for part in content if isinstance(part, dict))
+                if not (content and str(content).strip()):
+                    reasoning = str(message.get("reasoning_content") or "")
+                    if "{" in reasoning and "has_text" in reasoning:
+                        content = reasoning[reasoning.rfind("{", 0, reasoning.rfind("has_text")):]
                 if content and str(content).strip():
                     return str(content)
+                logger.warning(
+                    f"👁️ Image check model {model} answered with no usable content "
+                    f"(finish_reason={choice.get('finish_reason')!r}) — image would pass unchecked"
+                )
             except Exception as err:
                 logger.warning(f"👁️ Image check model {model} failed: {err}")
         return None
+
+    def _remember_image_verdict(self, url: str, verdict) -> None:
+        cache = getattr(self, "_image_verdicts", None)
+        if cache is None:
+            cache = self._image_verdicts = {}
+        if url and verdict is not None:
+            cache[url] = verdict
+
+    async def _gate_about_gallery_images(
+        self, html: str, request: WebsiteGenerationRequest, image_urls: Optional[Dict] = None,
+    ) -> str:
+        """About / gallery images go through the same no-text check as the
+        menu images (see image_text_gate). Never raises."""
+        if not html or not self._image_check_available():
+            return html
+        try:
+            from app.services.image_text_gate import gate_section_images
+
+            async def _check(url: str):
+                verdict = await image_vision_check.check_image(
+                    url, "a photo for a business website", call_model=self._call_image_check_model,
+                )
+                self._remember_image_verdict(url, verdict)
+                return verdict
+
+            uploads = [
+                (img.get("url") if isinstance(img, dict) else str(img))
+                for img in (getattr(request, "uploaded_images", None) or [])
+            ]
+            urls = image_urls or {}
+            pool = [urls.get("hero")] + [urls.get(f"gallery{i}") for i in range(1, 10)]
+            pool = [u for u in pool if isinstance(u, str) and u]
+            html, report = await gate_section_images(
+                html, check=_check, verdicts=getattr(self, "_image_verdicts", None) or {},
+                uploads=[u for u in uploads if u], clean_pool=pool,
+                alt_fallback=str(getattr(request, "business_name", "") or ""),
+            )
+            if report.changed or report.unchecked:
+                logger.info(
+                    f"👁️ About/gallery text gate: checked={len(report.checked)} replaced={len(report.replaced)} "
+                    f"removed={len(report.removed)} unchecked={len(report.unchecked)}"
+                )
+            return html
+        except Exception as err:
+            logger.warning(f"👁️ About/gallery text gate skipped: {err}")
+            return html
 
     def _image_check_available(self) -> bool:
         return image_check_enabled() and bool(self.qwen_api_key or self.zai_api_key)
@@ -8910,6 +8992,7 @@ IMPORTANT RULES:
             return url
         label = subject.vision_label if subject is not None else "food or drink for a restaurant, café or bakery"
         verdict = await image_vision_check.check_image(url, label, call_model=self._call_image_check_model)
+        self._remember_image_verdict(url, verdict)
         failures = verdict.failures(food_allowed=is_food)
         if not failures:
             logger.info(f"👁️ Image check {slot_key}: pass ({'checked' if verdict.checked else 'unchecked'})")
@@ -8924,6 +9007,7 @@ IMPORTANT RULES:
             retry = None
         if retry:
             verdict2 = await image_vision_check.check_image(retry, label, call_model=self._call_image_check_model)
+            self._remember_image_verdict(retry, verdict2)
             failures2 = verdict2.failures(food_allowed=is_food)
             if not failures2:
                 logger.info(f"👁️ Image check {slot_key}: pass on stricter retry")
@@ -10189,6 +10273,10 @@ IMPORTANT INSTRUCTIONS:
             # model's menu section and has taken those lines with it before;
             # any still missing are added under the menu, verbatim.
             html = self._enforce_brief_facts(html, request, language)
+            # About / gallery images: same no-baked-in-text gate as the menu
+            # images (an about photo shipped with garbled rendered text).
+            if image_choice != "none":
+                html = await self._gate_about_gallery_images(html, request, image_urls)
             # Round 2 (§D14): a single-letter logo badge takes the plan's
             # accent colour and display font, never a default blue square.
             if plan is not None:
