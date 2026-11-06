@@ -8023,6 +8023,26 @@ IMPORTANT RULES:
                 )
                 return
 
+    def _menu_item_image_pairs(self, request: WebsiteGenerationRequest, image_urls: Optional[Dict]) -> List[Tuple[str, str]]:
+        """(item name, url) for every photo made or uploaded FOR an item:
+        the auto-fill's ``gallery{i}``/``gallery{i}_name`` pairs, then named
+        uploads. Poster uploads (menu boards) are never an item photo."""
+        posters = list(getattr(self, "_last_poster_uploads", None) or [])
+        try:
+            from app.services.image_roles import same_image as _same
+        except Exception:  # pragma: no cover - defensive
+            _same = lambda a, b: a == b  # noqa: E731
+        pairs: List[Tuple[str, str]] = []
+        urls = image_urls or {}
+        for i in range(1, 10):
+            url, name = urls.get(f"gallery{i}"), urls.get(f"gallery{i}_name")
+            if isinstance(url, str) and url and name:
+                pairs.append((str(name), url))
+        for img in (getattr(request, "uploaded_images", None) or []):
+            if isinstance(img, dict) and img.get("url") and img.get("name"):
+                pairs.append((str(img["name"]), str(img["url"])))
+        return [(n, u) for n, u in pairs if not any(_same(u, p) for p in posters)]
+
     def _enforce_menu_fidelity(
         self,
         html: str,
@@ -8031,6 +8051,7 @@ IMPORTANT RULES:
         wa_digits: str = "",
         language: str = "ms",
         model: str = "",
+        image_urls: Optional[Dict] = None,
     ) -> str:
         """Fill the deterministic menu slot and reconcile the page's menu
         against the merchant's items. Never raises; the report is kept on
@@ -8038,6 +8059,10 @@ IMPORTANT RULES:
         self._last_menu_fidelity = None
         try:
             items = _mf.normalize_items(self._normalize_supplied_menu_items(getattr(request, "menu_items", None)))
+            if items and image_urls is not None:  # None = images off for this site
+                items, _n_photos = _mf.attach_item_images(items, self._menu_item_image_pairs(request, image_urls))
+                if _n_photos:
+                    logger.info(f"🍽️ Menu block: {_n_photos} item(s) carry their generated/uploaded photo")
             if not items:
                 # Nothing supplied: nothing to reconcile, but an empty slot
                 # must not ship as a blank box.
@@ -8954,8 +8979,15 @@ IMPORTANT RULES:
             getattr(request, "menu_items", None)
         )
         if missing_slots and _supplied:
+            # The free budget covers a handful of items: spend it on the
+            # ones the menu block shows with a photo (signature, first
+            # category, sets, above-median price) — never on drinks, kids'
+            # items or add-ons, which stay text-only cards.
+            _ranked = _mf.normalize_items(_supplied)
+            if is_food:
+                _ranked = _mf.image_priority(_ranked) or _ranked
             slot_names = [
-                it["name"] for it in _supplied if not _covered(it["name"])
+                it.name for it in _ranked if not _covered(it.name)
             ][:len(missing_slots)]
             logger.info(
                 f"📋 Auto-fill using {len(slot_names)} merchant-supplied item "
@@ -10073,7 +10105,10 @@ IMPORTANT INSTRUCTIONS:
             # every case reconciled against the data (invented card removed,
             # wrong price corrected, missing item injected). Logged per
             # correction; an error line when more than 20% needed one.
-            html = self._enforce_menu_fidelity(html, request, wa_digits=wa_digits, language=language, model=_html_model)
+            html = self._enforce_menu_fidelity(
+                html, request, wa_digits=wa_digits, language=language, model=_html_model,
+                image_urls=(image_urls if image_choice != "none" else None),
+            )
             if bool(getattr(request, "is_24h", False)):
                 html, _n_24 = enforce_24h_copy(html, language)
                 if _n_24:

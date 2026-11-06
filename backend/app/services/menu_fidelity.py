@@ -141,6 +141,106 @@ def use_deterministic_menu(items: Sequence[MenuItemSpec]) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Item photography
+# ---------------------------------------------------------------------------
+
+#: Categories whose items stay text-only in the menu block: drinks, kids'
+#: menu, add-ons. A photo of "Air Mineral 500ml" or "Sambal Extra" spends
+#: the image budget on the items a customer looks at least.
+_DRINK_CAT_RE = re.compile(r"minuman|drinks?\b|beverage|\bair\b", re.IGNORECASE)
+_KIDS_CAT_RE = re.compile(r"\bkids?\b|kid'?s|kanak", re.IGNORECASE)
+_ADDON_CAT_RE = re.compile(r"tambahan|add[\s-]?ons?\b|\bextras?\b|sampingan|\bsides?\b", re.IGNORECASE)
+
+
+def is_drink_category(category: str) -> bool:
+    return bool(_DRINK_CAT_RE.search(str(category or "")))
+
+
+def is_kids_category(category: str) -> bool:
+    return bool(_KIDS_CAT_RE.search(str(category or "")))
+
+
+def is_addon_category(category: str) -> bool:
+    return bool(_ADDON_CAT_RE.search(str(category or "")))
+
+
+def text_only_category(category: str) -> bool:
+    """Drinks, kids' menu and add-ons render without a photo."""
+    return is_drink_category(category) or is_kids_category(category) or is_addon_category(category)
+
+
+def _price_value(price: str) -> Optional[float]:
+    try:
+        return float(_price_key(price)) if price else None
+    except ValueError:
+        return None
+
+
+def image_priority(items: Sequence[MenuItemSpec]) -> List[MenuItemSpec]:
+    """Items that may carry a photo, most deserving first.
+
+    Drinks, kids' items and add-ons are excluded (unless the whole menu is
+    such items — a drinks-only kiosk still gets photos). Among the rest:
+    signature items, then items in the first category, then "Set" items,
+    then items priced above the median; menu order breaks ties."""
+    items = list(items)
+    eligible = [it for it in items if not text_only_category(it.category)] or items
+    if not eligible:
+        return []
+    first_cat = next((it.category for it in eligible if it.category), "")
+    values = sorted(v for v in (_price_value(it.price) for it in items) if v is not None)
+    median = values[len(values) // 2] if values else None
+
+    def _score(it: MenuItemSpec) -> int:
+        score = 0
+        if it.signature:
+            score += 8
+        if first_cat and it.category == first_cat:
+            score += 4
+        if re.match(r"\s*set\b", it.name, re.IGNORECASE):
+            score += 2
+        v = _price_value(it.price)
+        if median is not None and v is not None and v > median:
+            score += 1
+        return score
+
+    order = {id(it): i for i, it in enumerate(eligible)}
+    return sorted(eligible, key=lambda it: (-_score(it), order[id(it)]))
+
+
+def attach_item_images(
+    items: Sequence[MenuItemSpec],
+    images: Iterable[Tuple[str, str]],
+    *,
+    budget: Optional[int] = None,
+) -> Tuple[List[MenuItemSpec], int]:
+    """Give items the photos generated or uploaded for them.
+
+    ``images`` is (item name, url) pairs — the auto-fill's gallery slots and
+    named uploads. A photo goes to the supplied item its name matches, only
+    when that item is eligible (``image_priority``) and has no photo of its
+    own; at most ``budget`` photos are attached. Returns new specs (inputs
+    are not mutated) and how many photos were attached."""
+    from dataclasses import replace as _replace
+    out = list(items)
+    eligible = {it.key for it in image_priority(out)}
+    index = {it.key: i for i, it in enumerate(out)}
+    attached = 0
+    for name, url in images:
+        if budget is not None and attached >= budget:
+            break
+        url = str(url or "").strip()
+        if not name or not url.startswith(("http://", "https://", "/")):
+            continue
+        it = match_item(name, out)
+        if it is None or it.key not in eligible or it.image_url:
+            continue
+        out[index[it.key]] = _replace(it, image_url=url)
+        attached += 1
+    return out, attached
+
+
+# ---------------------------------------------------------------------------
 # Deterministic render
 # ---------------------------------------------------------------------------
 
