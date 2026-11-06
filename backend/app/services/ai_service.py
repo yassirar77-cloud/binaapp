@@ -10402,6 +10402,16 @@ IMPORTANT INSTRUCTIONS:
                     logger.info(f"📞 {_n_tel} phone number(s) turned into tel: links")
             except Exception as _tel_err:
                 logger.warning(f"📞 tel: linking skipped: {_tel_err}")
+            # A tap-to-call link beside WhatsApp in the contact section and
+            # the footer: restaurants take both messages and calls.
+            try:
+                if wa_digits:
+                    from app.services.contact_links import add_call_links
+                    html, _n_call = add_call_links(html, wa_digits, language=language)
+                    if _n_call:
+                        logger.info(f"📞 {_n_call} tap-to-call link(s) added beside WhatsApp")
+            except Exception as _call_err:
+                logger.warning(f"📞 Call links skipped: {_call_err}")
             # A poster-style upload that still ended up outside the menu is
             # shown whole rather than cropped.
             try:

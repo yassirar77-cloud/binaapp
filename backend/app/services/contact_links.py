@@ -51,3 +51,91 @@ def linkify_phones(html: str, known_digits: Optional[Iterable[str]] = None) -> T
         pos = m.end()
     out.append(_text(html[pos:]))
     return "".join(out), added
+
+
+# ---------------------------------------------------------------------------
+# Tap-to-call next to WhatsApp
+# ---------------------------------------------------------------------------
+
+_CONTAINER_OPEN_RE = re.compile(
+    r"<(footer)\b[^>]*>|<(section)\b[^>]*\b(?:id|class)\s*=\s*[\"'][^\"']*\b(contact|hubungi|kontak|tempah|order)[^\"']*[\"'][^>]*>",
+    re.IGNORECASE,
+)
+_WA_ANCHOR_RE = re.compile(r"<a\b[^>]*href=[\"']https?://(?:api\.)?(?:wa\.me|whatsapp\.com)/[^\"']*[\"'][^>]*>.*?</a>", re.IGNORECASE | re.DOTALL)
+_CLASS_ATTR_RE = re.compile(r"""\bclass\s*=\s*["']([^"']*)["']""", re.IGNORECASE)
+_GREEN_CLASS_RE = re.compile(r"green|emerald|25d366|128c7e|075e54|whatsapp", re.IGNORECASE)
+
+
+def display_phone(digits: str) -> str:
+    """60126973105 → "012-697 3105"; 601123456789 → "011-2345 6789";
+    60333231234 → "03-3323 1234"."""
+    d = re.sub(r"\D", "", str(digits or ""))
+    if d.startswith("60"):
+        d = "0" + d[2:]
+    if d.startswith("01"):
+        head, rest = d[:3], d[3:]
+    elif d.startswith("0"):
+        head, rest = d[:2], d[2:]
+    else:
+        return d
+    if len(rest) >= 7:
+        cut = len(rest) - 4
+        return f"{head}-{rest[:cut]} {rest[cut:]}"
+    return f"{head}-{rest}"
+
+
+def _container_end(html: str, start: int, tag: str) -> int:
+    depth = 0
+    for m in re.finditer(rf"<(/?){tag}\b[^>]*>", html[start:], re.IGNORECASE):
+        depth += -1 if m.group(1) else 1
+        if depth == 0:
+            return start + m.end()
+    return len(html)
+
+
+def add_call_links(html: str, wa_digits: str, *, language: str = "ms") -> Tuple[str, int]:
+    """Add a tap-to-call link (``tel:+60…``) right after the first WhatsApp
+    link in the footer and in the contact section, when that container has
+    no tel: link yet. A restaurant's customers both message and call; the
+    page only had WhatsApp. The call link copies the WhatsApp link's
+    classes minus its green, so it reads as a sibling. Idempotent.
+    Returns (html, links added)."""
+    digits = re.sub(r"\D", "", str(wa_digits or ""))
+    if not html or len(digits) < 9:
+        return html, 0
+    if not digits.startswith("60"):
+        digits = "60" + digits.lstrip("0")
+    label = "Call" if str(language or "ms").lower().startswith("en") else "Telefon"
+    number = display_phone(digits)
+    added = 0
+    out = html
+    pos = 0
+    while True:
+        m = _CONTAINER_OPEN_RE.search(out, pos)
+        if not m:
+            break
+        tag = (m.group(1) or m.group(2)).lower()
+        end = _container_end(out, m.start(), tag)
+        block = out[m.start():end]
+        pos = end
+        if "href=\"tel:" in block or "href='tel:" in block:
+            continue
+        wa = _WA_ANCHOR_RE.search(block)
+        if not wa:
+            continue
+        cls_m = _CLASS_ATTR_RE.search(wa.group(0))
+        classes = " ".join(c for c in (cls_m.group(1).split() if cls_m else []) if not _GREEN_CLASS_RE.search(c))
+        anchor_text = re.sub(r"<[^>]+>", "", wa.group(0)).strip()
+        # A footer line that already prints the number in the WhatsApp link
+        # gets a short "Telefon" link; elsewhere the number is shown.
+        text = label if re.sub(r"\D", "", anchor_text).endswith(digits[-7:]) else f"{label} {number}"
+        sep = " · " if tag == "footer" else " "
+        call = (
+            f'{sep}<a href="tel:+{digits}" class="{(classes + " binaapp-call").strip()}" '
+            f'aria-label="{label} {number}"><i class="fa-solid fa-phone" aria-hidden="true"></i> {text}</a>'
+        )
+        insert_at = m.start() + wa.end()
+        out = out[:insert_at] + call + out[insert_at:]
+        pos = end + len(call)
+        added += 1
+    return out, added
