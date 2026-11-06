@@ -493,6 +493,30 @@ def _rewrite_spacing(html: str, rewrites: List[Tuple[str, str]]) -> str:
     return pattern.sub(repl, html)
 
 
+_TW_CLASS_ATTR_RE = re.compile(r"""(\bclass\s*=\s*)(["'])([^"']*)\2""", re.IGNORECASE)
+_SIDE_MARGIN_RE = re.compile(r"^-?m[lrx]-(?!0$|auto$|px$)(?:\d+(?:\.\d+)?|\[[^\]]+\])$")
+
+
+def _drop_full_width_side_margins(html: str, rewrites: List[Tuple[str, str]]) -> str:
+    """``w-full`` plus a side margin (``ml-4``) is wider than its parent:
+    the mobile panel's WhatsApp CTA ("w-full ml-4", copied from the desktop
+    nav) pushed every phone page into horizontal scroll. Unprefixed
+    ml-/mr-/mx- is dropped from any element that is also unprefixed w-full."""
+    def _fix(m: "re.Match") -> str:
+        tokens = m.group(3).split()
+        if "w-full" not in tokens:
+            return m.group(0)
+        kept = [t for t in tokens if not _SIDE_MARGIN_RE.match(t)]
+        if len(kept) == len(tokens):
+            return m.group(0)
+        for t in tokens:
+            if _SIDE_MARGIN_RE.match(t):
+                rewrites.append((t, "(removed: w-full + side margin overflows)"))
+        return f"{m.group(1)}{m.group(2)}{' '.join(kept)}{m.group(2)}"
+
+    return _TW_CLASS_ATTR_RE.sub(_fix, html)
+
+
 def lint_tailwind_classes(html: str) -> Tuple[str, List[Tuple[str, str]]]:
     """
     Rewrite out-of-scale Tailwind opacity/spacing utilities to arbitrary-value
@@ -503,6 +527,7 @@ def lint_tailwind_classes(html: str) -> Tuple[str, List[Tuple[str, str]]]:
     rewrites: List[Tuple[str, str]] = []
     html = _rewrite_opacity(html, rewrites)
     html = _rewrite_spacing(html, rewrites)
+    html = _drop_full_width_side_margins(html, rewrites)
     if rewrites:
         logger.info(
             f"🎨 Tailwind linter rewrote {len(rewrites)} out-of-scale class(es): "

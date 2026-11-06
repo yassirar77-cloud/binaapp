@@ -703,7 +703,7 @@ def _inject_qr_block(html_content: str, subdomain: str, language: str = "ms") ->
     qr_block = f'''
 <!-- BinaApp QR Block -->
 <div style="text-align:center;padding:32px 20px 8px;background:inherit;color:inherit;">
-  <p style="font-size:1.1rem;font-weight:600;margin:0 0 1rem;color:inherit;">{label}</p>
+  <p style="font-size:1.1rem;font-weight:600;margin:0 auto 1rem;text-align:center;color:inherit;">{label}</p>
   <img src="{qr_src}" alt="{label}" width="200" height="200"
        style="margin:0 auto;display:block;width:200px;height:200px;background:#fff;padding:8px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.15);">
 </div>

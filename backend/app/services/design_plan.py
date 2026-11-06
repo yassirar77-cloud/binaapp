@@ -679,6 +679,19 @@ def _validate_palette(raw: Any, direction: dd.Direction, brief: PlanBrief, adjus
         palette["surface"] = direction.palette["surface"]
         adjustments.append("palette.surface: did not match the theme — reset")
 
+    # The merchant named their colours in the brief ("KUNING TERANG +
+    # MERAH CILI"): the palette uses only those plus neutrals. A colour
+    # borrowed from the photos (#203808 on agp.binaapp.my) is replaced.
+    from app.services.brand_palette import brief_colour_set, constrain_palette
+    _named = brief_colour_set((brief.description, brief.design_brief), brief.brand_colors)
+    if _named:
+        palette, _notes = constrain_palette(
+            palette, _named, accent_keys=("accent", "accent_2"),
+            neutral_keys={"bg": "bg", "surface": "surface", "text": "text", "muted": "muted"},
+            background_key="bg", dark=wants_dark,
+        )
+        adjustments.extend(_notes)
+
     if contrast_ratio(palette["text"], palette["bg"]) < MIN_TEXT_CONTRAST or contrast_ratio(palette["text"], palette["surface"]) < MIN_TEXT_CONTRAST:
         palette["text"] = direction.palette["text"] if (
             contrast_ratio(direction.palette["text"], palette["bg"]) >= MIN_TEXT_CONTRAST
@@ -699,7 +712,7 @@ def _validate_palette(raw: Any, direction: dd.Direction, brief: PlanBrief, adjus
 
     # Harmonise with the merchant's photos: accent_2 may borrow the most
     # saturated photo colour when it still reads as a fill on this page.
-    if brief.image_colours and not brief.brand_colors and not raw.get("accent_2"):
+    if brief.image_colours and not brief.brand_colors and not _named and not raw.get("accent_2"):
         for colour in brief.image_colours:
             c = normalize_hex(colour)
             if c and contrast_ratio(c, palette["bg"]) >= 1.6:

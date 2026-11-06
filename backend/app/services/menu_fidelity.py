@@ -58,7 +58,13 @@ _ID_RE = re.compile(r"\bid\s*=\s*[\"']([^\"']+)[\"']", re.IGNORECASE)
 _MENU_ID_WORDS = ("menu", "produk", "product", "servis", "service", "perkhidmatan", "koleksi", "harga", "price", "offer")
 _CTA_WORDS = {"pesan", "order", "tempah", "beli", "whatsapp", "add", "tambah", "pesan sekarang", "order now", "book"}
 _UNCATEGORISED = {"ms": "Lain-lain", "en": "Others"}
-_SIGNATURE_LABEL = {"ms": "Signature", "en": "Signature"}
+_SIGNATURE_LABEL = {"ms": "SIGNATURE", "en": "SIGNATURE"}
+_SIGNATURE_NAME_RE = re.compile(r"\bsignature\b", re.IGNORECASE)
+
+
+def is_signature_name(name: str) -> bool:
+    """An item whose own name says it is the signature dish."""
+    return bool(_SIGNATURE_NAME_RE.search(str(name or "")))
 
 
 # ---------------------------------------------------------------------------
@@ -125,7 +131,10 @@ def normalize_items(raw: Optional[Iterable[Any]]) -> List[MenuItemSpec]:
                 category=category[:60],
                 description=str(d.get("description") or "").strip()[:400],
                 image_url=str(d.get("image_url") or d.get("url") or "").strip(),
-                signature=bool(d.get("signature") or d.get("is_signature") or d.get("is_popular") or d.get("featured")),
+                signature=bool(
+                    d.get("signature") or d.get("is_signature") or d.get("is_popular") or d.get("featured")
+                    or is_signature_name(name)
+                ),
             )
             if spec.key in seen:
                 continue
@@ -138,6 +147,106 @@ def normalize_items(raw: Optional[Iterable[Any]]) -> List[MenuItemSpec]:
 
 def use_deterministic_menu(items: Sequence[MenuItemSpec]) -> bool:
     return len(items) >= DETERMINISTIC_MIN_ITEMS
+
+
+# ---------------------------------------------------------------------------
+# Item photography
+# ---------------------------------------------------------------------------
+
+#: Categories whose items stay text-only in the menu block: drinks, kids'
+#: menu, add-ons. A photo of "Air Mineral 500ml" or "Sambal Extra" spends
+#: the image budget on the items a customer looks at least.
+_DRINK_CAT_RE = re.compile(r"minuman|drinks?\b|beverage|\bair\b", re.IGNORECASE)
+_KIDS_CAT_RE = re.compile(r"\bkids?\b|kid'?s|kanak", re.IGNORECASE)
+_ADDON_CAT_RE = re.compile(r"tambahan|add[\s-]?ons?\b|\bextras?\b|sampingan|\bsides?\b", re.IGNORECASE)
+
+
+def is_drink_category(category: str) -> bool:
+    return bool(_DRINK_CAT_RE.search(str(category or "")))
+
+
+def is_kids_category(category: str) -> bool:
+    return bool(_KIDS_CAT_RE.search(str(category or "")))
+
+
+def is_addon_category(category: str) -> bool:
+    return bool(_ADDON_CAT_RE.search(str(category or "")))
+
+
+def text_only_category(category: str) -> bool:
+    """Drinks, kids' menu and add-ons render without a photo."""
+    return is_drink_category(category) or is_kids_category(category) or is_addon_category(category)
+
+
+def _price_value(price: str) -> Optional[float]:
+    try:
+        return float(_price_key(price)) if price else None
+    except ValueError:
+        return None
+
+
+def image_priority(items: Sequence[MenuItemSpec]) -> List[MenuItemSpec]:
+    """Items that may carry a photo, most deserving first.
+
+    Drinks, kids' items and add-ons are excluded (unless the whole menu is
+    such items — a drinks-only kiosk still gets photos). Among the rest:
+    signature items, then items in the first category, then "Set" items,
+    then items priced above the median; menu order breaks ties."""
+    items = list(items)
+    eligible = [it for it in items if not text_only_category(it.category)] or items
+    if not eligible:
+        return []
+    first_cat = next((it.category for it in eligible if it.category), "")
+    values = sorted(v for v in (_price_value(it.price) for it in items) if v is not None)
+    median = values[len(values) // 2] if values else None
+
+    def _score(it: MenuItemSpec) -> int:
+        score = 0
+        if it.signature:
+            score += 8
+        if first_cat and it.category == first_cat:
+            score += 4
+        if re.match(r"\s*set\b", it.name, re.IGNORECASE):
+            score += 2
+        v = _price_value(it.price)
+        if median is not None and v is not None and v > median:
+            score += 1
+        return score
+
+    order = {id(it): i for i, it in enumerate(eligible)}
+    return sorted(eligible, key=lambda it: (-_score(it), order[id(it)]))
+
+
+def attach_item_images(
+    items: Sequence[MenuItemSpec],
+    images: Iterable[Tuple[str, str]],
+    *,
+    budget: Optional[int] = None,
+) -> Tuple[List[MenuItemSpec], int]:
+    """Give items the photos generated or uploaded for them.
+
+    ``images`` is (item name, url) pairs — the auto-fill's gallery slots and
+    named uploads. A photo goes to the supplied item its name matches, only
+    when that item is eligible (``image_priority``) and has no photo of its
+    own; at most ``budget`` photos are attached. Returns new specs (inputs
+    are not mutated) and how many photos were attached."""
+    from dataclasses import replace as _replace
+    out = list(items)
+    eligible = {it.key for it in image_priority(out)}
+    index = {it.key: i for i, it in enumerate(out)}
+    attached = 0
+    for name, url in images:
+        if budget is not None and attached >= budget:
+            break
+        url = str(url or "").strip()
+        if not name or not url.startswith(("http://", "https://", "/")):
+            continue
+        it = match_item(name, out)
+        if it is None or it.key not in eligible or it.image_url:
+            continue
+        out[index[it.key]] = _replace(it, image_url=url)
+        attached += 1
+    return out, attached
 
 
 # ---------------------------------------------------------------------------
@@ -166,6 +275,15 @@ _BLOCK_CSS = """
 .binaapp-menu-block .bmf-order:hover{filter:brightness(1.08)}
 .binaapp-menu-block .bmf-badge{position:absolute;top:.75rem;left:.75rem;padding:.25rem .6rem;border-radius:999px;background:var(--bmf-accent);color:#fff;font-size:.7rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
 .binaapp-menu-block .bmf-card.bmf-text-only .bmf-badge{position:static;align-self:flex-start;margin-bottom:.35rem}
+.binaapp-menu-block .bmf-card.bmf-signature{border:2px solid var(--bmf-accent);box-shadow:0 0 0 4px color-mix(in srgb,var(--bmf-accent) 18%,transparent),0 10px 30px rgba(0,0,0,.10);background:color-mix(in srgb,var(--bmf-accent) 7%,var(--bmf-surface))}
+.binaapp-menu-block .bmf-card.bmf-signature .bmf-badge{z-index:1;box-shadow:0 2px 8px rgba(0,0,0,.18)}
+.binaapp-menu-block.bmf-outline .bmf-card{border-radius:0;border:3px solid #000;box-shadow:5px 5px 0 #000}
+.binaapp-menu-block.bmf-outline .bmf-card img{border-bottom:3px solid #000}
+.binaapp-menu-block.bmf-outline .bmf-card.bmf-text-only .bmf-body{border-top:0}
+.binaapp-menu-block.bmf-outline .bmf-card.bmf-signature{border-width:4px;box-shadow:6px 6px 0 var(--bmf-accent)}
+.binaapp-menu-block.bmf-outline .bmf-badge,.binaapp-menu-block.bmf-outline .bmf-order{border-radius:0;border:2px solid #000}
+.binaapp-menu-block.bmf-outline .bmf-cat h3{text-transform:uppercase;letter-spacing:.02em}
+.binaapp-menu-block.bmf-outline .bmf-cat .bmf-rule{border-radius:0;height:4px;background:#000}
 </style>
 """
 
@@ -208,14 +326,18 @@ def render_menu_block(
     order_prefill: str = "",
     order_label: Optional[str] = None,
     with_css: bool = True,
+    variant: str = "default",
 ) -> str:
     """The merchant's items as grouped cards. Names and prices are copied
-    from the data; nothing is invented, so there is nothing to validate."""
+    from the data; nothing is invented, so there is nothing to validate.
+    ``variant="outline"`` = square corners, 3px black borders (for pages
+    styled with thick outlines — see ``detect_outline_style``)."""
     if not items:
         return ""
     lang = _lang(language)
     order_label = order_label or ("Order" if lang == "en" else "Pesan")
-    parts: List[str] = [_BLOCK_CSS if with_css else "", f'<div class="{MENU_BLOCK_CLASS}" data-binaapp-menu-items="{len(items)}">']
+    block_cls = MENU_BLOCK_CLASS + (" bmf-outline" if variant == "outline" else "")
+    parts: List[str] = [_BLOCK_CSS if with_css else "", f'<div class="{block_cls}" data-binaapp-menu-items="{len(items)}">']
     groups = group_by_category(items)
     show_headings = any(k for k, _ in groups)
     for cat, members in groups:
@@ -226,6 +348,8 @@ def render_menu_block(
         for it in members:
             text_only = not it.image_url
             card_cls = "bmf-card bmf-text-only" if text_only else "bmf-card"
+            if it.signature:
+                card_cls += " bmf-signature"
             card = [f'<li class="{card_cls}">']
             if it.image_url:
                 card.append(f'<img src="{_esc(it.image_url)}" alt="{_esc(it.name)}" loading="lazy" decoding="async">')
@@ -250,6 +374,59 @@ def render_menu_block(
         parts.append("</ul>")
     parts.append("</div>")
     return "\n".join(p for p in parts if p)
+
+
+_OUTLINE_BLACK = r"border-(?:black|\[#0{3,6}\]|\[#111(?:111)?\]|neutral-900|zinc-900|stone-900|gray-900)(?![\w-])"
+_OUTLINE_WIDTH = r"border-(?:\[[34]px\]|4)(?![\w-])"
+_OUTLINE_UTIL_RE = re.compile(
+    rf"\b{_OUTLINE_WIDTH}[^\"'<>]*\b{_OUTLINE_BLACK}|\b{_OUTLINE_BLACK}[^\"'<>]*\b{_OUTLINE_WIDTH}",
+    re.IGNORECASE,
+)
+_OUTLINE_CSS_RE = re.compile(
+    r"border(?:-width)?\s*:\s*[34]px\s+solid\s+(?:#0{3}\b|#0{6}\b|#111\b|#111111\b|black\b|var\(--text)",
+    re.IGNORECASE,
+)
+
+
+def detect_outline_style(html: str, min_hits: int = 3) -> bool:
+    """The page uses thick black outlines (3–4px) on its cards / buttons."""
+    if not html:
+        return False
+    return len(_OUTLINE_UTIL_RE.findall(html)) + len(_OUTLINE_CSS_RE.findall(html)) >= min_hits
+
+
+_FONT_HEADING_DECL_RE = re.compile(r"--font-heading\s*:", re.IGNORECASE)
+
+
+def heading_font_of(html: str) -> str:
+    """The page's heading/display face: the Tailwind config's
+    display/heading family, else the h1/h2 CSS font-family, else the first
+    Google Fonts family loaded."""
+    m = re.search(r"fontFamily\s*:\s*\{[^}]*?\b(?:display|heading|head|title)\s*:\s*\[\s*['\"]([^'\"]+)", html or "", re.IGNORECASE | re.DOTALL)
+    if m:
+        return m.group(1).strip()
+    m = re.search(r"\bh[12]\b[^{]*\{[^}]*font-family\s*:\s*['\"]?([^,'\";}]+)", html or "", re.IGNORECASE)
+    if m and "var(" not in m.group(1):
+        return m.group(1).strip()
+    m = re.search(r"fonts\.googleapis\.com/css2?\?family=([^:&\"']+)", html or "", re.IGNORECASE)
+    if m:
+        return m.group(1).replace("+", " ").strip()
+    return ""
+
+
+def ensure_font_heading_var(html: str) -> Tuple[str, bool]:
+    """Declare ``--font-heading`` on :root when the page does not, so the
+    menu block's category titles and item names use the heading face."""
+    if not html or _FONT_HEADING_DECL_RE.search(html):
+        return html, False
+    font = heading_font_of(html)
+    if not font:
+        return html, False
+    style = f'<style id="binaapp-font-heading">:root{{--font-heading:\'{_esc(font)}\',system-ui,sans-serif}}</style>'
+    m = re.search(r"</head>", html, re.IGNORECASE)
+    if m:
+        return html[: m.start()] + style + html[m.start():], True
+    return style + html, True
 
 
 _SLOT_RE = re.compile(
@@ -468,6 +645,7 @@ def reconcile_menu(
     wa_digits: str = "",
     show_prices: bool = True,
     order_prefill: str = "",
+    variant: str = "default",
 ) -> Tuple[str, MenuFidelityReport]:
     """Make the page's menu agree with the merchant's items. Returns the
     corrected HTML and a report of every correction."""
@@ -478,7 +656,7 @@ def reconcile_menu(
     span = find_menu_section(html, items)
     if span is None:
         report.notes.append("no menu section found — injecting a full menu block before the footer")
-        block = render_menu_block(items, language=language, wa_digits=wa_digits, show_prices=show_prices, order_prefill=order_prefill)
+        block = render_menu_block(items, language=language, wa_digits=wa_digits, show_prices=show_prices, order_prefill=order_prefill, variant=variant)
         html2 = _insert_before_footer(html, f'<section id="menu" class="py-16 md:py-24"><div class="max-w-6xl mx-auto px-4">{block}</div></section>')
         report.injected = [it.name for it in items]
         return html2, report
@@ -525,7 +703,7 @@ def reconcile_menu(
     if missing:
         block = render_menu_block(
             missing, language=language, wa_digits=wa_digits, show_prices=show_prices,
-            order_prefill=order_prefill, with_css=("binaapp-menu-block-css" not in html),
+            order_prefill=order_prefill, with_css=("binaapp-menu-block-css" not in html), variant=variant,
         )
         wrapper = BeautifulSoup(block, "html.parser")
         target = authoritative if authoritative is not None else root

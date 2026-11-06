@@ -111,6 +111,7 @@ def _menu_rules(S: Dict[str, str], has_whatsapp: bool, item_count: int, has_item
 - The section = heading, ONE short intro line, then exactly this empty slot as a direct child of the content container: <div id="binaapp-menu-slot"></div>
 - The slot is filled with every item (grouped by the merchant's categories, names and prices verbatim). Do NOT write any item name, price, tile, list row or table yourself — not in this section and not anywhere else (the hero may name ONE signature item without a price).
 - Give the section the page's surface colour and generous padding; the rendered cards inherit --primary-color / --accent-color / --surface-color / --text-color, so declare those CSS variables on :root.
+- The slot replaces ONLY the item cards. Every other section and fact in the merchant's brief MUST still be rendered in full: spice levels (Level 1/2/3), refill / dine-in perks, take-away / delivery / service charges with their exact RM amounts, a Coming Soon list (not menu items: a Coming Soon heading, names only, no price), ordering notes — as short notes under the slot or their own section.
 """
     featured = min(item_count, MAX_FEATURED_MENU_ITEMS) if item_count else 0
     more = ""
@@ -277,7 +278,7 @@ def head_block(plan: DesignPlan, fonts_cdn: str, tw_config: str, palette: Dict[s
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <style>
 html {{ scroll-behavior: smooth; scroll-padding-top: 5rem; }}
-:root {{ --bg-color: {palette['background']}; --surface-color: {palette['surface']}; --text-color: {palette['text']}; --text-muted-color: {palette['text_muted']}; --accent-color: {accent_fill}; --accent-strong: {accent_strong}; }}
+:root {{ --bg-color: {palette['background']}; --surface-color: {palette['surface']}; --text-color: {palette['text']}; --text-muted-color: {palette['text_muted']}; --accent-color: {accent_fill}; --accent-strong: {accent_strong}; --primary-color: {accent_strong}; --font-heading: '{plan.type['display']}', {body_fallback}; --font-body: '{body_font}', {body_fallback}; }}
 body {{ background-color: var(--bg-color); color: var(--text-color); font-family: '{body_font}', {body_fallback}; }}
 :focus-visible {{ outline: 2px solid var(--accent-strong); outline-offset: 2px; }}
 @media (prefers-reduced-motion: reduce) {{ *, *::before, *::after {{ animation: none !important; transition: none !important; }} }}

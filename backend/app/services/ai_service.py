@@ -298,6 +298,7 @@ DESIGN_GATE_MAX_RETRIES = int(os.getenv("DESIGN_GATE_MAX_RETRIES", str(design_cr
 # Round 2 (§A2): post-generation image check with the Qwen vision model.
 IMAGE_CHECK_ENABLED = os.getenv("IMAGE_CHECK_ENABLED", "true").strip().lower() in ("1", "true", "yes", "on")
 IMAGE_CHECK_TIMEOUT_SECONDS = float(os.getenv("IMAGE_CHECK_TIMEOUT_SECONDS", "30"))
+IMAGE_CHECK_MAX_TOKENS = int(os.getenv("IMAGE_CHECK_MAX_TOKENS", "1024"))
 
 
 def image_check_enabled() -> bool:
@@ -4962,7 +4963,12 @@ The merchant's own business data states the following: {_labels}.
                 f'  <div id="{_mf.MENU_SLOT_ID}"></div>\n'
                 f"  Emit the slot ONCE, as a direct child of the section's content container, after the\n"
                 f"  heading. Do NOT write any item name, price, card, tile, list row or table for these\n"
-                f"  items anywhere else on the page (the hero may name ONE signature item, without a price)."
+                f"  items anywhere else on the page (the hero may name ONE signature item, without a price).\n"
+                f"- The slot replaces ONLY the item cards. EVERY other section and fact in the merchant's\n"
+                f"  brief MUST still be on the page, in full: spice levels (Level 1/2/3), refill or dine-in\n"
+                f"  perks, take-away / delivery / service charges with their exact RM amounts, a Coming Soon\n"
+                f"  list (those names are NOT menu items — list them under a Coming Soon heading, no price),\n"
+                f"  ordering notes. Put them as short notes under the slot or in their own section."
             )
         else:
             _render_rule = "- Render EVERY item listed above. Do not drop, merge, or summarise any of them."
@@ -8023,6 +8029,53 @@ IMPORTANT RULES:
                 )
                 return
 
+    def _enforce_brief_facts(self, html: str, request: WebsiteGenerationRequest, language: str = "ms") -> str:
+        """Log every brief fact missing from the page and inject the
+        merchant's own sentences as a notes block under the menu. Never
+        raises; the missing list is kept on ``self._last_brief_facts``."""
+        self._last_brief_facts = None
+        try:
+            from app.services import brief_facts as _bf
+            facts = _bf.extract_key_facts(getattr(request, "description", None), getattr(request, "design_brief", None))
+            if not facts:
+                return html
+            missing = _bf.missing_facts(html, facts)
+            self._last_brief_facts = {"facts": len(facts), "missing": [f.text for f in missing]}
+            if not missing:
+                logger.info(f"📝 Brief facts: all {len(facts)} key fact(s) from the brief are on the page")
+                return html
+            for f in missing:
+                logger.warning(f"📝 BRIEF FACT MISSING from the page ({f.kind}): {f.text!r}")
+            html, injected = _bf.inject_notes_block(
+                html, missing, language, items=self._normalize_supplied_menu_items(getattr(request, "menu_items", None)),
+            )
+            if injected:
+                logger.warning(f"📝 Injected a notes block under the menu with {len(missing)} missing brief fact(s)")
+            return html
+        except Exception as err:
+            logger.warning(f"📝 Brief facts check skipped: {err}")
+            return html
+
+    def _menu_item_image_pairs(self, request: WebsiteGenerationRequest, image_urls: Optional[Dict]) -> List[Tuple[str, str]]:
+        """(item name, url) for every photo made or uploaded FOR an item:
+        the auto-fill's ``gallery{i}``/``gallery{i}_name`` pairs, then named
+        uploads. Poster uploads (menu boards) are never an item photo."""
+        posters = list(getattr(self, "_last_poster_uploads", None) or [])
+        try:
+            from app.services.image_roles import same_image as _same
+        except Exception:  # pragma: no cover - defensive
+            _same = lambda a, b: a == b  # noqa: E731
+        pairs: List[Tuple[str, str]] = []
+        urls = image_urls or {}
+        for i in range(1, 10):
+            url, name = urls.get(f"gallery{i}"), urls.get(f"gallery{i}_name")
+            if isinstance(url, str) and url and name:
+                pairs.append((str(name), url))
+        for img in (getattr(request, "uploaded_images", None) or []):
+            if isinstance(img, dict) and img.get("url") and img.get("name"):
+                pairs.append((str(img["name"]), str(img["url"])))
+        return [(n, u) for n, u in pairs if not any(_same(u, p) for p in posters)]
+
     def _enforce_menu_fidelity(
         self,
         html: str,
@@ -8031,6 +8084,7 @@ IMPORTANT RULES:
         wa_digits: str = "",
         language: str = "ms",
         model: str = "",
+        image_urls: Optional[Dict] = None,
     ) -> str:
         """Fill the deterministic menu slot and reconcile the page's menu
         against the merchant's items. Never raises; the report is kept on
@@ -8038,6 +8092,10 @@ IMPORTANT RULES:
         self._last_menu_fidelity = None
         try:
             items = _mf.normalize_items(self._normalize_supplied_menu_items(getattr(request, "menu_items", None)))
+            if items and image_urls is not None:  # None = images off for this site
+                items, _n_photos = _mf.attach_item_images(items, self._menu_item_image_pairs(request, image_urls))
+                if _n_photos:
+                    logger.info(f"🍽️ Menu block: {_n_photos} item(s) carry their generated/uploaded photo")
             if not items:
                 # Nothing supplied: nothing to reconcile, but an empty slot
                 # must not ship as a blank box.
@@ -8046,9 +8104,16 @@ IMPORTANT RULES:
             from app.services.whatsapp_prefill import order_prefill_for
             show_prices = bool(getattr(request, "show_prices", True))
             prefill = order_prefill_for(getattr(request, "description", ""), language, business_type="food")
+            # A page styled with thick black outlines gets the bold/outline
+            # menu block (square corners, 3px black borders).
+            variant = "outline" if _mf.detect_outline_style(html) else "default"
+            html, _font_var = _mf.ensure_font_heading_var(html)
+            if _font_var:
+                logger.info("🔤 Declared --font-heading on :root for the menu block")
             if _mf.use_deterministic_menu(items):
                 block = _mf.render_menu_block(
                     items, language=language, wa_digits=wa_digits, show_prices=show_prices, order_prefill=prefill,
+                    variant=variant,
                 )
                 html, filled = _mf.fill_menu_slot(html, block)
                 logger.info(
@@ -8057,13 +8122,14 @@ IMPORTANT RULES:
                 )
             html, report = _mf.reconcile_menu(
                 html, items, language=language, wa_digits=wa_digits, show_prices=show_prices, order_prefill=prefill,
+                variant=variant,
             )
             _mf.log_report(report, business=getattr(request, "business_name", ""), model=model)
             self._last_menu_fidelity = report.as_dict()
             # Per-item order links carry the ordering choices the brief
             # mentions (spice level, dine-in / take away) as blanks.
             from app.services.whatsapp_prefill import enrich_order_links
-            html, _n_links = enrich_order_links(html, getattr(request, "description", ""), language)
+            html, _n_links = enrich_order_links(html, getattr(request, "description", ""), language, items=items)
             if _n_links:
                 logger.info(f"💬 {_n_links} item order link(s) now carry the ordering choices from the brief")
             return html
@@ -8803,33 +8869,114 @@ IMPORTANT RULES:
             f"sharp focus, {self._NO_TEXT_SUFFIX}"
         )
 
+    #: Vision models the provider said do not exist (404 model_not_found),
+    #: skipped for the rest of the process instead of costing a round trip
+    #: on every image. agp.binaapp.my: qwen-vl-max 404'd on every check.
+    _missing_vision_models: set = set()
+
     async def _call_image_check_model(self, messages: List[Dict]) -> Optional[str]:
         """Vision call for the image check: Qwen-VL first (the brief's
-        reviewer), GLM-4.5V as the fallback. None when neither answers."""
-        attempts: List[Tuple[str, str, str]] = []
+        reviewer), GLM-4.5V as the fallback. None when neither answers.
+
+        GLM-4.5V is a reasoning model: with thinking on and a 300-token cap
+        it spent the whole budget reasoning and answered 200 with empty
+        content, so every image "passed (unchecked)". Thinking is disabled
+        for the check (a 400 about the field retries without it), the cap is
+        IMAGE_CHECK_MAX_TOKENS, and a verdict left in ``reasoning_content``
+        is still used."""
+        attempts: List[Tuple[str, str, str, bool]] = []
         if self.qwen_api_key:
-            attempts.append((self.qwen_base_url, self.qwen_api_key, os.getenv("IMAGE_CHECK_QWEN_MODEL", "qwen-vl-max")))
+            attempts.append((self.qwen_base_url, self.qwen_api_key, os.getenv("IMAGE_CHECK_QWEN_MODEL", "qwen-vl-max"), False))
         if self.zai_api_key:
-            attempts.append((self.zai_base_url, self.zai_api_key, DESIGN_CRITIQUE_MODEL))
-        for base_url, key, model in attempts:
+            attempts.append((self.zai_base_url, self.zai_api_key, DESIGN_CRITIQUE_MODEL, True))
+        for base_url, key, model, is_glm in attempts:
+            if (base_url, model) in self._missing_vision_models:
+                continue
+            body = {"model": model, "messages": messages, "temperature": 0.0, "max_tokens": IMAGE_CHECK_MAX_TOKENS}
+            if is_glm:
+                body["thinking"] = {"type": "disabled"}
             try:
                 async with httpx.AsyncClient(timeout=IMAGE_CHECK_TIMEOUT_SECONDS) as client:
-                    r = await client.post(
-                        f"{base_url.rstrip('/')}/chat/completions",
-                        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-                        json={"model": model, "messages": messages, "temperature": 0.0, "max_tokens": 300},
+                    url = f"{base_url.rstrip('/')}/chat/completions"
+                    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+                    r = await client.post(url, headers=headers, json=body)
+                    if r.status_code == 400 and "thinking" in body and self._is_thinking_rejection(r):
+                        body.pop("thinking", None)
+                        r = await client.post(url, headers=headers, json=body)
+                if r.status_code == 404 and re.search(r"model_not_found|model not exist|does not exist", r.text or "", re.IGNORECASE):
+                    self._missing_vision_models.add((base_url, model))
+                    logger.error(
+                        f"👁️ Image check model {model} does not exist on {base_url} (404) — skipped from now on. "
+                        f"Set IMAGE_CHECK_QWEN_MODEL to a vision model this key can use."
                     )
+                    continue
                 if r.status_code != 200:
                     logger.warning(f"👁️ Image check model {model} ❌ {r.status_code}: {r.text[:160]}")
                     continue
-                content = ((r.json().get("choices") or [{}])[0].get("message") or {}).get("content", "")
+                choice = (r.json().get("choices") or [{}])[0]
+                message = choice.get("message") or {}
+                content = message.get("content", "")
                 if isinstance(content, list):
                     content = "".join(part.get("text", "") for part in content if isinstance(part, dict))
+                if not (content and str(content).strip()):
+                    reasoning = str(message.get("reasoning_content") or "")
+                    if "{" in reasoning and "has_text" in reasoning:
+                        content = reasoning[reasoning.rfind("{", 0, reasoning.rfind("has_text")):]
                 if content and str(content).strip():
                     return str(content)
+                logger.warning(
+                    f"👁️ Image check model {model} answered with no usable content "
+                    f"(finish_reason={choice.get('finish_reason')!r}) — image would pass unchecked"
+                )
             except Exception as err:
                 logger.warning(f"👁️ Image check model {model} failed: {err}")
         return None
+
+    def _remember_image_verdict(self, url: str, verdict) -> None:
+        cache = getattr(self, "_image_verdicts", None)
+        if cache is None:
+            cache = self._image_verdicts = {}
+        if url and verdict is not None:
+            cache[url] = verdict
+
+    async def _gate_about_gallery_images(
+        self, html: str, request: WebsiteGenerationRequest, image_urls: Optional[Dict] = None,
+    ) -> str:
+        """About / gallery images go through the same no-text check as the
+        menu images (see image_text_gate). Never raises."""
+        if not html or not self._image_check_available():
+            return html
+        try:
+            from app.services.image_text_gate import gate_section_images
+
+            async def _check(url: str):
+                verdict = await image_vision_check.check_image(
+                    url, "a photo for a business website", call_model=self._call_image_check_model,
+                )
+                self._remember_image_verdict(url, verdict)
+                return verdict
+
+            uploads = [
+                (img.get("url") if isinstance(img, dict) else str(img))
+                for img in (getattr(request, "uploaded_images", None) or [])
+            ]
+            urls = image_urls or {}
+            pool = [urls.get("hero")] + [urls.get(f"gallery{i}") for i in range(1, 10)]
+            pool = [u for u in pool if isinstance(u, str) and u]
+            html, report = await gate_section_images(
+                html, check=_check, verdicts=getattr(self, "_image_verdicts", None) or {},
+                uploads=[u for u in uploads if u], clean_pool=pool,
+                alt_fallback=str(getattr(request, "business_name", "") or ""),
+            )
+            if report.changed or report.unchecked:
+                logger.info(
+                    f"👁️ About/gallery text gate: checked={len(report.checked)} replaced={len(report.replaced)} "
+                    f"removed={len(report.removed)} unchecked={len(report.unchecked)}"
+                )
+            return html
+        except Exception as err:
+            logger.warning(f"👁️ About/gallery text gate skipped: {err}")
+            return html
 
     def _image_check_available(self) -> bool:
         return image_check_enabled() and bool(self.qwen_api_key or self.zai_api_key)
@@ -8853,6 +9000,7 @@ IMPORTANT RULES:
             return url
         label = subject.vision_label if subject is not None else "food or drink for a restaurant, café or bakery"
         verdict = await image_vision_check.check_image(url, label, call_model=self._call_image_check_model)
+        self._remember_image_verdict(url, verdict)
         failures = verdict.failures(food_allowed=is_food)
         if not failures:
             logger.info(f"👁️ Image check {slot_key}: pass ({'checked' if verdict.checked else 'unchecked'})")
@@ -8867,6 +9015,7 @@ IMPORTANT RULES:
             retry = None
         if retry:
             verdict2 = await image_vision_check.check_image(retry, label, call_model=self._call_image_check_model)
+            self._remember_image_verdict(retry, verdict2)
             failures2 = verdict2.failures(food_allowed=is_food)
             if not failures2:
                 logger.info(f"👁️ Image check {slot_key}: pass on stricter retry")
@@ -8954,8 +9103,15 @@ IMPORTANT RULES:
             getattr(request, "menu_items", None)
         )
         if missing_slots and _supplied:
+            # The free budget covers a handful of items: spend it on the
+            # ones the menu block shows with a photo (signature, first
+            # category, sets, above-median price) — never on drinks, kids'
+            # items or add-ons, which stay text-only cards.
+            _ranked = _mf.normalize_items(_supplied)
+            if is_food:
+                _ranked = _mf.image_priority(_ranked) or _ranked
             slot_names = [
-                it["name"] for it in _supplied if not _covered(it["name"])
+                it.name for it in _ranked if not _covered(it.name)
             ][:len(missing_slots)]
             logger.info(
                 f"📋 Auto-fill using {len(slot_names)} merchant-supplied item "
@@ -9182,6 +9338,19 @@ IMPORTANT RULES:
         logger.info(f"   User Images: {len(request.uploaded_images) if request.uploaded_images else 0}")
         logger.info(f"   ⏰ Start Time: {time.strftime('%H:%M:%S')}")
         logger.info("=" * 80)
+
+        # A short place name in the location field ("bayumas klang") gives
+        # way to the full street address in the brief, so the prompt, the
+        # map, the Maps/Waze buttons and the JSON-LD all use the same one.
+        try:
+            from app.services.data_consistency import prefer_full_address
+            _loc = getattr(request, "location_address", None)
+            _full = prefer_full_address(_loc, request.description, getattr(request, "design_brief", None))
+            if _full and _full != (_loc or "").strip():
+                logger.info(f"📍 Location {_loc!r} is a place name — using the brief's full address {_full!r}")
+                request.location_address = _full
+        except Exception as _addr_err:
+            logger.warning(f"📍 Address resolution skipped: {_addr_err}")
 
         # Check image_choice - skip ALL image generation if "none"
         image_urls = {}
@@ -10073,7 +10242,10 @@ IMPORTANT INSTRUCTIONS:
             # every case reconciled against the data (invented card removed,
             # wrong price corrected, missing item injected). Logged per
             # correction; an error line when more than 20% needed one.
-            html = self._enforce_menu_fidelity(html, request, wa_digits=wa_digits, language=language, model=_html_model)
+            html = self._enforce_menu_fidelity(
+                html, request, wa_digits=wa_digits, language=language, model=_html_model,
+                image_urls=(image_urls if image_choice != "none" else None),
+            )
             if bool(getattr(request, "is_24h", False)):
                 html, _n_24 = enforce_24h_copy(html, language)
                 if _n_24:
@@ -10116,6 +10288,16 @@ IMPORTANT INSTRUCTIONS:
                     logger.info(f"🧽 Section hygiene: {_hyg.as_dict()}")
             except Exception as _hyg_err:
                 logger.warning(f"🧽 Section hygiene skipped: {_hyg_err}")
+            # Key facts in the merchant's brief (spice levels, free refill,
+            # charges such as "Take away caj RM2.00", a Coming Soon list)
+            # must be on the page. The deterministic menu block replaces the
+            # model's menu section and has taken those lines with it before;
+            # any still missing are added under the menu, verbatim.
+            html = self._enforce_brief_facts(html, request, language)
+            # About / gallery images: same no-baked-in-text gate as the menu
+            # images (an about photo shipped with garbled rendered text).
+            if image_choice != "none":
+                html = await self._gate_about_gallery_images(html, request, image_urls)
             # Round 2 (§D14): a single-letter logo badge takes the plan's
             # accent colour and display font, never a default blue square.
             if plan is not None:
