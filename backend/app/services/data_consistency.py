@@ -483,6 +483,41 @@ def address_from_brief(description: Optional[str]) -> str:
     return ""
 
 
+_STREET_RE = re.compile(
+    r"\b(?:no\.?\s*\d+|lot\s*\d+|jalan|jln\.?|lorong|lrg\.?|persiaran|lebuh|lebuhraya|tingkat|aras|blok|block|"
+    r"taman|tmn\.?|kampung|kg\.?|seksyen|section|street|road|avenue)\b",
+    re.IGNORECASE,
+)
+
+
+def is_short_place_name(location: Optional[str]) -> bool:
+    """"Bayumas Klang", "Shah Alam" — a place, not a street address: no
+    postcode, no street / unit words, at most a few words."""
+    text = re.sub(r"\s+", " ", str(location or "")).strip()
+    if not text:
+        return True
+    if re.search(r"\b\d{5}\b", text) or _STREET_RE.search(text):
+        return False
+    return len(text.split()) <= 5 and text.count(",") <= 1
+
+
+def prefer_full_address(location: Optional[str], *briefs: Optional[str]) -> str:
+    """The address the map, the Maps/Waze buttons and the JSON-LD should
+    use. agp.binaapp.my had location "bayumas klang" while its brief and
+    footer carried "No. 44-1, Jalan Bayu Impian 4A/KS9, Kota Bayu Emas,
+    41200 Klang, Selangor" — the pin, both buttons and streetAddress used
+    the place name. A short place name gives way to the brief's full
+    street address; a real address in the field always wins."""
+    loc = re.sub(r"\s+", " ", str(location or "")).strip()
+    if loc and not is_short_place_name(loc):
+        return loc
+    for brief in briefs:
+        full = address_from_brief(brief)
+        if full and not is_short_place_name(full):
+            return full
+    return loc
+
+
 def address_lines(raw: Optional[str]) -> List[str]:
     """Normalised address split into display lines (unit/street, area, postcode + city, state)."""
     normalized = normalize_address(raw)

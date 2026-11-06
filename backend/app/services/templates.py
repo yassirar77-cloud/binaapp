@@ -273,6 +273,21 @@ def _log_slot_lookup(
         logger.debug(line)
 
 
+def _slot_has_section_heading(html: str, slot_id: str) -> bool:
+    """True when the slot's enclosing <section> already has a heading
+    (h1–h3) before the slot."""
+    m = re.search(rf'<div[^>]*\bid=["\']{re.escape(slot_id)}["\']', html or "", re.IGNORECASE)
+    if not m:
+        return False
+    opens = [o for o in re.finditer(r"<section\b", html[: m.start()], re.IGNORECASE)]
+    if not opens:
+        return False
+    start = opens[-1].start()
+    if re.search(r"</section>", html[start: m.start()], re.IGNORECASE):
+        return False
+    return bool(re.search(r"<h[1-3]\b", html[start: m.start()], re.IGNORECASE))
+
+
 def _inject_into_slot(html: str, slot_id: str, inner_html: str) -> str:
     """Replace the contents of `<div id="slot_id">…</div>` with `inner_html`.
 
@@ -569,10 +584,23 @@ class TemplateService:
         _name = (business_name or "").strip()
         map_heading = html_escape(_name) if _name else "Lokasi Kami"
 
+        # Slot-aware path first: when the AI-emitted slot already sits under
+        # a section heading, the widget adds no heading of its own and no
+        # 60px padding (agp.binaapp.my showed the business name twice, with
+        # a band of empty space, under the page's own "Lokasi" heading).
+        widget = WIDGETS.get("maps")
+        slot_id = _find_widget_slot(html, widget) if widget else None
+        compact = bool(slot_id) and _slot_has_section_heading(html, slot_id)
+        heading_html = "" if compact else (
+            f'<h2 style="text-align:center;font-size:clamp(1.75rem,4vw,2.5rem);margin-bottom:0.5rem;'
+            f'color:{heading_color};font-family:{heading_font};">{map_heading}</h2>'
+        )
+        wrap_padding = "0" if compact else "60px 20px"
+
         # Inner contents (no outer <section> — caller decides container)
         maps_inner = f"""
-  <div style="max-width:1200px;margin:0 auto;padding:60px 20px;">
-    <h2 style="text-align:center;font-size:clamp(1.75rem,4vw,2.5rem);margin-bottom:0.5rem;color:{heading_color};font-family:{heading_font};">{map_heading}</h2>
+  <div class="binaapp-map-widget" style="max-width:1200px;margin:0 auto;padding:{wrap_padding};">
+    {heading_html}
     <p style="text-align:center;margin:0 auto 1rem;max-width:40rem;">📍 {display_address}</p>
     <div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,0.15);">
       <iframe
@@ -589,9 +617,6 @@ class TemplateService:
   </div>
 """
 
-        # Slot-aware path: replace the AI-emitted placeholder if present.
-        widget = WIDGETS.get("maps")
-        slot_id = _find_widget_slot(html, widget) if widget else None
         _log_slot_lookup(
             "maps",
             slot_found=bool(slot_id),

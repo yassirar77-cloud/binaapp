@@ -2930,6 +2930,15 @@ async def _start_generation_from_body(body: dict, preferred_plan: Optional[dict]
     image_choice = body.get("image_choice") or body.get("images_choice") or body.get("imageChoice") or "none"
     delivery = body.get("delivery") or None
     address = body.get("address") or None
+    if address:
+        # A short place name ("bayumas klang") in the field while the brief
+        # carries the full street address: the map, buttons and JSON-LD use
+        # the full address.
+        from app.services.data_consistency import prefer_full_address
+        _full = prefer_full_address(address, description)
+        if _full and _full != address:
+            logger.info(f"📍 Address field {address!r} is a place name — using the brief's full address {_full!r}")
+            address = _full
     if not address:
         # The address field was empty but the story carries one ("Alamat:
         # ..."). Without this the map, the JSON-LD address and the Waze /
@@ -4246,6 +4255,10 @@ async def publish_website(
             )
             _addr = (body.get("address") or body.get("location_address") or "").strip() \
                 or (extract_map_address(html_content) or "")
+            from app.services.data_consistency import prefer_full_address
+            _addr = prefer_full_address(
+                _addr, body.get("description"), body.get("business_description"), body.get("design_brief"),
+            ) or _addr
             if _addr and has_map_embed(html_content):
                 map_geo["address"] = _addr[:300]
                 try:

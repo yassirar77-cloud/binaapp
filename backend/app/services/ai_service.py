@@ -9331,6 +9331,19 @@ IMPORTANT RULES:
         logger.info(f"   ⏰ Start Time: {time.strftime('%H:%M:%S')}")
         logger.info("=" * 80)
 
+        # A short place name in the location field ("bayumas klang") gives
+        # way to the full street address in the brief, so the prompt, the
+        # map, the Maps/Waze buttons and the JSON-LD all use the same one.
+        try:
+            from app.services.data_consistency import prefer_full_address
+            _loc = getattr(request, "location_address", None)
+            _full = prefer_full_address(_loc, request.description, getattr(request, "design_brief", None))
+            if _full and _full != (_loc or "").strip():
+                logger.info(f"📍 Location {_loc!r} is a place name — using the brief's full address {_full!r}")
+                request.location_address = _full
+        except Exception as _addr_err:
+            logger.warning(f"📍 Address resolution skipped: {_addr_err}")
+
         # Check image_choice - skip ALL image generation if "none"
         image_urls = {}
         ai_images_generated = 0  # Track how many AI images were successfully generated
