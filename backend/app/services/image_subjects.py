@@ -285,6 +285,58 @@ def food_dish_subject(name: str) -> str:
     return re.sub(r"\s+", " ", text).strip(" -–—,") or str(name).strip()
 
 
+#: Malay dish words → plain English for the last, dish-only attempt (the
+#: image model letters a Malay menu name into the photo far more often
+#: than it does a plain description). Longest phrases first.
+_FOOD_EN: Sequence[Tuple[str, str]] = (
+    ("ayam gepuk", "smashed crispy fried chicken"), ("ayam krispy", "crispy fried chicken"),
+    ("ayam crispy", "crispy fried chicken"), ("ayam goreng", "fried chicken"), ("ayam bakar", "grilled chicken"),
+    ("sotong krispy", "crispy fried squid"), ("udang krispy", "crispy fried prawns"),
+    ("telur mata", "a sunny-side-up fried egg"), ("kubis goreng", "stir-fried cabbage"),
+    ("nasi lemak", "coconut rice with sambal, anchovies, peanuts and egg"), ("nasi goreng", "fried rice"),
+    ("mee goreng", "fried noodles"), ("kangkung goreng", "stir-fried water spinach"),
+    ("tauhu", "fried tofu"), ("tempe", "tempeh"), ("ayam", "chicken"), ("sotong", "squid"),
+    ("udang", "prawns"), ("ikan", "fish"), ("daging", "beef"), ("kambing", "mutton"), ("nasi", "rice"),
+    ("mee", "noodles"), ("goreng", "fried"), ("bakar", "grilled"), ("krispy", "crispy"), ("sup", "soup"),
+)
+
+
+def plain_dish_prompt(name: str, *, set_meal: bool = False) -> str:
+    """The last attempt for a key menu photo after text rejections: no menu
+    name at all, the dish described in plain English, top-down, with every
+    no-text instruction. "Set Panglima Krispy – Ayam Krispy" (set) →
+    "crispy fried chicken, served as a set meal with white rice and side
+    dishes, top-down food photo …"."""
+    words = re.findall(r"[\w'+.-]+", food_dish_subject(name).lower())
+    pieces: List[str] = []
+    i = 0
+    while i < len(words):
+        for malay, english in _FOOD_EN:
+            n = len(malay.split())
+            if words[i:i + n] == malay.split():
+                pieces.append(english)
+                i += n
+                break
+        else:
+            if pieces:
+                pieces[-1] = f"{pieces[-1]} {words[i]}"
+            else:
+                pieces.append(words[i])
+            i += 1
+    if not pieces:
+        dish = "a plated Malaysian dish"
+    elif len(pieces) == 1:
+        dish = pieces[0]
+    else:
+        sides = pieces[1:]
+        dish = f"{pieces[0]} with " + (", ".join(sides[:-1]) + " and " + sides[-1] if len(sides) > 1 else sides[0])
+    meal = ", served as a set meal with white rice and side dishes" if set_meal else ""
+    return (
+        f"{dish}{meal}, top-down food photo on a plain table, natural light, "
+        "no text, no words, no letters, no numbers, no labels, no logo, no watermark"
+    )
+
+
 def stricter_prompt(prompt: str) -> str:
     """Second attempt after a failed vision check: an empty scene, nothing
     written anywhere, nobody in frame."""
