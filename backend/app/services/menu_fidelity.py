@@ -376,23 +376,55 @@ def render_menu_block(
     return "\n".join(p for p in parts if p)
 
 
-_OUTLINE_BLACK = r"border-(?:black|\[#0{3,6}\]|\[#111(?:111)?\]|neutral-900|zinc-900|stone-900|gray-900)(?![\w-])"
-_OUTLINE_WIDTH = r"border-(?:\[[34]px\]|4)(?![\w-])"
-_OUTLINE_UTIL_RE = re.compile(
-    rf"\b{_OUTLINE_WIDTH}[^\"'<>]*\b{_OUTLINE_BLACK}|\b{_OUTLINE_BLACK}[^\"'<>]*\b{_OUTLINE_WIDTH}",
-    re.IGNORECASE,
-)
+#: Thick-outline styling: a 3-4px border in black or a near-black ink
+#: (agp used #1A120B, the page's own text colour), as CSS or Tailwind.
 _OUTLINE_CSS_RE = re.compile(
-    r"border(?:-width)?\s*:\s*[34]px\s+solid\s+(?:#0{3}\b|#0{6}\b|#111\b|#111111\b|black\b|var\(--text)",
+    r"border(?:-(?:top|bottom|left|right))?(?:-width)?\s*:\s*[34]px\s+solid\s+(#[0-9a-fA-F]{3,6}\b|black\b|var\(--text[\w-]*\))",
     re.IGNORECASE,
 )
+_TW_WIDTH_RE = re.compile(r"(?<![\w:-])border-(?:\[[34]px\]|[34])(?![\w-])")
+_TW_COLOUR_RE = re.compile(
+    r"(?<![\w:-])border-(black|\[#[0-9a-fA-F]{3,6}\]|(?:neutral|zinc|stone|gray|slate)-(?:800|900|950))(?![\w-])"
+)
+_CLASS_VALUE_RE = re.compile(r"""\bclass\s*=\s*["']([^"']*)["']""", re.IGNORECASE)
+
+
+def _is_dark_hex(value: str) -> bool:
+    h = value.strip().lstrip("#")
+    if len(h) == 3:
+        h = "".join(c * 2 for c in h)
+    if len(h) != 6:
+        return False
+    try:
+        r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
+    except ValueError:
+        return False
+    return max(r, g, b) <= 0x40
+
+
+def _is_ink(colour: str) -> bool:
+    c = colour.strip().lower()
+    if c in ("black",) or c.startswith("var(--text"):
+        return True
+    return c.startswith("#") and _is_dark_hex(c)
 
 
 def detect_outline_style(html: str, min_hits: int = 3) -> bool:
-    """The page uses thick black outlines (3–4px) on its cards / buttons."""
+    """The page uses thick black / near-black outlines (3-4px) on its cards
+    and buttons."""
     if not html:
         return False
-    return len(_OUTLINE_UTIL_RE.findall(html)) + len(_OUTLINE_CSS_RE.findall(html)) >= min_hits
+    hits = sum(1 for m in _OUTLINE_CSS_RE.finditer(html) if _is_ink(m.group(1)))
+    for m in _CLASS_VALUE_RE.finditer(html):
+        cls = m.group(1)
+        if not _TW_WIDTH_RE.search(cls):
+            continue
+        col = _TW_COLOUR_RE.search(cls)
+        if col and (not col.group(1).startswith("[") or _is_dark_hex(col.group(1).strip("[]"))):
+            hits += 1
+        if hits >= min_hits:
+            return True
+    return hits >= min_hits
 
 
 _FONT_HEADING_DECL_RE = re.compile(r"--font-heading\s*:", re.IGNORECASE)
