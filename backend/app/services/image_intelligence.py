@@ -102,9 +102,8 @@ def apply_section_crops(image_urls: Dict[str, str], *, item_role: str = "menu") 
     out = dict(image_urls or {})
     if out.get("hero"):
         out["hero"] = cloudinary_transform(out["hero"], "hero")
-    for i in range(1, 5):
-        key = f"gallery{i}"
-        if out.get(key):
+    for key in list(out):
+        if re.fullmatch(r"(?:gallery[1-4]|menuphoto\d+)", key) and out.get(key):
             out[key] = cloudinary_transform(out[key], item_role)
     return out
 

@@ -8074,10 +8074,11 @@ IMPORTANT RULES:
             _same = lambda a, b: a == b  # noqa: E731
         pairs: List[Tuple[str, str]] = []
         urls = image_urls or {}
-        for i in range(1, 10):
-            url, name = urls.get(f"gallery{i}"), urls.get(f"gallery{i}_name")
-            if isinstance(url, str) and url and name:
-                pairs.append((str(name), url))
+        for prefix, top in (("gallery", 10), ("menuphoto", 60)):
+            for i in range(1, top):
+                url, name = urls.get(f"{prefix}{i}"), urls.get(f"{prefix}{i}_name")
+                if isinstance(url, str) and url and name:
+                    pairs.append((str(name), url))
         for img in (getattr(request, "uploaded_images", None) or []):
             if isinstance(img, dict) and img.get("url") and img.get("name"):
                 pairs.append((str(img["name"]), str(img["url"])))
@@ -9205,6 +9206,24 @@ IMPORTANT RULES:
                     self._autofill_item_prompt(category, name, _biz_type, _biz_context, subject=_subject),
                 )
             )
+        # F&B: every item of the first / "Set" category gets a photo before
+        # anything else, even past the four gallery slots the page prompt
+        # shows. Extra photos go to menu-only slots (menuphoto{n}) that the
+        # deterministic menu block reads; the cap still bounds the total.
+        if is_food and _supplied:
+            _tier = [it.name for it in _mf.photo_tier(_mf.normalize_items(_supplied))]
+            _taken = set(slot_names)
+            _extra = [n for n in _tier if n not in _taken and not _covered(n)]
+            for _n_extra, name in enumerate(_extra, 1):
+                work.append(
+                    (
+                        f"menuphoto{_n_extra}",
+                        name,
+                        self._autofill_item_prompt(category, name, _biz_type, _biz_context, subject=_subject),
+                    )
+                )
+            if _extra:
+                logger.info(f"🍽️ {len(_extra)} more set item(s) queued for menu-only photos: {', '.join(_extra)}")
 
         if len(work) > cap:
             logger.info(f"✂️ Auto-fill capped at {cap} of {len(work)} missing image slot(s)")

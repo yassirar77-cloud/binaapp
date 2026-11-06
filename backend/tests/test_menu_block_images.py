@@ -170,5 +170,64 @@ async def test_autofill_spends_the_budget_on_priority_items(monkeypatch):
     image_urls = {}
     await svc._autofill_missing_images(req, image_urls, max_ai_images=6)
     names = [image_urls.get(f"gallery{i}_name") for i in range(1, 5)]
-    assert names[:3] == ["Set Panglima Signature", "Set A – Ayam Gepuk", "Set Udang Krispy"]
+    assert names[0] == "Set Panglima Signature"
+    assert set(names[:3]) == {"Set Panglima Signature", "Set A – Ayam Gepuk", "Set Udang Krispy"}
     assert not {"Teh O Ice", "Sambal Extra", "Fries"} & set(names)
+
+
+class TestSetTier:
+    def test_every_set_item_before_anything_else(self, items):
+        tier = [it.name for it in mf.photo_tier(items)]
+        assert tier[0] == "Set Panglima Signature – Ayam Gepuk Telur Mata"
+        assert set(tier) == {it.name for it in items if it.category.startswith("Set")}
+        assert len(tier) == 7
+        ranked = [it.name for it in mf.image_priority(items)]
+        assert ranked[:7] == tier
+
+    def test_first_category_without_set_name_is_the_tier(self):
+        menu = mf.normalize_items([
+            {"name": "Nasi Lemak Ayam", "price": "9", "category": "Nasi"},
+            {"name": "Nasi Lemak Biasa", "price": "4", "category": "Nasi"},
+            {"name": "Mee Goreng Seafood", "price": "14", "category": "Mee"},
+        ])
+        assert [it.name for it in mf.photo_tier(menu)] == ["Nasi Lemak Ayam", "Nasi Lemak Biasa"]
+
+
+@pytest.mark.asyncio
+async def test_autofill_photographs_all_seven_sets_when_the_budget_allows(monkeypatch):
+    import app.services.ai_service as ai_service_module
+    from app.models.schemas import Language, MenuItemInput, WebsiteGenerationRequest
+    from app.services.ai_service import AIService
+
+    monkeypatch.setenv("IMAGE_CHECK_ENABLED", "false")
+    monkeypatch.setenv("FREE_AI_IMAGES_PER_SITE", "8")
+    monkeypatch.setattr(ai_service_module, "FREE_AI_IMAGES_PER_SITE", 8, raising=False)
+    svc = AIService()
+    svc.qwen_api_key = svc.zai_api_key = None
+    svc.stability_api_key = "st-key"
+    calls = []
+
+    async def _gen(prompt, **kw):
+        calls.append(prompt)
+        return f"https://res.cloudinary.com/demo/image/upload/v1/{len(calls)}.jpg"
+
+    svc._generate_image = _gen
+    with open(FIXTURE, encoding="utf-8") as fh:
+        raw = json.load(fh)["menu_items"]
+    req = WebsiteGenerationRequest(
+        description="Restoran ayam gepuk di Klang", language=Language.MALAY, business_name="AGP",
+        business_type="food", subdomain="agp", whatsapp_number="0126973105",
+        menu_items=[MenuItemInput(name=i["name"], price=i["price"], category=i["category"]) for i in raw],
+    )
+    image_urls = {}
+    n = await svc._autofill_missing_images(req, image_urls, max_ai_images=None)
+    assert n == 8  # hero + 7 sets
+    named = {v for k, v in image_urls.items() if k.endswith("_name")}
+    assert named == {i["name"] for i in raw if i["category"].startswith("Set")}
+    assert {"menuphoto1", "menuphoto2", "menuphoto3"} <= set(image_urls)
+    # The menu block pairs every one of them.
+    svc._last_poster_uploads = []
+    pairs = svc._menu_item_image_pairs(req, image_urls)
+    assert len(pairs) == 7
+    # Prompts are the dish, never the menu label.
+    assert not any("Set Panglima Signature" in c for c in calls)

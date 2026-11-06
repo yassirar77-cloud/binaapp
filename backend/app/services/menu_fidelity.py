@@ -185,13 +185,24 @@ def _price_value(price: str) -> Optional[float]:
         return None
 
 
+_SET_CATEGORY_RE = re.compile(r"^\s*(?:set|paket|pakej|combo)\b", re.IGNORECASE)
+
+
+def is_set_category(category: str) -> bool:
+    """"Set Ayam", "Set Seafood Krispy", "Paket Jimat" — a category of
+    complete meals."""
+    return bool(_SET_CATEGORY_RE.search(str(category or "")))
+
+
 def image_priority(items: Sequence[MenuItemSpec]) -> List[MenuItemSpec]:
     """Items that may carry a photo, most deserving first.
 
     Drinks, kids' items and add-ons are excluded (unless the whole menu is
-    such items — a drinks-only kiosk still gets photos). Among the rest:
-    signature items, then items in the first category, then "Set" items,
-    then items priced above the median; menu order breaks ties."""
+    such items — a drinks-only kiosk still gets photos). EVERY item in the
+    first category or in a "Set …" category comes before anything else
+    (agp: all 7 sets, seafood sets included); within that tier and below
+    it, signature items lead, then "Set" names, then prices above the
+    median; menu order breaks ties."""
     items = list(items)
     eligible = [it for it in items if not text_only_category(it.category)] or items
     if not eligible:
@@ -202,10 +213,12 @@ def image_priority(items: Sequence[MenuItemSpec]) -> List[MenuItemSpec]:
 
     def _score(it: MenuItemSpec) -> int:
         score = 0
+        if (first_cat and it.category == first_cat) or is_set_category(it.category) or (
+            not it.category and re.match(r"\s*set\b", it.name, re.IGNORECASE)
+        ):
+            score += 100
         if it.signature:
             score += 8
-        if first_cat and it.category == first_cat:
-            score += 4
         if re.match(r"\s*set\b", it.name, re.IGNORECASE):
             score += 2
         v = _price_value(it.price)
@@ -215,6 +228,18 @@ def image_priority(items: Sequence[MenuItemSpec]) -> List[MenuItemSpec]:
 
     order = {id(it): i for i, it in enumerate(eligible)}
     return sorted(eligible, key=lambda it: (-_score(it), order[id(it)]))
+
+
+def photo_tier(items: Sequence[MenuItemSpec]) -> List[MenuItemSpec]:
+    """The items that must all get a photo before any other item: the
+    first category plus every "Set …" category (eligible items only)."""
+    ranked = image_priority(items)
+    first_cat = next((it.category for it in ranked if it.category), "")
+    return [
+        it for it in ranked
+        if (first_cat and it.category == first_cat) or is_set_category(it.category)
+        or (not it.category and re.match(r"\s*set\b", it.name, re.IGNORECASE))
+    ]
 
 
 def attach_item_images(
