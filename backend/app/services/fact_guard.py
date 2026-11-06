@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 _TAG_RE = re.compile(r"<[^>]+>")
 _SECTION_OPEN_RE = re.compile(r"<(section|article|aside)\b[^>]*>", re.IGNORECASE)

@@ -27,7 +27,7 @@ from __future__ import annotations
 import io
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 STYLE_ID = "binaapp-hierarchy"
 H1_MIN_RATIO = 2.0

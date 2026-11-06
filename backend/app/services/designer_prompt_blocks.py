@@ -120,7 +120,7 @@ def _menu_rules(S: Dict[str, str], has_whatsapp: bool, item_count: int, has_item
     tile = (
         "- Every item tile has its photo (4:3, object-cover, identical size across tiles) — never a placeholder icon."
         if has_item_images else
-        f"- No item photos were supplied: render TYPOGRAPHIC tiles — the item name set large in the display face on the accent (or accent_2) colour block, the price beneath. NEVER a placeholder icon, emoji, or grey image box."
+        "- No item photos were supplied: render TYPOGRAPHIC tiles — the item name set large in the display face on the accent (or accent_2) colour block, the price beneath. NEVER a placeholder icon, emoji, or grey image box."
     )
     price = "- Prices large and aligned (same baseline, same size on every tile), copied character-for-character." if show_prices else "- Prices are OFF: no price element and no substitute wording."
     wa = (

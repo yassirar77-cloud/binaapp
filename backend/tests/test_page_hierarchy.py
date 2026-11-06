@@ -82,7 +82,6 @@ def test_apply_all_without_a_render_injects_the_floor():
 
 @pytest.mark.asyncio
 async def test_browser_measures_offenders_and_hero_text():
-    import os
     from app.services import design_critique as dc
     page = DOBI.replace("<head>", '<head><style>body{font-size:16px} h1{font-size:30px} .text-6xl{font-size:60px} .text-base{font-size:16px}</style>')
     bundle = await dc.render_screenshots(page, timeout=20)

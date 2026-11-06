@@ -5,9 +5,7 @@ like "RM25.oo" is refused at the form and fails the build; the address is
 normalised and never rendered as a heading.
 """
 
-import json
 import os
-from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -16,7 +14,7 @@ from pydantic import ValidationError
 
 import app.main as main_module
 from app.middleware.subdomain import _OPEN_BADGE_SCRIPT, _inject_open_badge
-from app.models.schemas import Language, MenuItemInput, WebsiteGenerationRequest
+from app.models.schemas import MenuItemInput, WebsiteGenerationRequest
 from app.services.ai_service import AIService
 from app.services.data_consistency import enforce_24h_copy
 from app.services.generation_validator import GenerationBrief, validate_generated_site

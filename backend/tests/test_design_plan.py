@@ -17,7 +17,6 @@ import json
 
 from app.services import design_directions as dd
 from app.services.design_plan import (
-    DesignPlan,
     PlanBrief,
     brief_completeness,
     brief_theme_request,

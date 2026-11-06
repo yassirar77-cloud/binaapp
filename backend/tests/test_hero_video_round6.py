@@ -46,7 +46,7 @@ from app.services.hero_video_patcher import (
     remove_hero_video,
 )
 
-from tests.test_hero_video_api import CLOUD_POSTER, CLOUD_VIDEO, LIVE_HTML, _row
+from tests.test_hero_video_api import CLOUD_POSTER, CLOUD_VIDEO
 
 enabled = pytest.importorskip("tests.test_hero_video_api").enabled
 patches = pytest.importorskip("tests.test_hero_video_api").patches

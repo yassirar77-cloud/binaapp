@@ -58,7 +58,7 @@ def test_supplied_hours_allow_their_times():
 
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import app.services.ai_service as ai_service_module
 from app.models.schemas import Language, MenuItemInput, WebsiteGenerationRequest

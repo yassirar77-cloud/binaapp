@@ -3,7 +3,6 @@ Learning loop (§9): the design_plans store and the weekly direction-stats
 aggregation. HTTP is mocked; the aggregation is pure.
 """
 
-import json
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 

@@ -40,7 +40,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from app.services import design_directions as dd
 from app.services.design_director import (
@@ -53,7 +53,6 @@ from app.services.design_director import (
     is_light,
     normalize_hex,
 )
-from app.services.site_strings import strings_for
 
 logger = logging.getLogger(__name__)
 
