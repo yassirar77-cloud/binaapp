@@ -7,7 +7,6 @@ body font because --font-heading was never declared; and its rounded,
 soft-shadow cards sat on a page of square 3px-outlined cards.
 """
 
-import pytest
 
 from app.services import brand_palette as bp
 from app.services import menu_fidelity as mf
@@ -121,7 +120,8 @@ class TestOutlineVariant:
         assert 'class="binaapp-menu-block"' in mf.render_menu_block(items)
 
     def test_pipeline_picks_the_outline_variant(self):
-        import json, os
+        import json
+        import os
         from types import SimpleNamespace
         from app.services.ai_service import AIService
 
