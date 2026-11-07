@@ -5,7 +5,16 @@ import toast from 'react-hot-toast'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
-import { getCurrentUser, getStoredToken, signOut } from '@/lib/supabase'
+import { getApiAuthToken, getCurrentUser, getStoredToken, signOut } from '@/lib/supabase'
+import {
+  canPublishToSubdomain,
+  defaultTarget,
+  liveTargets,
+  replaceErrorMessage,
+  replacePublishBody,
+  replaceWarning,
+  targetLabel,
+} from '@/lib/draftPublish'
 import {
   Button,
   Card,
@@ -25,6 +34,8 @@ interface Website {
   status: string
   created_at: string
   published_at: string | null
+  /** A generated draft that can be published over a live site. */
+  replaceable_draft?: boolean
 }
 
 interface User {
@@ -40,6 +51,11 @@ export default function MyProjectsPage() {
   const [user, setUser] = useState<User | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<Website | null>(null)
+  // "Terbitkan ke subdomain": which draft, onto which live site.
+  const [publishDraft, setPublishDraft] = useState<Website | null>(null)
+  const [publishTargetId, setPublishTargetId] = useState<string>('')
+  const [publishConfirmed, setPublishConfirmed] = useState(false)
+  const [publishing, setPublishing] = useState(false)
 
   useEffect(() => {
     checkAuthAndGetWebsites()
@@ -114,6 +130,45 @@ export default function MyProjectsPage() {
       toast.error(`Ralat memadam website: ${errorMessage}`)
     } finally {
       setDeleting(null)
+    }
+  }
+
+  function openPublishToSubdomain(draft: Website) {
+    const target = defaultTarget(draft, liveTargets(websites))
+    setPublishDraft(draft)
+    setPublishTargetId(target?.id || '')
+    setPublishConfirmed(false)
+  }
+
+  async function publishDraftToSubdomain() {
+    const draft = publishDraft
+    const target = websites.find((w) => w.id === publishTargetId)
+    if (!draft || !target || !publishConfirmed) return
+    try {
+      setPublishing(true)
+      const token = await getApiAuthToken()
+      if (!token) {
+        router.push('/login')
+        return
+      }
+      const response = await fetch(`${API_BASE}/api/publish`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(replacePublishBody(draft.id, target.id)),
+      })
+      const data = await response.json().catch(() => null)
+      if (!response.ok || data?.success === false) {
+        throw new Error(replaceErrorMessage(response.status, data))
+      }
+      const url = data?.url || `https://${target.subdomain}.binaapp.my`
+      setPublishDraft(null)
+      toast.success(`Diterbitkan ke ${target.subdomain}.binaapp.my`, { duration: 6000 })
+      window.open(url, '_blank', 'noopener')
+      await checkAuthAndGetWebsites()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Gagal menerbitkan. Sila cuba lagi.')
+    } finally {
+      setPublishing(false)
     }
   }
 
@@ -246,11 +301,78 @@ export default function MyProjectsPage() {
                 website={website}
                 deleting={deleting === website.id}
                 onDelete={() => setConfirmDelete(website)}
+                onPublishToSubdomain={
+                  canPublishToSubdomain(website, websites) ? () => openPublishToSubdomain(website) : undefined
+                }
               />
             ))}
           </div>
         )}
       </main>
+
+      {/* Publish a draft over a live site */}
+      <Modal
+        open={!!publishDraft}
+        onClose={() => !publishing && setPublishDraft(null)}
+        title="Terbitkan ke subdomain"
+        description={publishDraft ? `Gantikan laman langsung anda dengan draf "${publishDraft.business_name}".` : ''}
+        size="sm"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setPublishDraft(null)} disabled={publishing}>
+              Batal
+            </Button>
+            <Button
+              variant="primary"
+              loading={publishing}
+              disabled={!publishConfirmed || !publishTargetId}
+              onClick={publishDraftToSubdomain}
+            >
+              Terbitkan
+            </Button>
+          </>
+        }
+      >
+        {publishDraft && (
+          <div className="space-y-4 text-sm text-ink-700">
+            <label className="block">
+              <span className="block text-xs font-medium text-ink-500 mb-1">Subdomain yang akan diganti</span>
+              <select
+                value={publishTargetId}
+                onChange={(e) => {
+                  setPublishTargetId(e.target.value)
+                  setPublishConfirmed(false)
+                }}
+                className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm text-ink-900"
+                aria-label="Subdomain yang akan diganti"
+              >
+                {liveTargets(websites).map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {targetLabel(t)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {(() => {
+              const target = websites.find((w) => w.id === publishTargetId)
+              return target ? (
+                <p className="rounded-lg bg-warn-500/10 border border-warn-500/30 px-3 py-2 text-ink-800">
+                  {replaceWarning(publishDraft, target)}
+                </p>
+              ) : null
+            })()}
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={publishConfirmed}
+                onChange={(e) => setPublishConfirmed(e.target.checked)}
+                className="mt-0.5"
+              />
+              <span>Saya faham, gantikan halaman langsung dengan draf ini.</span>
+            </label>
+          </div>
+        )}
+      </Modal>
 
       {/* Delete confirmation */}
       <Modal
@@ -340,10 +462,13 @@ function ProjectCard({
   website,
   deleting,
   onDelete,
+  onPublishToSubdomain,
 }: {
   website: Website
   deleting: boolean
   onDelete: () => void
+  /** Present on a generated draft that can replace one of the user's live sites. */
+  onPublishToSubdomain?: () => void
 }) {
   const isLive = website.status === 'published'
   const liveUrl = website.full_url || (website.subdomain ? `https://${website.subdomain}.binaapp.my` : null)
@@ -391,6 +516,14 @@ function ProjectCard({
             year: 'numeric',
           })}
         </p>
+
+        {onPublishToSubdomain && (
+          <div className="mt-4">
+            <Button variant="primary" size="sm" fullWidth onClick={onPublishToSubdomain}>
+              Terbitkan ke subdomain
+            </Button>
+          </div>
+        )}
 
         <div className="mt-4 pt-4 border-t border-ink-100 flex items-center gap-2">
           <Link href={`/editor/${website.id}`} className="flex-1">
