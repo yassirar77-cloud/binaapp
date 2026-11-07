@@ -141,6 +141,43 @@ def compact_spice_levels(html: str) -> Tuple[str, bool]:
             new_tag = re.sub(r"^<(\w+)", rf'<\1 style="--binaapp-spice-n:{len(chips)}"', new_tag, count=1) \
                 if "style=" not in new_tag else new_tag
         out = out[:off] + new_tag + out[end:]
+    if HERO_ROW_CLASS in row_cls:
+        out = _drop_duplicate_hero_levels(out)
     m = re.search(r"</head>", out, re.IGNORECASE)
     out = (out[: m.start()] + SPICE_CSS + out[m.start():]) if m else (SPICE_CSS + out)
     return out, True
+
+
+_HERO_SECTION_RE = re.compile(r"<section\b[^>]*\bid\s*=\s*[\"']hero[\"'][^>]*>", re.IGNORECASE)
+_SMALL_LEVEL_EL_RE = re.compile(
+    r"<(div|span|li|p)\b([^>]*)>((?:(?!<(?:div|span|li|p|section)\b)(?!</\1>).)*?)</\1>",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _drop_duplicate_hero_levels(html: str) -> str:
+    """The hero now shows the levels as one straight row; other small
+    elements in the hero that each just say one level (agp: tilted
+    'Level 1 / Spicy' stickers piled on the photo) are duplicates — drop
+    them. Anything else (a price sticker) stays."""
+    m = _HERO_SECTION_RE.search(html)
+    if not m:
+        return html
+    depth, end = 0, len(html)
+    for t in re.finditer(r"<(/?)section\b[^>]*>", html[m.start():], re.IGNORECASE):
+        depth += -1 if t.group(1) else 1
+        if depth == 0:
+            end = m.start() + t.end()
+            break
+    hero = html[m.start():end]
+
+    def _sub(em: "re.Match") -> str:
+        if CHIP_CLASS in em.group(2) or ROW_CLASS in em.group(2):
+            return em.group(0)
+        text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", em.group(3))).strip()
+        if len(text) > 40 or len(set(_LEVEL_RE.findall(text))) != 1:
+            return em.group(0)
+        return ""
+
+    new_hero = _SMALL_LEVEL_EL_RE.sub(_sub, hero)
+    return html[: m.start()] + new_hero + html[end:]

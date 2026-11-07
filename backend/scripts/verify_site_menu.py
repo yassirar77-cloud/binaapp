@@ -59,6 +59,18 @@ def verify_map(html: str) -> Dict[str, bool]:
     clipped = any(c.startswith(("aspect-", "h-", "max-h-")) for c in slot_classes) and any(
         c.startswith("overflow-") and c != "overflow-visible" for c in slot_classes
     )
+    # The page's own stylesheet can clip it too (agp: .map-slot{aspect-ratio:
+    # 16/9; overflow:hidden}); an inline overflow:visible on the slot wins.
+    if slot and not clipped:
+        selectors = [f".{c}" for c in slot_classes] + ["#binaapp-maps-slot"]
+        css = " ".join(re.findall(r"<style\b[^>]*>(.*?)</style>", html, flags=re.S | re.I))
+        for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css):
+            if not any(re.search(rf"(^|[\s,]){re.escape(x)}(?![\w-])", sel.strip()) for x in selectors):
+                continue
+            if re.search(r"overflow\s*:\s*(hidden|clip)", body) and re.search(r"aspect-ratio|(?<![-\w])height\s*:", body):
+                clipped = True
+        if clipped and re.search(r"overflow\s*:\s*visible", slot.group(0)):
+            clipped = False
     return {
         "map_iframe": bool(re.search(r'<iframe\b[^>]*src="https://www\.google\.com/maps\?q=[^"]+"', w)),
         "map_google_maps_button": "google.com/maps/" in a and ("Buka di Google Maps" in a or "Open in Google Maps" in a),
