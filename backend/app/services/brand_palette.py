@@ -50,6 +50,9 @@ _CONTEXT_RE = re.compile(
 
 #: How far (degrees) a colour's hue may sit from a named colour's hue.
 HUE_TOLERANCE = 22.0
+#: How far a colour's lightness may sit from that named colour's: a shade,
+#: not a different colour (dark brick-brown is not 'merah cili').
+LIGHTNESS_TOLERANCE = 0.22
 
 
 def _hex(value: Optional[str]) -> Optional[str]:
@@ -127,14 +130,22 @@ def brief_colour_set(texts: Iterable[Optional[str]], brand_colors: Optional[Dict
 
 
 def allowed(hex_value: str, named: Sequence[str]) -> bool:
-    """Neutral, or within HUE_TOLERANCE of a chromatic named colour."""
+    """Neutral, or a shade of a chromatic named colour: within
+    HUE_TOLERANCE of its hue AND LIGHTNESS_TOLERANCE of its lightness. Hue
+    alone let a dark brick-brown (#5D2310, 0.27 darker than chilli red)
+    pass as 'red' — every price and Pesan button on agp came out brown."""
     hv = _hex(hex_value)
     if hv is None:
         return False
     if is_neutral(hv):
         return True
-    hue = _hue_deg(hv)
-    return any(not is_neutral(n) and _hue_distance(hue, _hue_deg(n)) <= HUE_TOLERANCE for n in named)
+    hue, light = _hue_deg(hv), _hls(hv)[1]
+    return any(
+        not is_neutral(n)
+        and _hue_distance(hue, _hue_deg(n)) <= HUE_TOLERANCE
+        and abs(light - _hls(n)[1]) <= LIGHTNESS_TOLERANCE
+        for n in named
+    )
 
 
 def _luminance(hex_value: str) -> float:
