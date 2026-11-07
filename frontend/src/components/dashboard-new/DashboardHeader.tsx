@@ -8,26 +8,7 @@ import { Lock } from 'lucide-react'
 import InstallAppButton from '@/components/pwa/InstallAppButton'
 import { UpgradeModal } from '@/components/UpgradeModal'
 import { usePlanFeatures } from '@/hooks/usePlanFeatures'
-
-interface NavItem {
-  label: string
-  href: string
-  badge?: number
-  /** Rider/GPS delivery ops — Bisnes (pro) plan only. Locked on Permulaan. */
-  requiresRiders?: boolean
-}
-
-const NAV_ITEMS: NavItem[] = [
-  { label: 'Papan Pemuka', href: '/dashboard' },
-  { label: 'Website Saya', href: '/my-projects' },
-  { label: 'Pesanan', href: '/pesanan', badge: 3 },
-  { label: 'Chat', href: '/chat' },
-  { label: 'Penghantar', href: '/rider', requiresRiders: true },
-  { label: 'Penghantaran', href: '/dashboard/penghantaran' },
-  { label: 'Penghantar Live', href: '/dashboard/penghantar-live', requiresRiders: true },
-  { label: 'Menu', href: '/menu-designer' },
-  { label: 'Analitik', href: '/dashboard/analitik' },
-]
+import { ACCOUNT_NAV_ITEMS, DASHBOARD_NAV_ITEMS, LOGOUT_LABEL, isActive } from '@/lib/dashboardNav'
 
 interface DashboardHeaderProps {
   /** Number of unread notifications */
@@ -70,12 +51,10 @@ export default function DashboardHeader({
     return () => document.removeEventListener('keydown', onKey)
   }, [avatarMenuOpen, mobileMenuOpen])
 
-  const navItems = NAV_ITEMS.map((item) => ({
+  const navItems = DASHBOARD_NAV_ITEMS.map((item) => ({
     ...item,
-    active: pathname === item.href,
-    ...(item.href === '/pesanan' && newOrdersCount !== undefined
-      ? { badge: newOrdersCount }
-      : {}),
+    active: isActive(item.href, pathname),
+    badge: item.ordersBadge ? newOrdersCount : undefined,
   }))
 
   const initials = userName
@@ -191,17 +170,16 @@ export default function DashboardHeader({
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setAvatarMenuOpen(false)} />
                 <div role="menu" className="absolute right-0 top-full mt-2 z-50 w-44 origin-top-right animate-scale-in rounded-xl bg-[#161623] border border-white/[0.08] py-1.5 shadow-xl shadow-black/40">
-                  <Link href="/profile" className="block px-4 py-2 text-sm text-white/70 hover:text-white hover:bg-white/[0.05] transition-colors">
-                    Profil
-                  </Link>
-                  <Link href="/subscription" className="block px-4 py-2 text-sm text-white/70 hover:text-white hover:bg-white/[0.05] transition-colors">
-                    Langganan
-                  </Link>
+                  {ACCOUNT_NAV_ITEMS.map((item) => (
+                    <Link key={item.href} href={item.href} className="block px-4 py-2 text-sm text-white/70 hover:text-white hover:bg-white/[0.05] transition-colors">
+                      {item.label}
+                    </Link>
+                  ))}
                   <button
                     onClick={() => { setAvatarMenuOpen(false); onLogout?.() }}
                     className="w-full text-left px-4 py-2 text-sm text-white/70 hover:text-white hover:bg-white/[0.05] transition-colors bg-transparent border-0 cursor-pointer"
                   >
-                    Log Keluar
+                    {LOGOUT_LABEL}
                   </button>
                 </div>
               </>
@@ -265,6 +243,26 @@ export default function DashboardHeader({
               </Link>
             )
           )}
+
+          {/* Account links — same as the avatar menu and the left drawer */}
+          <div className="my-2 border-t border-white/[0.06]" />
+          {ACCOUNT_NAV_ITEMS.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={`flex items-center rounded-lg px-3 py-2.5 text-sm transition-colors ${isActive(item.href, pathname) ? 'text-white bg-white/[0.06]' : 'text-white/50 hover:text-white'}`}
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              {item.label}
+            </Link>
+          ))}
+          <button
+            type="button"
+            onClick={() => { setMobileMenuOpen(false); onLogout?.() }}
+            className="flex w-full items-center rounded-lg px-3 py-2.5 text-sm text-white/50 hover:text-white transition-colors bg-transparent border-0 cursor-pointer text-left"
+          >
+            {LOGOUT_LABEL}
+          </button>
         </nav>
       )}
 

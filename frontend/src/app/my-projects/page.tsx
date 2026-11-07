@@ -9,6 +9,7 @@ import { getApiAuthToken, getCurrentUser, getStoredToken, signOut } from '@/lib/
 import {
   canPublishToSubdomain,
   defaultTarget,
+  draftFromQuery,
   liveTargets,
   replaceErrorMessage,
   replacePublishBody,
@@ -87,8 +88,12 @@ export default function MyProjectsPage() {
       }
 
       if (response.ok) {
-        const data = await response.json()
-        setWebsites(data || [])
+        const data: Website[] = (await response.json()) || []
+        setWebsites(data)
+        // From the dashboard's "Terbitkan ke subdomain" banner
+        // (/my-projects?publish=<draft id>): open that draft's dialog.
+        const fromLink = typeof window !== 'undefined' ? draftFromQuery(window.location.search, data) : null
+        if (fromLink) openPublishToSubdomain(fromLink as Website, data)
       } else {
         setWebsites([])
       }
@@ -133,8 +138,8 @@ export default function MyProjectsPage() {
     }
   }
 
-  function openPublishToSubdomain(draft: Website) {
-    const target = defaultTarget(draft, liveTargets(websites))
+  function openPublishToSubdomain(draft: Website, sites: Website[] = websites) {
+    const target = defaultTarget(draft, liveTargets(sites))
     setPublishDraft(draft)
     setPublishTargetId(target?.id || '')
     setPublishConfirmed(false)

@@ -4,7 +4,7 @@ Handles website generation, management, and publishing
 """
 
 from fastapi import APIRouter, HTTPException, status, Depends, BackgroundTasks, Request
-from typing import List, Optional
+from typing import Any, Dict, List, Optional, Set
 from loguru import logger
 from datetime import datetime
 import re
@@ -649,6 +649,21 @@ async def generate_website_content(
 #: Generated drafts listed for a user who has a live site (newest first).
 MAX_LISTED_DRAFTS = 5
 
+#: The list needs no page HTML: selecting it shipped every site's full page
+#: (agp's account: ~240 rows) and took 3-6 s on mobile.
+LIST_COLUMNS = "id, user_id, business_name, name, subdomain, status, created_at, updated_at, published_at"
+
+
+def order_for_list(rows: List[Dict[str, Any]], replaceable_ids: Set[str]) -> List[Dict[str, Any]]:
+    """Publishable drafts first, then the most recently worked-on site.
+    PostgREST returns rows in no particular order: with ~150 sites the
+    draft card the merchant came to publish sat somewhere mid-list on
+    mobile and read as missing."""
+    def stamp(r: Dict[str, Any]) -> str:
+        return str(r.get("updated_at") or r.get("published_at") or r.get("created_at") or "")
+    newest_first = sorted(rows, key=stamp, reverse=True)
+    return sorted(newest_first, key=lambda r: 0 if r.get("id") in replaceable_ids else 1)
+
 
 @router.get("/", response_model=List[WebsiteListResponse])
 async def list_websites(current_user: dict = Depends(get_current_user)):
@@ -657,7 +672,7 @@ async def list_websites(current_user: dict = Depends(get_current_user)):
     """
     try:
         user_id = current_user.get("sub")
-        websites = await supabase_service.get_user_websites(user_id)
+        websites = await supabase_service.get_user_websites(user_id, columns=LIST_COLUMNS)
 
         if not websites:
             return []
@@ -671,6 +686,8 @@ async def list_websites(current_user: dict = Depends(get_current_user)):
             key=lambda w: str(w.get("created_at") or ""), reverse=True,
         )
         listed_drafts = {w.get("id") for w in drafts[:MAX_LISTED_DRAFTS]} if has_live else set()
+
+        websites = order_for_list(websites, listed_drafts)
 
         result = []
         for w in websites:

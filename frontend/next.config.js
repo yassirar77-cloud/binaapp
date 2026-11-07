@@ -1,3 +1,4 @@
+const { LEGACY_DASHBOARD_ROUTES } = require('./legacy-routes');
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -24,6 +25,10 @@ const nextConfig = {
       { source: '/privacy', destination: '/privacy-policy', permanent: true },
       { source: '/terma', destination: '/terma-perkhidmatan', permanent: true },
       { source: '/privasi', destination: '/polisi-privasi', permanent: true },
+      // Old dashboard routes (the mobile drawer used to link to them).
+      ...Object.entries(LEGACY_DASHBOARD_ROUTES).map(([source, destination]) => ({
+        source, destination, permanent: false,
+      })),
     ];
   },
 

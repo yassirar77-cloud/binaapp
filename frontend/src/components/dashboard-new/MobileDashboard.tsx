@@ -2,6 +2,8 @@
 
 import { useState, ReactNode } from 'react'
 import Link from 'next/link'
+import { usePathname } from 'next/navigation'
+import { ACCOUNT_NAV_ITEMS, DASHBOARD_NAV_ITEMS, LOGOUT_LABEL, isActive } from '@/lib/dashboardNav'
 import DashboardGreeting from './DashboardGreeting'
 import ActionCard from './ActionCard'
 import WebsiteCard, { WebsiteStatus } from './WebsiteCard'
@@ -41,29 +43,6 @@ export interface MobileStat {
   featured?: boolean
   pulse?: boolean
 }
-
-/* ── Nav items ── */
-
-const NAV_ITEMS: {
-  label: string
-  href: string
-  active?: boolean
-  hasBadge?: boolean
-  /** Rider/GPS delivery ops — Bisnes (pro) plan only. Locked on Permulaan. */
-  requiresRiders?: boolean
-}[] = [
-  { label: 'Papan Pemuka', href: '/dashboard', active: true },
-  { label: 'Website Saya', href: '/websites' },
-  { label: 'Pesanan', href: '/orders', hasBadge: true },
-  { label: 'Penghantar', href: '/delivery', requiresRiders: true },
-  { label: 'Menu', href: '/menu' },
-  { label: 'Analitik', href: '/analytics' },
-]
-
-const ACCOUNT_ITEMS = [
-  { label: 'Profil', href: '/profile' },
-  { label: 'Langganan', href: '/subscription' },
-] as const
 
 /* ── Props ── */
 
@@ -338,6 +317,7 @@ function MobileDrawer({
   // false → plan has no rider ops (Permulaan): rider nav items lock with a
   // Bisnes upsell. null (unknown) stays unlocked; the backend still enforces.
   const { hasRiderFeatures } = usePlanFeatures()
+  const pathname = usePathname()
   return (
     <>
       {/* Backdrop */}
@@ -376,7 +356,7 @@ function MobileDrawer({
 
         {/* Nav links */}
         <div className="flex-1 overflow-y-auto py-3 px-3">
-          {NAV_ITEMS.map((item) =>
+          {DASHBOARD_NAV_ITEMS.map((item) =>
             item.requiresRiders && hasRiderFeatures === false ? (
               <button
                 key={item.href}
@@ -399,14 +379,14 @@ function MobileDrawer({
                 onClick={onClose}
                 className={`
                   flex items-center justify-between rounded-xl px-4 py-3 text-sm font-medium transition-colors min-h-[44px]
-                  ${item.active
+                  ${isActive(item.href, pathname)
                     ? 'text-white bg-white/[0.07]'
                     : 'text-white/50 hover:text-white hover:bg-white/[0.04]'
                   }
                 `}
               >
                 {item.label}
-                {item.hasBadge && ordersCount > 0 && (
+                {item.ordersBadge && ordersCount > 0 && (
                   <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#C7FF3D] px-1.5 text-[11px] font-bold text-[#0B0B15]">
                     {ordersCount}
                   </span>
@@ -419,7 +399,7 @@ function MobileDrawer({
           <div className="my-3 mx-4 border-t border-white/[0.06]" />
 
           {/* Account links */}
-          {ACCOUNT_ITEMS.map((item) => (
+          {ACCOUNT_NAV_ITEMS.map((item) => (
             <Link
               key={item.href}
               href={item.href}
@@ -433,7 +413,7 @@ function MobileDrawer({
             onClick={() => { onClose(); onLogout?.() }}
             className="flex items-center rounded-xl px-4 py-3 text-sm text-white/40 hover:text-white hover:bg-white/[0.04] transition-colors min-h-[44px] w-full bg-transparent border-0 cursor-pointer"
           >
-            Log Keluar
+            {LOGOUT_LABEL}
           </button>
         </div>
       </nav>

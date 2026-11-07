@@ -66,3 +66,21 @@ export function replaceErrorMessage(status: number, body: { error?: string; mess
   if (status === 401) return 'Sesi tamat. Sila log masuk semula.'
   return 'Gagal menerbitkan. Sila cuba lagi.'
 }
+
+/** Drafts the merchant can publish now (listed first by the API). */
+export function publishableDrafts(sites: SiteRow[]): SiteRow[] {
+  return sites.filter((s) => canPublishToSubdomain(s, sites))
+}
+
+/** The query that opens the publish dialog on My Projects. */
+export function publishLink(draftId: string): string {
+  return `/my-projects?publish=${encodeURIComponent(draftId)}`
+}
+
+/** The draft named by ?publish=<id>, when it can be published. */
+export function draftFromQuery(search: string, sites: SiteRow[]): SiteRow | null {
+  const id = new URLSearchParams(search).get('publish')
+  if (!id) return null
+  const draft = sites.find((s) => s.id === id)
+  return draft && canPublishToSubdomain(draft, sites) ? draft : null
+}
