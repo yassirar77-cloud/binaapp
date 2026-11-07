@@ -337,6 +337,83 @@ def plain_dish_prompt(name: str, *, set_meal: bool = False) -> str:
     )
 
 
+#: Side-dish words a brief or item description uses → English, for the
+#: set-meal photo. Longest first.
+_SIDE_EN: Sequence[Tuple[str, str]] = (
+    ("nasi putih panas", "white rice"), ("nasi putih", "white rice"), ("nasi", "white rice"),
+    ("tauhu goreng", "fried tofu"), ("tauhu", "fried tofu"), ("tempe goreng", "tempeh"), ("tempe", "tempeh"),
+    ("kubis goreng", "fried cabbage"), ("kubis", "cabbage"), ("timun", "cucumber slices"),
+    ("telur mata", "a sunny-side-up fried egg"), ("ulam", "fresh ulam greens"), ("sup", "a small bowl of soup"),
+    ("kacang", "peanuts"), ("ikan bilis", "anchovies"), ("acar", "pickled vegetables"), ("keropok", "crackers"),
+    ("sayur", "vegetables"), ("sambal", "red sambal"),
+)
+_SERVE_WITH_RE = re.compile(
+    r"(?:dihidang(?:kan)?\s+(?:dengan|bersama)|disajikan\s+(?:dengan|bersama)|served\s+with|comes?\s+with|bersama)\s+([^.!\n]+)",
+    re.IGNORECASE,
+)
+
+
+def _sides_from(text: str) -> List[str]:
+    found: List[str] = []
+    low = f" {str(text or '').lower()} "
+    for malay, english in _SIDE_EN:
+        if re.search(rf"\b{re.escape(malay)}\b", low):
+            low = re.sub(rf"\b{re.escape(malay)}\b", " ", low)
+            if english not in found:
+                found.append(english)
+    return found
+
+
+def _main_portion(name: str) -> str:
+    """'Set Panglima Signature – Ayam Gepuk Telur Mata' → 'one piece of
+    smashed crispy fried chicken with a sunny-side-up fried egg'."""
+    dish = plain_dish_prompt(name).split(", top-down")[0]
+    head = dish.split(" with ")[0]
+    if re.search(r"\bchicken\b", head) and not head.startswith(("one ", "a ")):
+        dish = "one piece of " + dish
+    elif re.search(r"\b(squid|prawns|fish|beef|mutton)\b", head) and not head.startswith(("one ", "a ")):
+        dish = "one portion of " + dish
+    return dish
+
+
+def set_meal_prompt(name: str, item_description: str = "", business_description: str = "",
+                    serving_hint: str = "") -> str:
+    """ONE single portion of a set meal, built from the item name and what
+    the merchant says comes with it. agp's Signature set came back as a
+    whole roast chicken with boiled eggs and its other sets as piles of
+    chicken pieces: the photo must show one plate for one person.
+
+    Sides come from the item's own description first, else from the
+    brief's 'dihidang dengan …' / 'served with …' phrase; the serving
+    style (rattan plate, banana leaf) from the brief or hero prompt when
+    they name it. Sent verbatim (not through the dish-name mapping)."""
+    main = _main_portion(name)
+    main_words = set(main.lower().split())
+    sides: List[str] = []
+    sources = [item_description]
+    m = _SERVE_WITH_RE.search(str(business_description or ""))
+    if m:
+        sources.append(m.group(1))
+    if re.search(r"\bsambal\b", f"{item_description} {business_description}", re.IGNORECASE):
+        sources.append("sambal")
+    for src in sources:
+        for side in _sides_from(src):
+            if side not in sides and not set(side.split()) <= main_words:
+                sides.append(side)
+    if not any("rice" in x for x in sides):
+        sides.insert(0, "white rice")
+    serving_src = f"{business_description} {serving_hint}".lower()
+    plate = "on a rattan plate lined with banana leaf" if ("rotan" in serving_src or "rattan" in serving_src) and (
+        "daun pisang" in serving_src or "banana leaf" in serving_src
+    ) else ("on a plate lined with banana leaf" if ("daun pisang" in serving_src or "banana leaf" in serving_src) else "on a plate")
+    side_text = ", ".join(sides[:-1]) + " and " + sides[-1] if len(sides) > 1 else sides[0]
+    return (
+        f"{main}, with {side_text}, {plate}, single portion for one person, top-down food photo, "
+        "natural light, not a whole roast chicken, not a pile or platter of pieces, "
+        "no text, no words, no letters, no numbers, no labels, no logo, no watermark"
+    )
+
+
 def stricter_prompt(prompt: str) -> str:
     """Second attempt after a failed vision check: an empty scene, nothing
     written anywhere, nobody in frame."""

@@ -9003,6 +9003,7 @@ IMPORTANT RULES:
         zai_phase: Optional[Dict] = None,
         doodle: bool = False,
         final_prompt: Optional[str] = None,
+        verbatim: bool = False,
     ) -> Optional[str]:
         """Round 2 (§A2): check a generated image; regenerate once with a
         stricter prompt on failure; drop it on a second failure. The
@@ -9026,7 +9027,7 @@ IMPORTANT RULES:
         self._last_image_rejections.append({"slot": slot_key, "reasons": failures, "reason": verdict.reason, "outcome": "retried"})
         strict = image_subjects.stricter_prompt(prompt)
         try:
-            retry = await self._generate_image(strict, food=is_food, zai_phase=zai_phase, doodle=doodle)
+            retry = await self._generate_image(strict, food=(is_food and not verbatim), zai_phase=zai_phase, doodle=doodle)
         except Exception as err:
             logger.warning(f"👁️ Image check {slot_key}: stricter regeneration failed: {err}")
             retry = None
@@ -9253,6 +9254,22 @@ IMPORTANT RULES:
             if _extra:
                 logger.info(f"🍽️ {len(_extra)} more set item(s) queued for menu-only photos: {', '.join(_extra)}")
 
+        # F&B "Set" items: ONE single portion matching the set's contents,
+        # from the item name + the merchant's own words (agp's Signature set
+        # came back as a whole roast chicken; other sets as chicken piles).
+        # Sent verbatim, never through the dish-name mapping.
+        _verbatim_prompts: set = set()
+        if is_food and _tier_is_set:
+            _desc_by_name = {it["name"]: it.get("description", "") for it in (_supplied or [])}
+            for _i, (_slot, _name, _prompt) in enumerate(work):
+                if _name and _tier_is_set.get(_name):
+                    _set_prompt = image_subjects.set_meal_prompt(
+                        _name, _desc_by_name.get(_name, ""), request.description or "",
+                        getattr(request, "hero_image_prompt", None) or "",
+                    )
+                    work[_i] = (_slot, _name, _set_prompt)
+                    _verbatim_prompts.add(_set_prompt)
+
         if len(work) > cap:
             logger.info(f"✂️ Auto-fill capped at {cap} of {len(work)} missing image slot(s)")
             work = work[:cap]
@@ -9275,7 +9292,7 @@ IMPORTANT RULES:
             nonlocal _done
             try:
                 return await self._generate_image(
-                    _p, food=is_food, zai_phase=zai_phase, doodle=is_doodle
+                    _p, food=(is_food and _p not in _verbatim_prompts), zai_phase=zai_phase, doodle=is_doodle
                 )
             finally:
                 _done += 1
@@ -9304,9 +9321,12 @@ IMPORTANT RULES:
                     zai_phase=zai_phase, doodle=is_doodle,
                     # First/"Set" category items get a third, dish-only try.
                     final_prompt=(
+                        (_p + ", simple composition, plain light background")
+                        if _p in _verbatim_prompts else
                         image_subjects.plain_dish_prompt(item_name, set_meal=_tier_is_set.get(item_name, False))
                         if (is_food and item_name and item_name in _tier_is_set) else None
                     ),
+                    verbatim=_p in _verbatim_prompts,
                 )
                 if url:
                     generated += 1
