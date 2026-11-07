@@ -22,17 +22,29 @@ from bs4 import BeautifulSoup, NavigableString, Tag
 
 ROW_CLASS = "binaapp-spice-row"
 CHIP_CLASS = "binaapp-spice-chip"
+HERO_ROW_CLASS = "binaapp-spice-in-hero"
 _LEVEL_RE = re.compile(r"\b(?:level|tahap)\s*([1-5])\b", re.IGNORECASE)
 
 SPICE_CSS = (
     '<style id="binaapp-spice-css">'
     f".{ROW_CLASS}{{display:grid!important;grid-template-columns:repeat(var(--binaapp-spice-n,3),minmax(0,1fr))!important;"
     "gap:.5rem!important;flex-direction:unset!important}"
-    f".{ROW_CLASS}>.{CHIP_CLASS}{{width:auto!important;max-width:none!important;min-height:0!important;margin:0!important;"
-    "padding:.55rem .35rem!important;text-align:center;display:flex!important;flex-direction:column;align-items:center;"
-    "justify-content:center;gap:.1rem}"
+    f".{ROW_CLASS}>.{CHIP_CLASS}{{width:auto!important;max-width:none!important;min-width:0!important;min-height:0!important;margin:0!important;"
+    # Normal inline flow: icons share one line, the label wraps under them
+    # ("🔥🔥🔥" / "Level 3 Extra Hot"), never one icon per line.
+    "padding:.55rem .35rem!important;text-align:center!important;display:block!important;"
+    # Straight and inside its own column: agp's 'sticker' chips ended a
+    # drop animation at rotate(-6deg) and were nowrap, so the third chip
+    # spilled over its neighbour.
+    "transform:none!important;rotate:none!important;translate:none!important;animation:none!important;opacity:1!important;"
+    "position:relative!important;inset:auto!important;white-space:normal!important;overflow-wrap:anywhere;"
+    "border-radius:.75rem!important}"
     f".{ROW_CLASS}>.{CHIP_CLASS} *{{font-size:clamp(.7rem,3.2vw,.95rem)!important;line-height:1.2!important;margin:0!important}}"
     f".{ROW_CLASS}>.{CHIP_CLASS}>:first-child{{font-size:clamp(.85rem,4.2vw,1.2rem)!important;font-weight:800}}"
+    f".{ROW_CLASS}{{transform:none!important;rotate:none!important}}"
+    # In the hero, the floating WhatsApp button (60px, bottom-right) sat on
+    # the third chip at first load: keep the row clear of it on phones.
+    f"@media (max-width:767px){{.{ROW_CLASS}.{HERO_ROW_CLASS}{{padding-right:4.75rem!important}}}}"
     f"@media (min-width:768px){{.{ROW_CLASS}{{gap:1rem!important}}.{ROW_CLASS}>.{CHIP_CLASS}{{padding:.85rem .75rem!important}}}}"
     "</style>"
 )
@@ -77,10 +89,28 @@ def _find_row(soup: BeautifulSoup) -> Optional[Tuple[Tag, List[Tag]]]:
     return None
 
 
+def _in_hero(el: Tag) -> bool:
+    """Inside the hero: a section/header with id 'hero', or the page's first
+    section when it carries the page's <h1>."""
+    first_section = None
+    root = el
+    while root.parent is not None:
+        root = root.parent
+    first_section = root.find("section") if isinstance(root, Tag) else None
+    node = el
+    while node is not None and isinstance(node, Tag):
+        if node.name in ("section", "header") and (
+            str(node.get("id") or "").lower() == "hero" or (node is first_section and node.find("h1") is not None)
+        ):
+            return True
+        node = node.parent
+    return False
+
+
 def _add_class(tag_html: str, cls: str) -> str:
     m = re.search(r"""\bclass\s*=\s*(["'])(.*?)\1""", tag_html, re.IGNORECASE | re.DOTALL)
     if m:
-        if cls in m.group(2).split():
+        if all(c in m.group(2).split() for c in cls.split()):
             return tag_html
         return tag_html[: m.start(2)] + (m.group(2) + " " + cls).strip() + tag_html[m.end(2):]
     return re.sub(r"^<(\w+)", rf'<\1 class="{cls}"', tag_html, count=1)
@@ -97,7 +127,8 @@ def compact_spice_levels(html: str) -> Tuple[str, bool]:
     row, chips = found
     offsets = _line_offsets(html)
     edits: List[Tuple[int, str]] = []
-    for el, cls in [(row, ROW_CLASS)] + [(c, CHIP_CLASS) for c in chips]:
+    row_cls = ROW_CLASS + (f" {HERO_ROW_CLASS}" if _in_hero(row) else "")
+    for el, cls in [(row, row_cls)] + [(c, CHIP_CLASS) for c in chips]:
         off = _tag_offset(el, offsets)
         if off is None or html[off:off + 1] != "<":
             return html, False

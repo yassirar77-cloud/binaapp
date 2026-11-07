@@ -10505,6 +10505,14 @@ IMPORTANT INSTRUCTIONS:
                         logger.info(f"📞 {_n_call} tap-to-call link(s) added beside WhatsApp")
             except Exception as _call_err:
                 logger.warning(f"📞 Call links skipped: {_call_err}")
+            # Every link that says WhatsApp shows the WhatsApp icon.
+            try:
+                from app.services.contact_links import ensure_whatsapp_icons
+                html, _n_waicon = ensure_whatsapp_icons(html)
+                if _n_waicon:
+                    logger.info(f"💬 WhatsApp icon added to {_n_waicon} WhatsApp button(s)")
+            except Exception as _waicon_err:
+                logger.warning(f"💬 WhatsApp icon pass skipped: {_waicon_err}")
             # A poster-style upload that still ended up outside the menu is
             # shown whole rather than cropped.
             try:

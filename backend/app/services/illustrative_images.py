@@ -99,7 +99,7 @@ def _menu_block_spans(html: str) -> List[Tuple[int, int]]:
 
 
 _LABEL_STYLE = (
-    "position:absolute;right:.5rem;{v}:.5rem;z-index:6;padding:.15rem .45rem;border-radius:4px;"
+    "position:absolute;right:.5rem;{v}:.5rem;z-index:40;padding:.15rem .45rem;border-radius:4px;"
     "background:rgba(0,0,0,.6);color:#fff;font-size:.68rem;font-weight:600;line-height:1.3;pointer-events:none"
 )
 
