@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest'
 import {
   canPublishToSubdomain,
   defaultTarget,
+  draftFromQuery,
+  publishLink,
+  publishableDrafts,
   liveTargets,
   replaceErrorMessage,
   replacePublishBody,
@@ -48,5 +51,15 @@ describe('draftPublish', () => {
       .toBe('Draf dan laman langsung mesti milik akaun anda.')
     expect(replaceErrorMessage(401, null)).toBe('Sesi tamat. Sila log masuk semula.')
     expect(replaceErrorMessage(500, null)).toBe('Gagal menerbitkan. Sila cuba lagi.')
+  })
+
+  it('links the dashboard banner to the publish dialog for that draft', () => {
+    const sites = [draft, live, plainDraft]
+    expect(publishableDrafts(sites).map((s) => s.id)).toEqual(['a1df9b79'])
+    expect(publishLink('a1df9b79')).toBe('/my-projects?publish=a1df9b79')
+    expect(draftFromQuery('?publish=a1df9b79', sites)?.id).toBe('a1df9b79')
+    expect(draftFromQuery('?publish=d3', sites)).toBeNull()
+    expect(draftFromQuery('?publish=a1df9b79', [draft])).toBeNull() // no live site to replace
+    expect(draftFromQuery('', sites)).toBeNull()
   })
 })

@@ -167,3 +167,19 @@ class TestListedDrafts:
         assert all(w["status"] == "draft" and w["subdomain"] is None and w["full_url"] is None for w in drafts)
         live = next(w for w in out if w["id"] == "w1")
         assert live["replaceable_draft"] is False and live["subdomain"] == "agp"
+
+    def test_publishable_drafts_come_first_then_newest_site(self, client, auth_headers):
+        # agp's account: ~150 sites came back in PostgREST's arbitrary order
+        # and the draft to publish sat mid-list on mobile.
+        rows = [self._row(1, "published", "agp"), self._row(3, "pending_payment"),
+                self._row(2, "published", "kuih"), self._row(4, "pending_payment")]
+        rows[0]["updated_at"] = "2026-11-07T16:41:00+00:00"  # just edited
+        out = self._list(client, auth_headers, rows)
+        assert [w["id"] for w in out] == ["w4", "w3", "w1", "w2"]
+
+    def test_list_does_not_select_page_html(self, client, auth_headers):
+        get = AsyncMock(return_value=[self._row(1, "published", "agp")])
+        with patch("app.api.v1.endpoints.websites.supabase_service.get_user_websites", new=get):
+            client.get("/api/v1/websites/", headers=auth_headers)
+        columns = get.call_args.kwargs.get("columns") or ""
+        assert "html_content" not in columns and "status" in columns and "subdomain" in columns
