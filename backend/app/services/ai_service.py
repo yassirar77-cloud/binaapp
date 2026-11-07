@@ -10336,6 +10336,16 @@ IMPORTANT INSTRUCTIONS:
                 html, request, wa_digits=wa_digits, language=language, model=_html_model,
                 image_urls=(image_urls if image_choice != "none" else None),
             )
+            # The server owns the menu / map slots: a page script that
+            # refills them on load (agp: menuSlot.innerHTML = <its own list,
+            # invented descriptions, no photos>) is pointed at a hidden decoy.
+            try:
+                from app.services.slot_scripts import neutralize_slot_scripts
+                html, _n_slot_js = neutralize_slot_scripts(html)
+                if _n_slot_js:
+                    logger.warning(f"🧯 {_n_slot_js} page script(s) tried to refill a server-owned slot — neutralised")
+            except Exception as _slot_js_err:
+                logger.warning(f"🧯 Slot-script guard skipped: {_slot_js_err}")
             if bool(getattr(request, "is_24h", False)):
                 html, _n_24 = enforce_24h_copy(html, language)
                 if _n_24:
