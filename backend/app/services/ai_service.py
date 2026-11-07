@@ -10450,6 +10450,16 @@ IMPORTANT INSTRUCTIONS:
                     logger.info("🦸 Hero bottom strip docked under the hero copy (it covered the CTA on mobile)")
             except Exception as _strip_err:
                 logger.warning(f"🦸 Hero strip guard skipped: {_strip_err}")
+            # An element the page's CSS hides on phones (a .desktop-nav in a
+            # max-width media query) must not be shown again by a Tailwind
+            # display class loaded after it (agp: 632px-wide page on a phone).
+            try:
+                from app.services.display_conflicts import fix_hidden_display_conflicts
+                html, _n_disp = fix_hidden_display_conflicts(html)
+                if _n_disp:
+                    logger.info(f"📱 {_n_disp} element(s) the page hides on phones now hidden for real (hidden md:flex)")
+            except Exception as _disp_err:
+                logger.warning(f"📱 Display-conflict guard skipped: {_disp_err}")
             # Spice levels: one compact row of three chips, never three
             # full-width blocks on a phone.
             try:
