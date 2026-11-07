@@ -8101,7 +8101,10 @@ IMPORTANT RULES:
         try:
             items = _mf.normalize_items(self._normalize_supplied_menu_items(getattr(request, "menu_items", None)))
             if items and image_urls is not None:  # None = images off for this site
-                items, _n_photos = _mf.attach_item_images(items, self._menu_item_image_pairs(request, image_urls))
+                items, _n_photos = _mf.attach_item_images(
+                    items, self._menu_item_image_pairs(request, image_urls),
+                    ai_urls=getattr(self, "_ai_image_urls", None) or (),
+                )
                 if _n_photos:
                     logger.info(f"🍽️ Menu block: {_n_photos} item(s) carry their generated/uploaded photo")
             if not items:
@@ -8118,6 +8121,7 @@ IMPORTANT RULES:
             html, _font_var = _mf.ensure_font_heading_var(html)
             if _font_var:
                 logger.info("🔤 Declared --font-heading on :root for the menu block")
+            self._menu_photo_urls = [it.image_url for it in items if it.image_url]
             if _mf.use_deterministic_menu(items):
                 block = _mf.render_menu_block(
                     items, language=language, wa_digits=wa_digits, show_prices=show_prices, order_prefill=prefill,
@@ -9003,6 +9007,7 @@ IMPORTANT RULES:
         zai_phase: Optional[Dict] = None,
         doodle: bool = False,
         final_prompt: Optional[str] = None,
+        verbatim: bool = False,
     ) -> Optional[str]:
         """Round 2 (§A2): check a generated image; regenerate once with a
         stricter prompt on failure; drop it on a second failure. The
@@ -9026,7 +9031,7 @@ IMPORTANT RULES:
         self._last_image_rejections.append({"slot": slot_key, "reasons": failures, "reason": verdict.reason, "outcome": "retried"})
         strict = image_subjects.stricter_prompt(prompt)
         try:
-            retry = await self._generate_image(strict, food=is_food, zai_phase=zai_phase, doodle=doodle)
+            retry = await self._generate_image(strict, food=(is_food and not verbatim), zai_phase=zai_phase, doodle=doodle)
         except Exception as err:
             logger.warning(f"👁️ Image check {slot_key}: stricter regeneration failed: {err}")
             retry = None
@@ -9253,6 +9258,22 @@ IMPORTANT RULES:
             if _extra:
                 logger.info(f"🍽️ {len(_extra)} more set item(s) queued for menu-only photos: {', '.join(_extra)}")
 
+        # F&B "Set" items: ONE single portion matching the set's contents,
+        # from the item name + the merchant's own words (agp's Signature set
+        # came back as a whole roast chicken; other sets as chicken piles).
+        # Sent verbatim, never through the dish-name mapping.
+        _verbatim_prompts: set = set()
+        if is_food and _tier_is_set:
+            _desc_by_name = {it["name"]: it.get("description", "") for it in (_supplied or [])}
+            for _i, (_slot, _name, _prompt) in enumerate(work):
+                if _name and _tier_is_set.get(_name):
+                    _set_prompt = image_subjects.set_meal_prompt(
+                        _name, _desc_by_name.get(_name, ""), request.description or "",
+                        getattr(request, "hero_image_prompt", None) or "",
+                    )
+                    work[_i] = (_slot, _name, _set_prompt)
+                    _verbatim_prompts.add(_set_prompt)
+
         if len(work) > cap:
             logger.info(f"✂️ Auto-fill capped at {cap} of {len(work)} missing image slot(s)")
             work = work[:cap]
@@ -9275,7 +9296,7 @@ IMPORTANT RULES:
             nonlocal _done
             try:
                 return await self._generate_image(
-                    _p, food=is_food, zai_phase=zai_phase, doodle=is_doodle
+                    _p, food=(is_food and _p not in _verbatim_prompts), zai_phase=zai_phase, doodle=is_doodle
                 )
             finally:
                 _done += 1
@@ -9304,12 +9325,17 @@ IMPORTANT RULES:
                     zai_phase=zai_phase, doodle=is_doodle,
                     # First/"Set" category items get a third, dish-only try.
                     final_prompt=(
+                        (_p + ", simple composition, plain light background")
+                        if _p in _verbatim_prompts else
                         image_subjects.plain_dish_prompt(item_name, set_meal=_tier_is_set.get(item_name, False))
                         if (is_food and item_name and item_name in _tier_is_set) else None
                     ),
+                    verbatim=_p in _verbatim_prompts,
                 )
                 if url:
                     generated += 1
+                    # Generated (not uploaded, not stock): "Gambar hiasan".
+                    self.__dict__.setdefault("_ai_image_urls", set()).add(url)
             elif is_food:
                 # Bug-2 pool fallback so a provider failure (rate limit, 500,
                 # timeout) doesn't leave the slot empty. F&B only: a stock
@@ -9414,6 +9440,8 @@ IMPORTANT RULES:
         except Exception as _addr_err:
             logger.warning(f"📍 Address resolution skipped: {_addr_err}")
 
+        self._ai_image_urls = set()
+        self._menu_photo_urls = []
         # Check image_choice - skip ALL image generation if "none"
         image_urls = {}
         ai_images_generated = 0  # Track how many AI images were successfully generated
@@ -10360,6 +10388,19 @@ IMPORTANT INSTRUCTIONS:
             # images (an about photo shipped with garbled rendered text).
             if image_choice != "none":
                 html = await self._gate_about_gallery_images(html, request, image_urls)
+            # A menu item's photo is not shown again in Tentang Kami (the
+            # section goes text-only when nothing else is left), and every
+            # AI-generated photo carries "Gambar hiasan".
+            try:
+                from app.services.illustrative_images import label_ai_images, remove_menu_photo_reuse
+                html, _n_reuse = remove_menu_photo_reuse(html, getattr(self, "_menu_photo_urls", None) or [])
+                if _n_reuse:
+                    logger.info(f"🖼️ Removed {_n_reuse} menu photo(s) reused in the about section")
+                html, _n_lab = label_ai_images(html, getattr(self, "_ai_image_urls", None) or (), language)
+                if _n_lab:
+                    logger.info(f"🏷️ 'Gambar hiasan' on {_n_lab} AI-generated photo(s) outside the menu")
+            except Exception as _ill_err:
+                logger.warning(f"🖼️ Illustrative-image pass skipped: {_ill_err}")
             # Round 2 (§D14): a single-letter logo badge takes the plan's
             # accent colour and display font, never a default blue square.
             if plan is not None:
@@ -10409,6 +10450,15 @@ IMPORTANT INSTRUCTIONS:
                     logger.info("🦸 Hero bottom strip docked under the hero copy (it covered the CTA on mobile)")
             except Exception as _strip_err:
                 logger.warning(f"🦸 Hero strip guard skipped: {_strip_err}")
+            # Spice levels: one compact row of three chips, never three
+            # full-width blocks on a phone.
+            try:
+                from app.services.spice_levels import compact_spice_levels
+                html, _spice = compact_spice_levels(html)
+                if _spice:
+                    logger.info("🌶️ Spice levels laid out as one compact row")
+            except Exception as _spice_err:
+                logger.warning(f"🌶️ Spice-level layout skipped: {_spice_err}")
             # The mobile nav panel carries the WhatsApp / order CTA.
             try:
                 if wa_digits:

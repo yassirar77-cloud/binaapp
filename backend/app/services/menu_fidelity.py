@@ -79,6 +79,8 @@ class MenuItemSpec:
     description: str = ""
     image_url: str = ""
     signature: bool = False
+    #: The photo is AI-generated → "Gambar hiasan" label (uploads: never).
+    illustrative: bool = False
 
     @property
     def key(self) -> str:
@@ -159,6 +161,15 @@ def use_deterministic_menu(items: Sequence[MenuItemSpec]) -> bool:
 _DRINK_CAT_RE = re.compile(r"minuman|drinks?\b|beverage|\bair\b", re.IGNORECASE)
 _KIDS_CAT_RE = re.compile(r"\bkids?\b|kid'?s|kanak", re.IGNORECASE)
 _ADDON_CAT_RE = re.compile(r"tambahan|add[\s-]?ons?\b|\bextras?\b|sampingan|\bsides?\b", re.IGNORECASE)
+
+
+def _url_key(url: str) -> str:
+    """Compare image URLs without Cloudinary transforms or query strings."""
+    u = str(url or "").split("?", 1)[0]
+    return re.sub(r"/upload/(?:[^/]*[,_][^/]*/)+", "/upload/", u)
+
+
+AI_LABEL = {"ms": "Gambar hiasan", "en": "Image for illustration"}
 
 
 def is_drink_category(category: str) -> bool:
@@ -247,6 +258,7 @@ def attach_item_images(
     images: Iterable[Tuple[str, str]],
     *,
     budget: Optional[int] = None,
+    ai_urls: Iterable[str] = (),
 ) -> Tuple[List[MenuItemSpec], int]:
     """Give items the photos generated or uploaded for them.
 
@@ -256,6 +268,7 @@ def attach_item_images(
     own; at most ``budget`` photos are attached. Returns new specs (inputs
     are not mutated) and how many photos were attached."""
     from dataclasses import replace as _replace
+    _ai_keys = {_url_key(u) for u in ai_urls if u}
     out = list(items)
     eligible = {it.key for it in image_priority(out)}
     index = {it.key: i for i, it in enumerate(out)}
@@ -269,7 +282,7 @@ def attach_item_images(
         it = match_item(name, out)
         if it is None or it.key not in eligible or it.image_url:
             continue
-        out[index[it.key]] = _replace(it, image_url=url)
+        out[index[it.key]] = _replace(it, image_url=url, illustrative=_url_key(url) in _ai_keys)
         attached += 1
     return out, attached
 
@@ -302,6 +315,8 @@ _BLOCK_CSS = """
 .binaapp-menu-block .bmf-card.bmf-text-only .bmf-badge{position:static;align-self:flex-start;margin-bottom:.35rem}
 .binaapp-menu-block .bmf-card.bmf-signature{border:2px solid var(--bmf-accent);box-shadow:0 0 0 4px color-mix(in srgb,var(--bmf-accent) 18%,transparent),0 10px 30px rgba(0,0,0,.10);background:color-mix(in srgb,var(--bmf-accent) 7%,var(--bmf-surface))}
 .binaapp-menu-block .bmf-card.bmf-signature .bmf-badge{z-index:1;box-shadow:0 2px 8px rgba(0,0,0,.18)}
+.binaapp-menu-block .bmf-media{position:relative}
+.binaapp-menu-block .bmf-ai-label{position:absolute;right:.5rem;bottom:.5rem;padding:.15rem .45rem;border-radius:4px;background:rgba(0,0,0,.6);color:#fff;font-size:.68rem;font-weight:600;line-height:1.3;letter-spacing:.01em;pointer-events:none}
 .binaapp-menu-block.bmf-outline .bmf-card{border-radius:0;border:3px solid #000;box-shadow:5px 5px 0 #000}
 .binaapp-menu-block.bmf-outline .bmf-card img{border-bottom:3px solid #000}
 .binaapp-menu-block.bmf-outline .bmf-card.bmf-text-only .bmf-body{border-top:0}
@@ -377,7 +392,10 @@ def render_menu_block(
                 card_cls += " bmf-signature"
             card = [f'<li class="{card_cls}">']
             if it.image_url:
-                card.append(f'<img src="{_esc(it.image_url)}" alt="{_esc(it.name)}" loading="lazy" decoding="async">')
+                img = f'<img src="{_esc(it.image_url)}" alt="{_esc(it.name)}" loading="lazy" decoding="async">'
+                if it.illustrative:
+                    img = f'<div class="bmf-media">{img}<span class="bmf-ai-label">{AI_LABEL[lang]}</span></div>'
+                card.append(img)
             card.append('<div class="bmf-body">')
             if it.signature:
                 card.append(f'<span class="bmf-badge">{_SIGNATURE_LABEL[lang]}</span>')

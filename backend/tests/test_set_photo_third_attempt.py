@@ -62,7 +62,9 @@ async def test_set_item_passes_on_the_dish_only_third_attempt(monkeypatch):
     await svc._autofill_missing_images(_req([("Set Panglima Krispy – Ayam Krispy", "14.90", "Set Ayam")]), urls)
     assert urls.get("gallery1_name") == "Set Panglima Krispy – Ayam Krispy"
     last_prompt, food = prompts[-1]
-    assert last_prompt.startswith("crispy fried chicken, served as a set meal") and food is False
+    # Set items: the third attempt is the single-portion set prompt, plainer.
+    assert last_prompt.startswith("one piece of crispy fried chicken, with white rice") and food is False
+    assert last_prompt.endswith("simple composition, plain light background")
     assert any(r.get("outcome") == "passed_on_attempt_3" for r in svc._last_image_rejections)
 
 

@@ -273,6 +273,46 @@ def _log_slot_lookup(
         logger.debug(line)
 
 
+_SLOT_SIZING_RE = re.compile(
+    r"^(?:[a-z0-9]+:)*(?:aspect-\S+|h-\S+|max-h-\S+|overflow-(?:hidden|clip|y-hidden)|line-clamp-\S+)$"
+)
+
+
+def _unclip_slot(html: str, slot_id: str) -> str:
+    """Drop fixed-height / aspect / overflow-clipping classes (and an inline
+    height or overflow) from the slot's opening tag."""
+    m = re.search(rf'<div\b[^>]*\bid=["\']{re.escape(slot_id)}["\'][^>]*>', html, re.IGNORECASE)
+    if not m:
+        return html
+    tag = m.group(0)
+
+    def _cls(cm: "re.Match") -> str:
+        kept = [c for c in cm.group(2).split() if not _SLOT_SIZING_RE.match(c)]
+        return f'class={cm.group(1)}{" ".join(kept)}{cm.group(1)}'
+
+    new = re.sub(r'class=(["\'])(.*?)\1', _cls, tag, count=1)
+    new = re.sub(r'(style=["\'][^"\']*?)\b(?:height|max-height|aspect-ratio|overflow)\s*:[^;"\']*;?', r"\1", new)
+    return html[: m.start()] + new + html[m.end():]
+
+
+def _section_shows_address(html: str, slot_id: Optional[str], address: str) -> bool:
+    """The slot's section already prints the street address as text."""
+    if not slot_id:
+        return False
+    m = re.search(rf'<div\b[^>]*\bid=["\']{re.escape(slot_id)}["\']', html or "", re.IGNORECASE)
+    if not m:
+        return False
+    opens = list(re.finditer(r"<section\b", html[: m.start()], re.IGNORECASE))
+    if not opens:
+        return False
+    start = opens[-1].start()
+    end = html.find("</section>", m.start())
+    text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html[start:end if end != -1 else len(html)])).lower()
+    street = address.split(",")[0:2]
+    key = ",".join(street).strip().lower()
+    return bool(key) and re.sub(r"\s+", " ", key) in text
+
+
 def _slot_has_section_heading(html: str, slot_id: str) -> bool:
     """True when the slot's enclosing <section> already has a heading
     (h1–h3) before the slot."""
@@ -597,11 +637,17 @@ class TemplateService:
         )
         wrap_padding = "0" if compact else "60px 20px"
 
+        # The section already prints the address (agp: an "Alamat" column
+        # beside the map): the widget does not print it again.
+        address_line = (
+            "" if compact and _section_shows_address(html, slot_id, display_address) else
+            f'<p style="text-align:center;margin:0 auto 1rem;max-width:40rem;">📍 {display_address}</p>'
+        )
         # Inner contents (no outer <section> — caller decides container)
         maps_inner = f"""
   <div class="binaapp-map-widget" style="max-width:1200px;margin:0 auto;padding:{wrap_padding};">
     {heading_html}
-    <p style="text-align:center;margin:0 auto 1rem;max-width:40rem;">📍 {display_address}</p>
+    {address_line}
     <div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,0.15);">
       <iframe
         title="Peta lokasi {display_address}"
@@ -626,6 +672,11 @@ class TemplateService:
         if slot_id:
             new_html = _inject_into_slot(html, slot_id, maps_inner)
             if new_html != html:
+                # The model sized the slot for a bare iframe (agp: "aspect-
+                # [16/9] overflow-hidden"); the widget's address line, 16:9
+                # map and Google Maps / Waze buttons were clipped out of
+                # sight. The slot gives up its fixed height and clipping.
+                new_html = _unclip_slot(new_html, slot_id)
                 logger.info(f"✅ Google Maps injected into AI-emitted slot '{slot_id}'")
                 return new_html
 
