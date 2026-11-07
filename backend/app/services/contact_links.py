@@ -142,15 +142,32 @@ def add_call_links(html: str, wa_digits: str, *, language: str = "ms") -> Tuple[
             style_attr = f' style="{_NEUTRAL_CALL_STYLE}"'
 
         anchor_text = re.sub(r"<[^>]+>", "", wa.group(0)).strip()
-        # A footer line that already prints the number in the WhatsApp link
-        # gets a short "Telefon" link; elsewhere the number is shown.
-        text = label if re.sub(r"\D", "", anchor_text).endswith(digits[-7:]) else f"{label} {number}"
-        sep = " · " if tag == "footer" else " "
-        call = (
-            f'{sep}<a href="tel:+{digits}" class="{(classes + " binaapp-call").strip()}"{style_attr} '
-            f'aria-label="{label} {number}"><i class="fa-solid fa-phone" aria-hidden="true"></i> {text}</a>'
-        )
         insert_at = m.start() + wa.end()
+        call_attrs = (
+            f'href="tel:+{digits}" class="{(classes + " binaapp-call").strip()}"{style_attr} '
+            f'aria-label="{label} {number}"'
+        )
+        icon = '<i class="fa-solid fa-phone" aria-hidden="true"></i>'
+        if tag == "footer":
+            # Its own line, number shown: "Telefon: 012-697 3105". No "·"
+            # separator — agp's footer stacked the links, leaving a lone
+            # dot between the WhatsApp and Telefon lines.
+            text = f"{label}: {number}"
+            before = out[:m.start() + wa.start()]
+            li_open = re.search(r"<li\b([^>]*)>\s*$", before, re.IGNORECASE)
+            li_close = re.match(r"\s*</li>", out[insert_at:], re.IGNORECASE)
+            block_level = bool(re.search(r"(?:^|\s)(?:flex|block|grid|w-full|inline-flex)(?:\s|$)", classes))
+            if li_open and li_close:
+                insert_at += li_close.end()
+                call = f"<li{li_open.group(1)}><a {call_attrs}>{icon} {text}</a></li>"
+            elif block_level:
+                call = f'<a {call_attrs} style="margin-top:.5rem">{icon} {text}</a>' if not style_attr else f"<a {call_attrs}>{icon} {text}</a>"
+            else:
+                call = f"<br><a {call_attrs}>{icon} {text}</a>"
+        else:
+            # Contact section: a sibling button with the number on it.
+            text = label if re.sub(r"\D", "", anchor_text).endswith(digits[-7:]) else f"{label} {number}"
+            call = f" <a {call_attrs}>{icon} {text}</a>"
         out = out[:insert_at] + call + out[insert_at:]
         pos = end + len(call)
         added += 1

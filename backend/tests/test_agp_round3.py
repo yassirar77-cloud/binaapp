@@ -44,7 +44,7 @@ class TestCallButton:
         assert n == 2
         assert ('<a href="tel:+60126973105" class="btn-whatsapp bg-white text-[#141414] border-black hover:bg-gray-100 binaapp-call" '
                 'style="background:#FFFFFF;color:#141414;border-color:#141414"') in out
-        assert '<a href="tel:+60126973105" class="footer-link binaapp-call" aria-label' in out
+        assert '<br><a href="tel:+60126973105" class="footer-link binaapp-call" aria-label' in out
 
     def test_only_green_colour_utilities_are_dropped(self):
         page = ('<section id="contact"><a href="https://wa.me/60126973105" '
