@@ -31,6 +31,12 @@ os.environ.setdefault("DESIGN_PLAN_STORE_ENABLED", "false")
 # The post-generation image check calls a vision model; tests that cover it
 # enable it and mock the call.
 os.environ.setdefault("IMAGE_CHECK_ENABLED", "false")
+# The generator tests below were written against the freeform pipeline (the
+# model writes the page, the guards repair it). Production composes pages
+# from the merchant's data by default (BINAAPP_PAGE_MODE=deterministic);
+# the composed path's own tests (test_sections_compose.py) set the mode
+# explicitly, and test_page_mode_flag checks the production default.
+os.environ.setdefault("BINAAPP_PAGE_MODE", "freeform")
 
 
 @pytest.fixture

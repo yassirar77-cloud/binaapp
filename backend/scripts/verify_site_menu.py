@@ -7,6 +7,7 @@ for the menu-fidelity work, runnable on any HTML file.
 
 from __future__ import annotations
 
+import html as _html
 import json
 import re
 import sys
@@ -20,7 +21,7 @@ PLACEHOLDER_MARKERS = ("[ISI", "contoh:", "11 pagi – 10 malam", "Nasi Kandar D
 def _visible(html: str) -> str:
     text = re.sub(r"<script.*?</script>|<style.*?</style>|<!--.*?-->", " ", html, flags=re.S | re.I)
     text = re.sub(r"<[^>]+>", " ", text)
-    return re.sub(r"\s+", " ", text)
+    return re.sub(r"\s+", " ", _html.unescape(text))
 
 
 def verify_map(html: str) -> Dict[str, bool]:

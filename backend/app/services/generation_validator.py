@@ -31,6 +31,7 @@ defect this module exists to stop.
 
 from __future__ import annotations
 
+import html as _htmllib
 import json
 import re
 from dataclasses import dataclass, field
@@ -222,7 +223,9 @@ def heading_texts(html: str) -> List[str]:
     surface."""
     out = []
     for raw in _HEADING_RE.findall(_strip_scripts(html)):
-        text = re.sub(r"\s+", " ", _TAG_RE.sub(" ", raw)).strip()
+        # Entities are decoded first: "Kid&#x27;s Menu" is "Kid's Menu",
+        # not a heading carrying the section label "x27".
+        text = re.sub(r"\s+", " ", _htmllib.unescape(_TAG_RE.sub(" ", raw))).strip()
         if text:
             out.append(text)
     return out
@@ -358,7 +361,7 @@ def _headings_with_positions(html: str) -> List[Tuple[int, str]]:
     """``(offset, text)`` for every heading, in document order."""
     out: List[Tuple[int, str]] = []
     for match in _HEADING_POS_RE.finditer(_strip_scripts(html)):
-        text = re.sub(r"\s+", " ", _TAG_RE.sub(" ", match.group(1))).strip()
+        text = re.sub(r"\s+", " ", _htmllib.unescape(_TAG_RE.sub(" ", match.group(1)))).strip()
         if text:
             out.append((match.start(), text))
     return out
@@ -436,6 +439,11 @@ def _check_item_integrity(html: str, brief: GenerationBrief) -> List[ValidationI
         if not needles:
             continue
         own = _norm(item["name"])
+        # Two items legitimately share a price (four "Tambahan" at RM3.00):
+        # the price under ANOTHER item's name is a swap only when it never
+        # appears under its OWN name anywhere on the page.
+        under_own = False
+        wrong_heading = ""
         for match in re.finditer(r"RM\s?\d[\d,]*(?:\.\d{1,2})?", stripped, re.IGNORECASE):
             if not any(_norm(match.group(0)) == n or _norm(match.group(0)).replace(" ", "") == n.replace(" ", "")
                        for n in needles):
@@ -447,16 +455,20 @@ def _check_item_integrity(html: str, brief: GenerationBrief) -> List[ValidationI
                 else:
                     break
             key = _norm(heading)
+            if key == own:
+                under_own = True
+                break
             # Only a heading that is ANOTHER supplied item's name is
             # evidence of a swap; a section heading ("Menu") means the price
             # is in a band or a summary, which this check says nothing about.
-            if key and key != own and key in supplied_by_name:
-                issues.append(ValidationIssue(
-                    "item_price_name_mismatch",
-                    "A supplied price is shown under a different item's name",
-                    f"{item['name']} ({item.get('price')}) appears under \"{heading}\"",
-                ))
-                break
+            if key and key in supplied_by_name and not wrong_heading:
+                wrong_heading = heading
+        if wrong_heading and not under_own:
+            issues.append(ValidationIssue(
+                "item_price_name_mismatch",
+                "A supplied price is shown under a different item's name",
+                f"{item['name']} ({item.get('price')}) appears under \"{wrong_heading}\"",
+            ))
     return issues
 
 
