@@ -23,6 +23,18 @@ def _visible(html: str) -> str:
     return re.sub(r"\s+", " ", text)
 
 
+def _display_conflicts(html: str) -> list:
+    """Elements the page hides on phones (custom class in a max-width media
+    query) that a Tailwind display class shows again (agp: desktop nav on a
+    phone, 632px-wide page)."""
+    import sys as _sys
+    from pathlib import Path as _P
+    _sys.path.insert(0, str(_P(__file__).resolve().parents[1]))
+    from app.services.display_conflicts import fix_hidden_display_conflicts
+    fixed, n = fix_hidden_display_conflicts(html)
+    return [n] if n else []
+
+
 def verify_map(html: str) -> Dict[str, bool]:
     """The map renders: a Google Maps iframe, the Google Maps AND Waze
     buttons beside it in the same widget, and no fixed-height / clipping
@@ -68,6 +80,7 @@ def verify(html: str, fixture: Dict[str, Any]) -> Dict[str, Any]:
         "tel_link": 'href="tel:+60' in html,
         "waze_and_maps_buttons": "waze.com/ul" in html and ("Buka di Google Maps" in html or "Open in Google Maps" in html),
         **map_checks,
+        "no_mobile_display_conflict": not _display_conflicts(html),
         "fnb_whatsapp_prefill": "saya%20nak%20order" in html or "saya nak order" in html,
         "theme_color_not_default": bool(re.search(r'name="theme-color" content="(?!#111827)', html)),
         "logo_or_initial_favicon": 'rel="icon"' in html,
