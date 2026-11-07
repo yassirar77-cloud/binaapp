@@ -23,6 +23,28 @@ def _visible(html: str) -> str:
     return re.sub(r"\s+", " ", text)
 
 
+def verify_map(html: str) -> Dict[str, bool]:
+    """The map renders: a Google Maps iframe, the Google Maps AND Waze
+    buttons beside it in the same widget, and no fixed-height / clipping
+    box around it (agp: an 'aspect-[16/9] overflow-hidden' slot hid both
+    buttons)."""
+    widget = re.search(r'<div class="binaapp-map-widget".*?</div>\s*</div>', html, flags=re.S)
+    w = widget.group(0) if widget else ""
+    actions = re.search(r'<div class="binaapp-map-actions".*?</div>', w, flags=re.S)
+    a = actions.group(0) if actions else ""
+    slot = re.search(r'<div\b[^>]*\bid="binaapp-maps-slot"[^>]*>', html)
+    slot_classes = re.search(r'class="([^"]*)"', slot.group(0)).group(1).split() if slot and 'class="' in slot.group(0) else []
+    clipped = any(c.startswith(("aspect-", "h-", "max-h-")) for c in slot_classes) and any(
+        c.startswith("overflow-") and c != "overflow-visible" for c in slot_classes
+    )
+    return {
+        "map_iframe": bool(re.search(r'<iframe\b[^>]*src="https://www\.google\.com/maps\?q=[^"]+"', w)),
+        "map_google_maps_button": "google.com/maps/" in a and ("Buka di Google Maps" in a or "Open in Google Maps" in a),
+        "map_waze_button": "waze.com/ul" in a,
+        "map_not_clipped": bool(w) and not clipped,
+    }
+
+
 def verify(html: str, fixture: Dict[str, Any]) -> Dict[str, Any]:
     text = _visible(html)
     items = fixture["menu_items"]
@@ -34,6 +56,7 @@ def verify(html: str, fixture: Dict[str, Any]) -> Dict[str, Any]:
     cat_missing = [c for c in categories if c not in text]
     empty_sections = len(re.findall(r"<section\b[^>]*>(?:\s|<!--.*?-->)*</section>", html, flags=re.S | re.I))
     orphan_dividers = len(re.findall(r'class="[^"]*divider[^"]*"[^>]*>\s*</div>\s*(?:<!--.*?-->\s*)*<div[^>]*class="[^"]*divider', html, flags=re.S | re.I))
+    map_checks = verify_map(html)
     checks = {
         "all_items_present": not missing,
         "all_prices_present": not wrong_price,
@@ -44,6 +67,7 @@ def verify(html: str, fixture: Dict[str, Any]) -> Dict[str, Any]:
         "no_orphan_dividers": orphan_dividers == 0,
         "tel_link": 'href="tel:+60' in html,
         "waze_and_maps_buttons": "waze.com/ul" in html and ("Buka di Google Maps" in html or "Open in Google Maps" in html),
+        **map_checks,
         "fnb_whatsapp_prefill": "saya%20nak%20order" in html or "saya nak order" in html,
         "theme_color_not_default": bool(re.search(r'name="theme-color" content="(?!#111827)', html)),
         "logo_or_initial_favicon": 'rel="icon"' in html,
