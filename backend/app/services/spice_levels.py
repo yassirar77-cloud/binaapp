@@ -24,6 +24,14 @@ ROW_CLASS = "binaapp-spice-row"
 CHIP_CLASS = "binaapp-spice-chip"
 HERO_ROW_CLASS = "binaapp-spice-in-hero"
 _LEVEL_RE = re.compile(r"\b(?:level|tahap)\s*([1-5])\b", re.IGNORECASE)
+#: A level written as a number and a heat word, with no 'Level' ("1 /
+#: Spicy", "2 Hot", "3 · Extra Hot", "1 Pedas") — agp's spice tiles.
+_HEAT_LEVEL_RE = re.compile(
+    r"(?<![\w.])([1-5])\s*(?:[-–—:.)·|/]\s*)?(?:spicy|hot|extra\s*hot|xtra\s*hot|super\s*hot|mild|medium|"
+    r"pedas|sangat\s*pedas|super\s*pedas|kurang\s*pedas)\b",
+    re.IGNORECASE,
+)
+_HEAT_WORD_RE = re.compile(r"\b(?:spicy|hot|pedas|mild)\b", re.IGNORECASE)
 
 SPICE_CSS = (
     '<style id="binaapp-spice-css">'
@@ -44,7 +52,10 @@ SPICE_CSS = (
     f".{ROW_CLASS}{{transform:none!important;rotate:none!important}}"
     # In the hero, the floating WhatsApp button (60px, bottom-right) sat on
     # the third chip at first load: keep the row clear of it on phones.
-    f"@media (max-width:767px){{.{ROW_CLASS}.{HERO_ROW_CLASS}{{padding-right:4.75rem!important}}}}"
+    # The floating WhatsApp button (60px, bottom-right) sits over the right
+    # end of whatever is near the first screen's bottom: in agp's hero, and
+    # in a level strip right under it. Every level row keeps clear of it.
+    f"@media (max-width:767px){{.{ROW_CLASS}{{padding-right:4.75rem!important}}}}"
     f"@media (min-width:768px){{.{ROW_CLASS}{{gap:1rem!important}}.{ROW_CLASS}>.{CHIP_CLASS}{{padding:.85rem .75rem!important}}}}"
     "</style>"
 )
@@ -64,12 +75,16 @@ def _tag_offset(tag: Tag, offsets: List[int]) -> Optional[int]:
 
 
 def _level_of(el: Tag) -> List[str]:
-    return sorted(set(_LEVEL_RE.findall(el.get_text(" ", strip=True))))
+    text = el.get_text(" ", strip=True)
+    found = set(_LEVEL_RE.findall(text))
+    if not found:
+        found = set(_HEAT_LEVEL_RE.findall(text))
+    return sorted(found)
 
 
 def _find_row(soup: BeautifulSoup) -> Optional[Tuple[Tag, List[Tag]]]:
     texts = [
-        s for s in soup.find_all(string=_LEVEL_RE)
+        s for s in soup.find_all(string=lambda t: bool(t and (_LEVEL_RE.search(t) or _HEAT_WORD_RE.search(t))))
         if isinstance(s, NavigableString) and s.parent is not None and s.parent.name not in ("script", "style", "title", "a")
     ]
     seen = set()
@@ -118,7 +133,9 @@ def _add_class(tag_html: str, cls: str) -> str:
 
 def compact_spice_levels(html: str) -> Tuple[str, bool]:
     """(html, changed)."""
-    if not html or ROW_CLASS in html or not _LEVEL_RE.search(html):
+    if not html or f'{ROW_CLASS}"' in html or f"{ROW_CLASS} " in html.split("</style>")[-1] or not (
+        _LEVEL_RE.search(html) or _HEAT_WORD_RE.search(html)
+    ):
         return html, False
     soup = BeautifulSoup(html, "html.parser")
     found = _find_row(soup)

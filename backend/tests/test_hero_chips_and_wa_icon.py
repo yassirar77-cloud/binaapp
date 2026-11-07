@@ -17,7 +17,7 @@ class TestHeroChips:
     def test_row_in_the_hero_is_marked_and_kept_clear_of_the_floating_button(self):
         out, changed = compact_spice_levels(HERO)
         assert changed and f'class="flex flex-wrap gap-3 mt-6 {ROW_CLASS} {HERO_ROW_CLASS}"' in out
-        assert f"@media (max-width:767px){{.{ROW_CLASS}.{HERO_ROW_CLASS}{{padding-right:4.75rem!important}}}}" in SPICE_CSS
+        assert f"@media (max-width:767px){{.{ROW_CLASS}{{padding-right:4.75rem!important}}}}" in SPICE_CSS
 
     def test_chips_are_straight_and_wrap_inside_their_column(self):
         for rule in ("transform:none!important", "rotate:none!important", "animation:none!important",
