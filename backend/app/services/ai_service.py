@@ -10450,6 +10450,15 @@ IMPORTANT INSTRUCTIONS:
                     logger.info("🦸 Hero bottom strip docked under the hero copy (it covered the CTA on mobile)")
             except Exception as _strip_err:
                 logger.warning(f"🦸 Hero strip guard skipped: {_strip_err}")
+            # Spice levels: one compact row of three chips, never three
+            # full-width blocks on a phone.
+            try:
+                from app.services.spice_levels import compact_spice_levels
+                html, _spice = compact_spice_levels(html)
+                if _spice:
+                    logger.info("🌶️ Spice levels laid out as one compact row")
+            except Exception as _spice_err:
+                logger.warning(f"🌶️ Spice-level layout skipped: {_spice_err}")
             # The mobile nav panel carries the WhatsApp / order CTA.
             try:
                 if wa_digits:
