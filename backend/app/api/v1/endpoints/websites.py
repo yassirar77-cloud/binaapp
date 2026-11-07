@@ -646,6 +646,10 @@ async def generate_website_content(
             )
 
 
+#: Generated drafts listed for a user who has a live site (newest first).
+MAX_LISTED_DRAFTS = 5
+
+
 @router.get("/", response_model=List[WebsiteListResponse])
 async def list_websites(current_user: dict = Depends(get_current_user)):
     """
@@ -658,19 +662,34 @@ async def list_websites(current_user: dict = Depends(get_current_user)):
         if not websites:
             return []
 
+        # A user who already has a live site may publish a generated draft
+        # OVER it ("Terbitkan ke subdomain"): their newest drafts are listed,
+        # flagged replaceable. Everyone else still never sees them.
+        has_live = any(w.get("status") == "published" and w.get("subdomain") for w in websites)
+        drafts = sorted(
+            (w for w in websites if w.get("status") == "pending_payment"),
+            key=lambda w: str(w.get("created_at") or ""), reverse=True,
+        )
+        listed_drafts = {w.get("id") for w in drafts[:MAX_LISTED_DRAFTS]} if has_live else set()
+
         result = []
         for w in websites:
             try:
                 # Handle potential null/missing values
                 website_status = w.get("status", "draft")
+                replaceable = False
 
                 # Hide pre-payment drafts from the dashboard. The generator
                 # persists finished HTML as status='pending_payment' so the work
                 # is never lost, but a brand-new user who hasn't paid shouldn't
                 # see a half-broken "draft" website yet — it surfaces only once
-                # publish flips it to 'published'.
+                # publish flips it to 'published'. (Except for a user with a
+                # live site: see listed_drafts above.)
                 if website_status == "pending_payment":
-                    continue
+                    if w.get("id") not in listed_drafts:
+                        continue
+                    website_status = "draft"
+                    replaceable = True
 
                 # Ensure status is valid enum value
                 if website_status not in ["draft", "generating", "published", "failed"]:
@@ -679,11 +698,13 @@ async def list_websites(current_user: dict = Depends(get_current_user)):
                 result.append(WebsiteListResponse(
                     id=w["id"],
                     business_name=w.get("business_name") or w.get("name") or w.get("subdomain") or "Untitled",
-                    subdomain=w.get("subdomain"),
-                    full_url=f"https://{w['subdomain']}{settings.SUBDOMAIN_SUFFIX}" if w.get("subdomain") else None,
+                    # A draft's placeholder "draft-<id>" is not a real address.
+                    subdomain=None if replaceable else w.get("subdomain"),
+                    full_url=f"https://{w['subdomain']}{settings.SUBDOMAIN_SUFFIX}" if (w.get("subdomain") and not replaceable) else None,
                     status=website_status,
                     created_at=datetime.fromisoformat(w["created_at"]) if w.get("created_at") else datetime.utcnow(),
-                    published_at=datetime.fromisoformat(w["published_at"]) if w.get("published_at") else None
+                    published_at=datetime.fromisoformat(w["published_at"]) if w.get("published_at") else None,
+                    replaceable_draft=replaceable,
                 ))
             except Exception as item_error:
                 logger.warning(f"Skipping website {w.get('id')}: {item_error}")

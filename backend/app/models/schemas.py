@@ -334,6 +334,9 @@ class WebsiteListResponse(BaseModel):
     status: WebsiteStatus
     created_at: datetime
     published_at: Optional[datetime] = None
+    # A generated draft (pending_payment row) that can be published over one
+    # of the user's live sites — "Terbitkan ke subdomain" in My Projects.
+    replaceable_draft: bool = False
 
     class Config:
         from_attributes = True
