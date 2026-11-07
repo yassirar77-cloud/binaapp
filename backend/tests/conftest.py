@@ -37,6 +37,9 @@ os.environ.setdefault("IMAGE_CHECK_ENABLED", "false")
 # the composed path's own tests (test_sections_compose.py) set the mode
 # explicitly, and test_page_mode_flag checks the production default.
 os.environ.setdefault("BINAAPP_PAGE_MODE", "freeform")
+# The visual QA gate renders every generated page in a browser and calls a
+# vision model; its own tests (test_visual_gate.py) turn it on explicitly.
+os.environ.setdefault("VISUAL_GATE_MODE", "off")
 
 
 @pytest.fixture

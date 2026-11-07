@@ -309,9 +309,9 @@ _BLOCK_CSS = """
 .binaapp-menu-block .bmf-desc{font-size:.92rem;line-height:1.5;margin:0;color:var(--bmf-muted)}
 .binaapp-menu-block .bmf-foot{display:flex;align-items:center;justify-content:space-between;gap:.75rem;margin-top:auto;padding-top:.6rem}
 .binaapp-menu-block .bmf-price{font-family:var(--font-heading,inherit);font-size:1.2rem;font-weight:800;color:var(--bmf-primary);white-space:nowrap}
-.binaapp-menu-block .bmf-order{display:inline-flex;align-items:center;gap:.4rem;padding:.5rem .9rem;border-radius:999px;background:var(--bmf-primary);color:#fff;font-size:.85rem;font-weight:700;text-decoration:none;white-space:nowrap}
+.binaapp-menu-block .bmf-order{display:inline-flex;align-items:center;gap:.4rem;padding:.5rem .9rem;border-radius:999px;background:var(--bmf-primary);color:var(--on-primary,#fff);font-size:.85rem;font-weight:700;text-decoration:none;white-space:nowrap}
 .binaapp-menu-block .bmf-order:hover{filter:brightness(1.08)}
-.binaapp-menu-block .bmf-badge{position:absolute;top:.75rem;left:.75rem;padding:.25rem .6rem;border-radius:999px;background:var(--bmf-accent);color:#fff;font-size:.7rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
+.binaapp-menu-block .bmf-badge{position:absolute;top:.75rem;left:.75rem;padding:.25rem .6rem;border-radius:999px;background:var(--bmf-accent);color:var(--on-accent,#fff);font-size:.7rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
 .binaapp-menu-block .bmf-card.bmf-text-only .bmf-badge{position:static;align-self:flex-start;margin-bottom:.35rem}
 .binaapp-menu-block .bmf-card.bmf-signature{border:2px solid var(--bmf-accent);box-shadow:0 0 0 4px color-mix(in srgb,var(--bmf-accent) 18%,transparent),0 10px 30px rgba(0,0,0,.10);background:color-mix(in srgb,var(--bmf-accent) 7%,var(--bmf-surface))}
 .binaapp-menu-block .bmf-card.bmf-signature .bmf-badge{z-index:1;box-shadow:0 2px 8px rgba(0,0,0,.18)}

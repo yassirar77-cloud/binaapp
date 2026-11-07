@@ -15,7 +15,7 @@ from urllib.parse import quote, urlsplit
 from collections import Counter
 from contextlib import contextmanager
 from loguru import logger
-from typing import Optional, List, Dict, Tuple, Callable, Awaitable, Sequence
+from typing import Optional, List, Dict, Tuple, Callable, Awaitable, Sequence, Any
 from app.models.schemas import WebsiteGenerationRequest, AIGenerationResponse
 from app.services.business_types import (
     detect_business_type,
@@ -6014,6 +6014,48 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                 logger.warning(f"🧑‍⚖️ Critique model {model} failed: {err}")
         return None
 
+    async def _call_gate_vision_model(self, messages: List[Dict]) -> Optional[str]:
+        """The visual gate's reviewer: qwen3-vl-plus on DashScope (the Qwen
+        key), GLM-4.5V on Z.ai as the fallback. Returns the reply text or
+        None; never raises. A 404 "model not found" is logged as an ERROR
+        so a wrong model name is never a silent 'pass (unchecked)'."""
+        from app.services.visual_gate import VISION_MODEL, VISION_TIMEOUT_SECONDS
+        attempts: List[Tuple[str, str, str]] = []
+        if self.qwen_api_key:
+            attempts.append((self.qwen_base_url, self.qwen_api_key, VISION_MODEL))
+        if self.zai_api_key:
+            attempts.append((self.zai_base_url, self.zai_api_key, DESIGN_CRITIQUE_MODEL))
+        for base_url, key, model in attempts:
+            try:
+                body: Dict[str, Any] = {"model": model, "messages": messages, "temperature": 0.1, "max_tokens": 1200}
+                if model.startswith("glm"):
+                    body["thinking"] = {"type": "disabled"}
+                headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+                async with httpx.AsyncClient(timeout=VISION_TIMEOUT_SECONDS) as client:
+                    r = await client.post(f"{base_url.rstrip('/')}/chat/completions", headers=headers, json=body)
+                if r.status_code == 404 or (r.status_code == 400 and "model" in r.text.lower() and "exist" in r.text.lower()):
+                    logger.error(f"👁️ Gate vision model {model} is not available on {base_url} ({r.status_code}): {r.text[:160]}")
+                    continue
+                if r.status_code != 200:
+                    logger.warning(f"👁️ Gate vision model {model} ❌ {r.status_code}: {r.text[:200]}")
+                    continue
+                payload = r.json()
+                msg = ((payload.get("choices") or [{}])[0].get("message") or {})
+                content = msg.get("content", "")
+                if isinstance(content, list):
+                    content = "".join(part.get("text", "") for part in content if isinstance(part, dict))
+                if not (content and content.strip()) and msg.get("reasoning_content"):
+                    content = msg["reasoning_content"]
+                if content and content.strip():
+                    logger.info(f"👁️ Gate vision review answered by {model}")
+                    return content
+                logger.warning(f"👁️ Gate vision model {model} answered 200 with no content")
+            except (asyncio.TimeoutError, httpx.TimeoutException):
+                logger.warning(f"👁️ Gate vision model {model} timed out (cap {VISION_TIMEOUT_SECONDS:.0f}s)")
+            except Exception as err:
+                logger.warning(f"👁️ Gate vision model {model} failed: {err}")
+        return None
+
     async def _regenerate_pass2(
         self,
         prompt: str,
@@ -8313,6 +8355,11 @@ IMPORTANT RULES:
         with _timed_step("compose", step_timings, step_outcomes):
             html = self._compose_html(spec, theme, copy, request=request, language=language)
         # Safety nets that read the page rather than write layout.
+        try:
+            from app.services.data_consistency import reformat_prices
+            html, _n_prices = reformat_prices(html)  # every RM amount as RM0.00 ("caj RM10." → "RM10.00.")
+        except Exception as _price_err:
+            logger.warning(f"💲 Price reformat skipped: {_price_err}")
         html = self._enforce_brief_facts(html, request, language)
         html = self._sanitize_sensitive_claims(html, request, image_urls)
         try:
