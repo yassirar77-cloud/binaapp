@@ -8101,7 +8101,10 @@ IMPORTANT RULES:
         try:
             items = _mf.normalize_items(self._normalize_supplied_menu_items(getattr(request, "menu_items", None)))
             if items and image_urls is not None:  # None = images off for this site
-                items, _n_photos = _mf.attach_item_images(items, self._menu_item_image_pairs(request, image_urls))
+                items, _n_photos = _mf.attach_item_images(
+                    items, self._menu_item_image_pairs(request, image_urls),
+                    ai_urls=getattr(self, "_ai_image_urls", None) or (),
+                )
                 if _n_photos:
                     logger.info(f"🍽️ Menu block: {_n_photos} item(s) carry their generated/uploaded photo")
             if not items:
@@ -8118,6 +8121,7 @@ IMPORTANT RULES:
             html, _font_var = _mf.ensure_font_heading_var(html)
             if _font_var:
                 logger.info("🔤 Declared --font-heading on :root for the menu block")
+            self._menu_photo_urls = [it.image_url for it in items if it.image_url]
             if _mf.use_deterministic_menu(items):
                 block = _mf.render_menu_block(
                     items, language=language, wa_digits=wa_digits, show_prices=show_prices, order_prefill=prefill,
@@ -9330,6 +9334,8 @@ IMPORTANT RULES:
                 )
                 if url:
                     generated += 1
+                    # Generated (not uploaded, not stock): "Gambar hiasan".
+                    self.__dict__.setdefault("_ai_image_urls", set()).add(url)
             elif is_food:
                 # Bug-2 pool fallback so a provider failure (rate limit, 500,
                 # timeout) doesn't leave the slot empty. F&B only: a stock
@@ -9434,6 +9440,8 @@ IMPORTANT RULES:
         except Exception as _addr_err:
             logger.warning(f"📍 Address resolution skipped: {_addr_err}")
 
+        self._ai_image_urls = set()
+        self._menu_photo_urls = []
         # Check image_choice - skip ALL image generation if "none"
         image_urls = {}
         ai_images_generated = 0  # Track how many AI images were successfully generated
@@ -10380,6 +10388,19 @@ IMPORTANT INSTRUCTIONS:
             # images (an about photo shipped with garbled rendered text).
             if image_choice != "none":
                 html = await self._gate_about_gallery_images(html, request, image_urls)
+            # A menu item's photo is not shown again in Tentang Kami (the
+            # section goes text-only when nothing else is left), and every
+            # AI-generated photo carries "Gambar hiasan".
+            try:
+                from app.services.illustrative_images import label_ai_images, remove_menu_photo_reuse
+                html, _n_reuse = remove_menu_photo_reuse(html, getattr(self, "_menu_photo_urls", None) or [])
+                if _n_reuse:
+                    logger.info(f"🖼️ Removed {_n_reuse} menu photo(s) reused in the about section")
+                html, _n_lab = label_ai_images(html, getattr(self, "_ai_image_urls", None) or (), language)
+                if _n_lab:
+                    logger.info(f"🏷️ 'Gambar hiasan' on {_n_lab} AI-generated photo(s) outside the menu")
+            except Exception as _ill_err:
+                logger.warning(f"🖼️ Illustrative-image pass skipped: {_ill_err}")
             # Round 2 (§D14): a single-letter logo badge takes the plan's
             # accent colour and display font, never a default blue square.
             if plan is not None:
