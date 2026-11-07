@@ -1,0 +1,30 @@
+{
+  "name": "kedai_telefon",
+  "title": "Phone shop and repair, English site",
+  "request": {
+    "business_name": "Mobile Hub Seremban",
+    "business_type": "general",
+    "subdomain": "mobilehub",
+    "language": "en",
+    "whatsapp_number": "0166548210",
+    "location_address": "G-12, Seremban Prima, Jalan Dato Sheikh Ahmad, 70000 Seremban, Negeri Sembilan",
+    "opening_hours": "10am - 10pm daily",
+    "payment_methods": ["cod", "qr"],
+    "include_maps": true,
+    "include_whatsapp": true,
+    "include_contact_form": false,
+    "description": "Mobile Hub Seremban sells new and used phones, accessories and does same-day screen and battery repairs at Seremban Prima. Walk-in repair while you wait, 30 day warranty on every repair. Trade-in accepted. We also do phone wrapping and tempered glass installation.\nComing soon: iPhone trade-in programme, laptop repair.",
+    "menu_items": [
+      {"name": "Screen Replacement (iPhone 11-13)", "price": "180.00", "category": "Repair"},
+      {"name": "Screen Replacement (Android)", "price": "120.00", "category": "Repair"},
+      {"name": "Battery Replacement", "price": "90.00", "category": "Repair"},
+      {"name": "Charging Port Repair", "price": "70.00", "category": "Repair"},
+      {"name": "Tempered Glass", "price": "15.00", "category": "Accessories"},
+      {"name": "Phone Case", "price": "25.00", "category": "Accessories"},
+      {"name": "USB-C Fast Charger 20W", "price": "35.00", "category": "Accessories"},
+      {"name": "Used iPhone 12 (128GB)", "price": "1250.00", "category": "Used Phones"},
+      {"name": "Used Samsung A54", "price": "850.00", "category": "Used Phones"}
+    ]
+  },
+  "expect": {"min_items": 9, "chips": 0, "banners": 0, "coming_soon": 2, "map": true, "vertical": "general", "language": "en"}
+}

@@ -1,0 +1,30 @@
+{
+  "name": "salon",
+  "title": "Ladies' hair salon with booking",
+  "request": {
+    "business_name": "Salon Seri Ayu",
+    "business_type": "salon",
+    "subdomain": "seriayu",
+    "language": "ms",
+    "whatsapp_number": "0112293445",
+    "location_address": "Lot 8, Jalan Kristal 7/L, Seksyen 7, 40000 Shah Alam, Selangor",
+    "opening_hours": "10 pagi - 8 malam, tutup Isnin",
+    "include_maps": true,
+    "include_whatsapp": true,
+    "include_contact_form": true,
+    "color_mode": "dark",
+    "description": "Salon Seri Ayu di Seksyen 7 Shah Alam: salon muslimah, ruang privasi penuh, stylist wanita berpengalaman 10 tahun. Gunting, warna, rebonding, rawatan rambut dan solekan pengantin. Tempahan melalui WhatsApp, walk-in dialu-alukan.",
+    "menu_items": [
+      {"name": "Gunting & Blow", "price": "35.00", "category": "Rambut"},
+      {"name": "Gunting Kanak-kanak", "price": "20.00", "category": "Rambut"},
+      {"name": "Warna Penuh", "price": "150.00", "category": "Rambut"},
+      {"name": "Highlight", "price": "180.00", "category": "Rambut"},
+      {"name": "Rebonding", "price": "250.00", "category": "Rawatan"},
+      {"name": "Rawatan Keratin", "price": "200.00", "category": "Rawatan"},
+      {"name": "Hair Spa", "price": "80.00", "category": "Rawatan"},
+      {"name": "Solekan Pengantin", "price": "350.00", "category": "Solekan"},
+      {"name": "Solekan Majlis", "price": "120.00", "category": "Solekan"}
+    ]
+  },
+  "expect": {"min_items": 9, "chips": 0, "banners": 0, "coming_soon": 0, "map": true, "vertical": "salon", "dark": true}
+}

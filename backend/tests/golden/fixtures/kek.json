@@ -1,0 +1,32 @@
+{
+  "name": "kek",
+  "title": "Home bakery, pre-order cakes",
+  "request": {
+    "business_name": "Kek Mak Teh",
+    "business_type": "bakery",
+    "subdomain": "kekmakteh",
+    "language": "ms",
+    "whatsapp_number": "0193318270",
+    "location_address": "Taman Melawati, 53100 Kuala Lumpur",
+    "payment_methods": ["qr"],
+    "include_maps": false,
+    "include_whatsapp": true,
+    "include_contact_form": true,
+    "include_social": true,
+    "social_media": {"instagram": "https://instagram.com/kekmakteh", "tiktok": "https://tiktok.com/@kekmakteh"},
+    "design_style": "elegant",
+    "description": "Kek Mak Teh membuat kek dan dessert dari dapur rumah di Taman Melawati. Resipi keluarga, bahan segar, tanpa pengawet. Tempahan 2 hari awal, pickup sendiri atau penghantaran dalam KL caj RM10. Kami pakar kek pandan gula melaka dan burnt cheesecake. Pakej majlis dan doorgift ada.",
+    "menu_items": [
+      {"name": "Kek Pandan Gula Melaka (whole)", "price": "85.00", "category": "Kek Whole", "description": "Lapisan pandan lembut dengan kerim gula melaka"},
+      {"name": "Burnt Cheesecake 8 inci", "price": "95.00", "category": "Kek Whole"},
+      {"name": "Kek Coklat Moist", "price": "70.00", "category": "Kek Whole"},
+      {"name": "Kek Pisang Walnut", "price": "45.00", "category": "Kek Whole"},
+      {"name": "Slice Burnt Cheesecake", "price": "12.00", "category": "Slice"},
+      {"name": "Slice Pandan Gula Melaka", "price": "9.00", "category": "Slice"},
+      {"name": "Brownies (kotak 9)", "price": "35.00", "category": "Dessert"},
+      {"name": "Tart Nenas (50 biji)", "price": "48.00", "category": "Dessert"},
+      {"name": "Doorgift Cupcake (min 50)", "price": "3.50", "category": "Majlis"}
+    ]
+  },
+  "expect": {"min_items": 9, "chips": 0, "banners": 1, "coming_soon": 0, "map": false, "vertical": "bakery", "socials": 2}
+}
