@@ -22,6 +22,9 @@ _PHONE_RE = re.compile(
 _SKIP_RE = re.compile(r"<(a|script|style|textarea|option)\b[^>]*>.*?</\1>|<[^>]+>|<!--.*?-->", re.IGNORECASE | re.DOTALL)
 
 
+_WA_LABEL_RE = re.compile(r"whats\s*app\s*[:：-]?\s*$", re.IGNORECASE)
+
+
 def linkify_phones(html: str, known_digits: Optional[Iterable[str]] = None) -> Tuple[str, int]:
     """Wrap bare phone numbers in tel: links. ``known_digits`` (digit-only,
     60-prefixed) limits linking to the merchant's own numbers when given;
@@ -41,6 +44,10 @@ def linkify_phones(html: str, known_digits: Optional[Iterable[str]] = None) -> T
             if not digits or (wanted and digits not in wanted):
                 return m.group(0)
             added += 1
+            # A number the page labels as WhatsApp ("WhatsApp: 012-697 3105")
+            # opens WhatsApp, not a phone call (agp's footer).
+            if _WA_LABEL_RE.search(segment[max(0, m.start() - 24):m.start()]):
+                return f'<a href="https://wa.me/{digits}" class="binaapp-wa" style="text-decoration:inherit;color:inherit">{m.group(1)}</a>'
             return f'<a href="tel:+{digits}" class="binaapp-tel" style="text-decoration:inherit;color:inherit">{m.group(1)}</a>'
 
         return _PHONE_RE.sub(_sub, segment)
