@@ -99,7 +99,7 @@ def _menu_block_spans(html: str) -> List[Tuple[int, int]]:
 
 
 _LABEL_STYLE = (
-    "position:absolute;right:.5rem;{v}:.5rem;z-index:6;padding:.15rem .45rem;border-radius:4px;"
+    "position:absolute;right:.5rem;{v}:.5rem;z-index:40;padding:.15rem .45rem;border-radius:4px;"
     "background:rgba(0,0,0,.6);color:#fff;font-size:.68rem;font-weight:600;line-height:1.3;pointer-events:none"
 )
 
@@ -145,4 +145,60 @@ def label_ai_images(html: str, ai_urls: Iterable[str], language: str = "ms") -> 
         pos = m.end()
         labelled += 1
     out.append(html[pos:])
-    return "".join(out), labelled
+    html2, n_bg = _label_ai_backgrounds("".join(out), keys, label)
+    return html2, labelled + n_bg
+
+
+_BG_URL_RE = re.compile(r"""background(?:-image)?\s*:[^;{}]*url\(\s*['"]?([^'")]+)['"]?\s*\)""", re.IGNORECASE)
+_POSITIONED_RE = re.compile(r"(?:^|\s)(?:relative|absolute|fixed|sticky)(?:\s|$)")
+
+
+def _label_ai_backgrounds(html: str, keys: set, label: str) -> Tuple[str, int]:
+    """An AI photo used as a CSS background (agp's hero: .hero-image{
+    background-image:url(...)}, or an inline style) gets the label in the
+    element's top-right corner. The element is made position:relative only
+    when it has no positioning of its own."""
+    targets: List[str] = []
+    for css in re.findall(r"<style\b[^>]*>(.*?)</style>", html, re.IGNORECASE | re.DOTALL):
+        for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css):
+            m = _BG_URL_RE.search(body)
+            if not m or _url_key(m.group(1).strip()) not in keys:
+                continue
+            for one in sel.split(","):
+                one = one.strip()
+                if re.fullmatch(r"[.#][A-Za-z_][\w-]*", one):
+                    targets.append(one)
+    n = 0
+    for target in dict.fromkeys(targets):
+        if target.startswith("."):
+            pat = rf"<(\w+)\b[^>]*\bclass\s*=\s*([\"'])(?:[^\"']*\s)?{re.escape(target[1:])}(?:\s[^\"']*)?\2[^>]*>"
+        else:
+            pat = rf"<(\w+)\b[^>]*\bid\s*=\s*([\"']){re.escape(target[1:])}\2[^>]*>"
+        m = re.search(pat, html, re.IGNORECASE)
+        if m:
+            html, ok = _insert_bg_label(html, m, label)
+            n += ok
+    # Inline background-image styles.
+    for m in list(re.finditer(r"<(\w+)\b[^>]*\bstyle\s*=\s*([\"'])[^\"']*\2[^>]*>", html, re.IGNORECASE))[::-1]:
+        bg = _BG_URL_RE.search(m.group(0))
+        if bg and _url_key(bg.group(1).strip()) in keys:
+            html, ok = _insert_bg_label(html, m, label)
+            n += ok
+    return html, n
+
+
+def _insert_bg_label(html: str, m: "re.Match", label: str) -> Tuple[str, int]:
+    tag = m.group(0)
+    after = html[m.end():m.end() + 200]
+    if "binaapp-ai-label" in after:
+        return html, 0
+    cls = _CLASS_RE.search(tag)
+    positioned = bool(cls and _POSITIONED_RE.search(" " + cls.group(2) + " ")) or re.search(r"position\s*:", tag, re.IGNORECASE)
+    new_tag = tag
+    if not positioned:
+        if re.search(r"\bstyle\s*=\s*[\"']", tag, re.IGNORECASE):
+            new_tag = re.sub(r"(\bstyle\s*=\s*[\"'])", r"\1position:relative;", tag, count=1, flags=re.IGNORECASE)
+        else:
+            new_tag = tag[:-1] + ' style="position:relative">'
+    span = f'<span class="binaapp-ai-label" style="{_LABEL_STYLE.format(v="top")}">{label}</span>'
+    return html[: m.start()] + new_tag + span + html[m.end():], 1

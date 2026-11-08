@@ -46,7 +46,7 @@ class TestConstrain:
         )
         assert out["accent_2"] != "#203808" and bp.allowed(out["accent_2"], named)
         assert out["accent"] == "#D7261E" and out["bg"] == "#FFF200"
-        assert notes and "#203808" in notes[0]
+        assert any("#203808" in n for n in notes)
 
     def test_off_brand_background_becomes_neutral(self):
         out, _ = bp.constrain_palette(
@@ -173,3 +173,26 @@ class TestExplicitOnly:
         pal = _validate_palette(raw, dd.DIRECTIONS[0], brief, adjustments)
         assert pal["accent"] == "#D62E12" and pal["accent_2"] == "#111111"
         assert not any("not a merchant colour" in a for a in adjustments)
+
+
+class TestShadesNotOtherColours:
+    """agp: a dark brick-brown passed as 'red' on hue alone; every price and
+    Pesan button came out #5D2310."""
+
+    NAMED = bp.named_colours("Warna jenama: kuning terang, merah cili dan hitam.")
+
+    def test_brown_is_not_chilli_red(self):
+        assert not bp.allowed("#5D2310", self.NAMED)
+
+    def test_real_shades_of_the_brand_red_still_pass(self):
+        for shade in ("#D7261E", "#C81E1E", "#B32019", "#A01818", "#E63946"):
+            assert bp.allowed(shade, self.NAMED), shade
+
+    def test_brown_accent_is_replaced_by_the_named_red(self):
+        out, notes = bp.constrain_palette(
+            {"bg": "#FFF8E1", "surface": "#FFFFFF", "text": "#1A120B", "muted": "#5C4A3A", "accent": "#5D2310", "accent_2": "#FFD23F"},
+            self.NAMED, accent_keys=("accent", "accent_2"),
+            neutral_keys={"bg": "bg", "surface": "surface", "text": "text", "muted": "muted"}, background_key="bg",
+        )
+        assert out["accent"] == "#D7261E" and out["accent_2"] == "#FFD23F"
+        assert any("#5D2310" in n for n in notes)

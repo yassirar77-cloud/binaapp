@@ -31,6 +31,7 @@ import ActivityFeed, { type ActivityEvent } from '@/components/dashboard-new/Act
 import DashboardUsageWidget from '@/components/dashboard-new/DashboardUsageWidget'
 import { usePlanFeatures } from '@/hooks/usePlanFeatures'
 import MobileDashboard, { type MobileStat } from '@/components/dashboard-new/MobileDashboard'
+import DraftPublishBanner from '@/components/dashboard-new/DraftPublishBanner'
 import ReportIssueModal from '@/components/dashboard-new/ReportIssueModal'
 import { isIssueReportKnownDisabled } from '@/lib/issueReport'
 import '@/components/dashboard-new/dashboard.css'
@@ -397,6 +398,9 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+
+      {/* Generated drafts the merchant can publish over a live site */}
+      <DraftPublishBanner />
 
       {/* ── Mobile layout (below md breakpoint) ── */}
       <MobileDashboard
