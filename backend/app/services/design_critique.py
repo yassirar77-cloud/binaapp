@@ -210,6 +210,12 @@ async def render_screenshots(html: str, *, timeout: float = SCREENSHOT_TIMEOUT_S
     if not playwright_available():
         bundle.error = "playwright not installed"
         return bundle
+    from app.services.browser_budget import can_launch
+    allowed, why = can_launch()
+    if not allowed:
+        bundle.error = why
+        logger.warning(f"📸 Screenshot render skipped: {why}")
+        return bundle
     try:
         from playwright.async_api import async_playwright
 

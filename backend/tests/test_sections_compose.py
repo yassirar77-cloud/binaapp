@@ -337,7 +337,7 @@ def test_freeform_mode_still_builds_the_prompt(panglima, monkeypatch):
     assert not is_composed(resp.html_content)
 
 
-@pytest.mark.skipif(not os.getenv("PLAYWRIGHT_CHROMIUM_EXECUTABLE") and not os.path.exists(os.path.expanduser("~/.cache/ms-playwright")), reason="no browser")
+@pytest.mark.skipif(not os.getenv("PLAYWRIGHT_CHROMIUM_EXECUTABLE") and not __import__("app.services.browser_budget", fromlist=["x"]).headless_shell_dirs(), reason="no browser")
 def test_composed_page_has_no_mobile_overflow(panglima):
     from app.services.design_critique import render_screenshots
     _, _, _, html = _compose(panglima)
