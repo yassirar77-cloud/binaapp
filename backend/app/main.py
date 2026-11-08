@@ -3960,6 +3960,30 @@ async def publish_website(
     if not user_id:
         return JSONResponse(status_code=401, content={"success": False, "error": "Unauthorized"})
 
+    # "Terbitkan ke subdomain" (My Projects): publish one of the caller's
+    # drafts OVER one of their live sites. Everything is resolved from the
+    # two rows server-side (ownership, the draft's HTML re-pointed at the
+    # live row, its menu and business fields); the client's own fields are
+    # ignored. See app/services/draft_replace.py.
+    if body.get("draft_id") and body.get("replace_website_id"):
+        if not supabase:
+            return JSONResponse(status_code=500, content={"success": False, "error": "Database not configured"})
+        from app.services.draft_replace import resolve_replace_request
+        _fields, _refusal = resolve_replace_request(
+            supabase, user_id, str(body.get("draft_id")), str(body.get("replace_website_id")),
+        )
+        if _refusal:
+            return JSONResponse(status_code=_refusal[0], content=_refusal[1])
+        body = {k: v for k, v in body.items() if k not in ("html_content", "html_code", "html")}
+        body.update(_fields)
+        html_content = body["html_content"]
+        subdomain = body["subdomain"]
+        project_name = body["project_name"]
+        website_id = body["website_id"]
+        features = body.get("features") or {}
+        delivery = body.get("delivery") or None
+        menu_items_payload = body.get("menu_items") or []
+
     # EMAIL VERIFICATION GATE: publishing requires a verified email.
     # Sign up + use the builder stays open; publishing is blocked until the
     # owner confirms their email via the 6-digit code. The frontend keys off

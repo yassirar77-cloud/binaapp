@@ -101,7 +101,7 @@ def _strip_prefix(text: str, bare: set) -> str:
     for b in sorted(bare, key=len, reverse=True):
         if low.startswith(b):
             return text[len(b):].strip(" ,:-")
-    m = re.search(r"\b(?:order|pesan|tempah|nak)\b", text, re.IGNORECASE)
+    m = re.search(r"\b(?:order|pesan|tempah)\b", text, re.IGNORECASE)
     return text[m.end():].strip(" ,:-") if m else text
 
 
@@ -132,7 +132,10 @@ def enrich_order_links(
         low = text.lower()
         if not text or low in bare or _ENRICHED_RE.search(text):
             return m.group(0)
-        if not any(low.startswith(b) for b in bare) and not re.search(r"\b(order|pesan|tempah|nak)\b", low):
+        # An order message: starts with the order phrase, or says order /
+        # pesan / tempah. "saya nak tanya waktu operasi" is a question, not
+        # an order — it got "(Level: _, ...)" on agp.
+        if not any(low.startswith(b) for b in bare) and not re.search(r"\b(order|pesan|tempah)\b", low):
             return m.group(0)
         name = _strip_prefix(text, bare)
         opts = [o for o in options if o != _LEVEL_LABEL or level_applies(name, items)]

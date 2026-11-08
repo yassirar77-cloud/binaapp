@@ -30,7 +30,8 @@ def test_slot_loses_its_fixed_size_and_clipping_but_keeps_its_look():
     out = _inject(SLOT_PAGE)
     tag = re.search(r'<div id="binaapp-maps-slot"[^>]*>', out).group(0)
     assert 'class="w-full rounded-lg border-2 border-black bg-gray-100"' in tag
-    assert "height" not in tag
+    assert "320px" not in tag  # the fixed height is gone
+    assert "aspect-ratio:auto;height:auto;max-height:none;overflow:visible" in tag
 
 
 def test_iframe_and_both_buttons_render_and_verify_passes():
