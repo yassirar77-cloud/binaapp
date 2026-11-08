@@ -1,0 +1,22 @@
+{
+  "name": "agp",
+  "title": "Ayam gepuk restaurant (agp.binaapp.my)",
+  "request": {
+    "business_name": "Ayam Gepuk Panglima",
+    "business_type": "food",
+    "subdomain": "agp",
+    "language": "ms",
+    "whatsapp_number": "0126973105",
+    "location_address": "No. 44-1, Jalan Bayu Impian 4A/KS9, Kota Bayu Emas, 41200 Klang, Selangor",
+    "opening_hours": "11 pagi - 10 malam",
+    "payment_methods": ["cod", "qr"],
+    "include_maps": true,
+    "include_whatsapp": true,
+    "include_contact_form": true,
+    "design_style": "bold",
+    "design_brief": "Warna jenama: kuning terang, merah cili, hitam. Outline tebal hitam macam signboard kami.",
+    "description": "Ayam Gepuk Panglima di Kota Bayu Emas, Klang. Ayam gepuk dengan sambal pedas yang digiling segar, dihidang dengan nasi putih, tauhu, tempe, kubis dan timun atas pinggan rotan beralas daun pisang. Spice Level 1 Spicy / Level 2 Hot / Level 3 Extra Hot. FREE refill nasi & sambal (dine-in sahaja). Take away caj RM2.00. Set Panglima Signature ialah pilihan paling laris kami.\nComing soon: Bakso Daging, Nasi Lemak, Bayam Goreng, Kangkung Goreng, Kaki Ayam, Chicken Wing, Korean Chicken.",
+    "menu_items": "@../../fixtures/ayam_gepuk_panglima_menu.json"
+  },
+  "expect": {"min_items": 32, "chips": 3, "banners": 2, "coming_soon": 7, "map": true, "vertical": "food"}
+}

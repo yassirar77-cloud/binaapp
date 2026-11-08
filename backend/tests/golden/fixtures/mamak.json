@@ -1,0 +1,40 @@
+{
+  "name": "mamak",
+  "title": "24-hour mamak in Petaling Jaya",
+  "request": {
+    "business_name": "Restoran Bismillah Maju",
+    "business_type": "food",
+    "subdomain": "bismillahmaju",
+    "language": "ms",
+    "whatsapp_number": "0172318866",
+    "location_address": "12, Jalan SS 2/24, SS 2, 47300 Petaling Jaya, Selangor",
+    "is_24h": true,
+    "opening_hours": "24 jam",
+    "payment_methods": ["cod"],
+    "include_maps": true,
+    "include_whatsapp": true,
+    "include_contact_form": false,
+    "description": "Restoran mamak 24 jam di SS2 Petaling Jaya sejak dulu. Roti canai dibuat segar setiap pagi, teh tarik kaw, nasi kandar dengan 20 jenis lauk, mee goreng mamak dan maggi goreng. Ada ruang keluarga berhawa dingin dan parking luas. Delivery dalam 5km caj RM3.00.",
+    "menu_items": [
+      {"name": "Roti Canai Kosong", "price": "1.50", "category": "Roti"},
+      {"name": "Roti Telur", "price": "2.80", "category": "Roti"},
+      {"name": "Roti Planta", "price": "2.50", "category": "Roti"},
+      {"name": "Roti Tisu", "price": "5.00", "category": "Roti"},
+      {"name": "Roti Bom", "price": "3.50", "category": "Roti"},
+      {"name": "Nasi Kandar Ayam Goreng", "price": "9.50", "category": "Nasi"},
+      {"name": "Nasi Kandar Daging", "price": "11.00", "category": "Nasi"},
+      {"name": "Nasi Kandar Ikan Kembung", "price": "10.00", "category": "Nasi"},
+      {"name": "Nasi Briyani Ayam", "price": "12.00", "category": "Nasi"},
+      {"name": "Nasi Goreng Kampung", "price": "7.50", "category": "Nasi"},
+      {"name": "Mee Goreng Mamak", "price": "7.00", "category": "Mee"},
+      {"name": "Maggi Goreng Special", "price": "7.50", "category": "Mee"},
+      {"name": "Mee Rebus", "price": "6.50", "category": "Mee"},
+      {"name": "Teh Tarik", "price": "2.50", "category": "Minuman"},
+      {"name": "Teh O Ais Limau", "price": "2.80", "category": "Minuman"},
+      {"name": "Milo Ais", "price": "3.50", "category": "Minuman"},
+      {"name": "Nescafe Tarik", "price": "3.00", "category": "Minuman"},
+      {"name": "Sirap Bandung", "price": "3.00", "category": "Minuman"}
+    ]
+  },
+  "expect": {"min_items": 18, "chips": 0, "banners": 1, "coming_soon": 0, "map": true, "vertical": "food", "is_24h": true}
+}
