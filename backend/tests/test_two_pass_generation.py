@@ -260,9 +260,11 @@ async def test_glm_system_prompt_gets_plan_clause(service):
 def test_hero_cue_comes_from_the_plan(service):
     req = _request(hero_image_prompt=None)
     cue = service._hero_cue_for(req, "light", "ms")
-    assert cue and "Ayam Goreng Berempah" in cue and "daylight" in cue
+    # The merchant's items, as plain dishes (a menu name gets lettered into
+    # the photo), in the plan's light.
+    assert cue and "fried chicken berempah" in cue and "Ayam Goreng Berempah" not in cue and "daylight" in cue
     prompt = service._autofill_hero_prompt("food", "restaurant", "Nasi Kandar Crystal", direction_cue=cue)
-    assert prompt.startswith("featuring Ayam Goreng Berempah")
+    assert prompt.startswith("a generous spread of fried chicken berempah")
     # The merchant's own hero words still beat the plan cue.
     prompt = service._autofill_hero_prompt("food", "restaurant", "x", merchant_prompt="Kari kepala ikan berasap", direction_cue=cue)
     assert prompt.startswith("Kari kepala ikan berasap")

@@ -26,5 +26,5 @@
       {"name": "Solekan Majlis", "price": "120.00", "category": "Solekan"}
     ]
   },
-  "expect": {"min_items": 9, "chips": 0, "banners": 0, "coming_soon": 0, "map": true, "vertical": "salon", "dark": true}
+  "expect": {"min_items": 9, "chips": 0, "banners": 0, "coming_soon": 0, "map": true, "vertical": "salon", "dark": true, "hero_forbid": ["burger", "dish", "food", "camera"], "hero_require": ["salon", "Gunting"]}
 }

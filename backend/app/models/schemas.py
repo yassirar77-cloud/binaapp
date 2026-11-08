@@ -401,6 +401,10 @@ class AIGenerationResponse(BaseModel):
     # completion (mkl: qwen_refine and qwen_css_refine both timed out and
     # both looked like finished work).
     step_outcomes: Dict[str, str] = {}
+    # The images this build used (composed pages): hand back to
+    # generate_website(reuse_images=...) so a visual-gate regeneration
+    # rewrites the page without paying for the images twice.
+    image_bundle: Dict[str, Any] = {}
     # Post-generation validation result (generation_validator). validation_ok
     # False means the output contradicts the merchant's own brief — callers
     # MUST fail closed and surface validation_errors rather than publishing.

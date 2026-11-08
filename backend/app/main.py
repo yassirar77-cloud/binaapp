@@ -2613,10 +2613,19 @@ async def run_generation_task(
                     str(getattr(m, "name", "") or "") for m in (getattr(ai_request, "menu_items", None) or [])
                 ]
 
+                async def _regen_progress(progress: int, message: str) -> None:
+                    """The regeneration's own 25-100% mapped into 93-98%: the
+                    bar used to drop from 93% back to 25% mid-job (mamak),
+                    which read as the worker restarting."""
+                    await progress_callback(min(98, 93 + max(0, int(progress) - 25) * 5 // 75), f"Second attempt: {message}")
+
                 async def _regenerate_for_gate() -> Optional[str]:
-                    """One fresh build through the same steps as above."""
+                    """One fresh build through the same steps as above, with
+                    the first build's images (a composed page reuses them,
+                    so only the plan, copy and composition are redone)."""
                     _resp = await ai_service.generate_website(
-                        ai_request, image_choice=normalized_image_choice, progress_callback=progress_callback,
+                        ai_request, image_choice=normalized_image_choice, progress_callback=_regen_progress,
+                        reuse_images=(getattr(ai_response, "image_bundle", None) or None),
                     )
                     _html = _resp.html_content
                     if location_fixups:
@@ -2647,6 +2656,12 @@ async def run_generation_task(
                         call_vision=_vision,
                         regenerate=_regenerate_for_gate,
                         job_id=job_id,
+                        business={
+                            "name": getattr(ai_request, "business_name", "") or "",
+                            "type": getattr(ai_request, "business_type", None) or "",
+                            "description": getattr(ai_request, "description", "") or "",
+                            "items": _gate_items,
+                        },
                     )
                 except VisualGateFailed as _vg:
                     _gate = _vg.report

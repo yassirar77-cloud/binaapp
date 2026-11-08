@@ -55,3 +55,107 @@ def test_golden_site_passes_visual_gate(fixture):
     if not rep.rendered:
         pytest.skip(rep.error)
     assert rep.passed, rep.summary() + " :: " + "; ".join(c.detail for c in rep.failed)
+
+
+# ---------------------------------------------------------------------------
+# The burger hero (live agp build, 2026-11-08)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("fixture", FIXTURES, ids=[f["name"] for f in FIXTURES])
+def test_golden_hero_prompt_is_about_the_merchant(fixture):
+    """agp's hero photo was generated from "featuring Set A – Ayam Gepuk ...,
+    a stacked burger and fries on kraft paper": the design direction's
+    example subject, and menu labels the model lettered into the picture."""
+    from golden_run import hero_prompt_check
+    res = hero_prompt_check(fixture)
+    assert res["ok"], res
+
+
+def _png(colour, size):
+    import io
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", size, colour).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+@pytest.fixture
+def slow_image_server():
+    """Photos served after a delay, like a Cloudinary transform on its first
+    request: the live screenshots caught the cards before they were drawn."""
+    import http.server
+    import threading
+    import time as _time
+    images = {"/burger.png": _png((150, 75, 20), (1600, 900)), "/ayam.png": _png((20, 160, 60), (800, 600)),
+              "/teh.png": _png((30, 60, 200), (800, 600))}
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            body = images.get(self.path.split("?")[0])
+            _time.sleep(1.5)
+            self.send_response(200 if body else 404)
+            self.send_header("Content-Type", "image/png")
+            self.end_headers()
+            self.wfile.write(body or b"")
+
+        def log_message(self, *a):
+            pass
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{srv.server_address[1]}"
+    srv.shutdown()
+
+
+@pytest.mark.skipif(not HAS_BROWSER, reason="no headless browser")
+def test_golden_burger_hero_is_replaced_and_card_photos_are_kept(monkeypatch, slow_image_server):
+    """The agp page with a burger hero and two drawn card photos, through
+    the gate the job worker runs: the hero becomes the photo-free hero, both
+    card photos stay (each judged on its own), and a "cut off at the bottom
+    edge" complaint the measurements do not confirm fails nothing."""
+    import io
+    import json
+    import re
+    from PIL import Image
+    from app.services.visual_gate import gate_with_recovery
+
+    fixture = next(f for f in FIXTURES if f["name"] == "agp")
+    html, _ = asyncio.run(build_site(fixture, mode="offline"))
+    base = slow_image_server
+    html = html.replace('class="bs-hero bs-hero-solid"', 'class="bs-hero"', 1)
+    html = re.sub(r'(<section class="bs-hero"[^>]*>)', r'\1<div class="bs-hero-media"><img src="' + base + '/burger.png" alt="" width="1600" height="900" fetchpriority="high"></div><div class="bs-hero-scrim"></div>', html, count=1)
+    cards = re.findall(r'<li class="bmf-card bmf-text-only[^"]*">', html)
+    assert len(cards) >= 2
+    for card, src in zip(cards[:2], ("ayam.png", "teh.png")):
+        html = html.replace(card, card.replace(" bmf-text-only", "") + f'<div class="bmf-media"><img src="{base}/{src}" alt="" loading="lazy" decoding="async"><span class="bmf-ai-label">Gambar hiasan</span></div>', 1)
+
+    asked = {"cards": [], "hero": 0}
+
+    async def vision(messages):
+        content = messages[0]["content"]
+        text = content[0]["text"]
+        if "ONE menu card" in text:
+            for part in content[2::2]:
+                import base64
+                im = Image.open(io.BytesIO(base64.b64decode(part["image_url"]["url"].split(",", 1)[1]))).convert("RGB")
+                asked["cards"].append(im.getpixel((im.size[0] // 2, im.size[1] // 2)))
+            return json.dumps({"mismatches": []})
+        if "hero (top banner)" in text:
+            asked["hero"] += 1
+            return json.dumps({"matches": False, "shows": "a burger and fries", "reason": "the shop sells ayam gepuk"})
+        return json.dumps({"issues": [{"type": "cutoff", "where": "menu", "detail": "card cut off at the bottom edge of the screen", "severity": "high"}], "overall": "fail"})
+
+    req = fixture["request"]
+    out, rep = asyncio.run(gate_with_recovery(
+        html, expect_map=False, expect_whatsapp=True, item_names=[i["name"] for i in req["menu_items"]], call_vision=vision,
+        business={"name": req["business_name"], "type": req["business_type"], "description": req["description"],
+                  "items": [i["name"] for i in req["menu_items"]]},
+    ))
+    if not rep.rendered:
+        pytest.skip(rep.error)
+    assert rep.passed, rep.summary()
+    assert "photo_free_hero" in rep.fixes and asked["hero"] == 1
+    assert 'class="bs-hero bs-hero-solid"' in out and "burger.png" not in out
+    assert "ayam.png" in out and "teh.png" in out
+    # Both card photos were drawn when they were cropped (their colour, not
+    # the grey placeholder box).
+    assert asked["cards"][:2] == [(20, 160, 60), (30, 60, 200)]

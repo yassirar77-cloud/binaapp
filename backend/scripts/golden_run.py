@@ -9,7 +9,8 @@ and every artefact is written out:
     <out>/<name>/mobile.png       390 px full-page screenshot
     <out>/<name>/desktop.png      1280 px full-page screenshot
     <out>/<name>/gate.json        the visual gate report
-    <out>/<name>/checks.json      structural checks (items, prices, facts, slots)
+    <out>/<name>/checks.json      structural checks (items, prices, facts, slots,
+                                  and the hero photo prompt: about this merchant)
     <out>/<name>/diff.png|json    pixel diff against tests/golden/baseline/<name>-mobile.png
     <out>/summary.json, summary.md
 
@@ -178,6 +179,28 @@ def structural_checks(html: str, fixture: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def hero_prompt_check(fixture: Dict[str, Any], service=None) -> Dict[str, Any]:
+    """The prompt the hero photo is generated from, for this merchant, must
+    be about this merchant: none of ``expect.hero_forbid`` (agp's hero was a
+    burger and fries from the design direction's example subject, and its
+    menu labels were lettered into the picture), and at least one of
+    ``expect.hero_require`` (case-insensitive). No model call: it is the
+    plan the pipeline falls back to, with the merchant's items."""
+    from app.models.schemas import WebsiteGenerationRequest
+    from app.services import ai_service as svc
+    expect = fixture.get("expect", {})
+    req = WebsiteGenerationRequest(**fixture["request"])
+    service = service or svc.AIService()
+    language = req.language.value if hasattr(req.language, "value") else str(req.language)
+    prompt = service._hero_cue_for(req, getattr(req, "color_mode", "light") or "light", "en" if language.endswith("en") else "ms") or ""
+    low = prompt.lower()
+    forbidden = [w for w in expect.get("hero_forbid", []) if w.lower() in low]
+    required = expect.get("hero_require", [])
+    has_required = (not required) or any(w.lower() in low for w in required)
+    return {"ok": bool(prompt) and not forbidden and has_required, "prompt": prompt, "forbidden_found": forbidden,
+            "required_any": required, "required_found": has_required}
+
+
 # ---------------------------------------------------------------------------
 # Screenshot diff
 # ---------------------------------------------------------------------------
@@ -232,6 +255,10 @@ async def run_fixture(fixture: Dict[str, Any], *, mode: str, out_dir: Path, base
     (target / "site.html").write_text(html, encoding="utf-8")
     result["build"] = info
     structural = structural_checks(html, fixture)
+    hero = hero_prompt_check(fixture, service)
+    structural["checks"]["hero_prompt_on_subject"] = hero["ok"]
+    structural["hero_prompt"] = hero
+    structural["ok"] = structural["ok"] and hero["ok"]
     (target / "checks.json").write_text(json.dumps(structural, indent=1, ensure_ascii=False), encoding="utf-8")
     result["structural"] = structural
     req = fixture["request"]
@@ -242,6 +269,8 @@ async def run_fixture(fixture: Dict[str, Any], *, mode: str, out_dir: Path, base
         html, expect_map=bool(req.get("include_maps", True) and req.get("location_address")),
         expect_whatsapp=bool(req.get("whatsapp_number")), item_names=[i["name"] for i in (req.get("menu_items") or [])],
         language=req.get("language", "ms"), call_vision=call_vision, desktop_full_page=True,
+        business={"name": req.get("business_name"), "type": req.get("business_type"), "description": req.get("description"),
+                  "items": [i["name"] for i in (req.get("menu_items") or [])]},
     )
     (target / "gate.json").write_text(json.dumps(gate.as_dict(), indent=1, ensure_ascii=False), encoding="utf-8")
     if gate.mobile_png:

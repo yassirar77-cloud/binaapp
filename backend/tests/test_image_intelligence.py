@@ -77,7 +77,10 @@ def test_apply_section_crops_and_uploaded_list():
 def test_direction_hero_cue_is_dish_specific_and_merchant_led():
     cue = ii.direction_hero_cue(image_cue="close-up plated Malaysian dishes on a steel counter", vertical="food", theme="bright",
                                 item_names=["Ayam Goreng Berempah", "Kari Kepala Ikan"])
-    assert cue.startswith("featuring Ayam Goreng Berempah, Kari Kepala Ikan")
+    # The items as plain dishes (a menu name gets lettered into the photo);
+    # the direction's own example subject only when there are no items.
+    assert cue.startswith("a generous spread of fried chicken berempah and fish head curry")
+    assert "steel counter" not in cue and "Kari Kepala Ikan" not in cue
     assert "daylight" in cue and "no people" in cue
     led = ii.direction_hero_cue(image_cue="x", vertical="food", theme="dark", item_names=[], merchant_prompt="Sate di atas arang, asap")
     assert led.startswith("Sate di atas arang, asap") and "evening light" in led

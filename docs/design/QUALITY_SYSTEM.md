@@ -65,20 +65,40 @@ SEO and quality-floor passes still run as safety nets.
   `overflow: hidden`, or text wider than its box);
 - contrast ≥ 4.5:1 on every text node (computed colour vs. the effective
   background, images counted as dark);
-- every `<img>` loads (`naturalWidth > 0` or `complete && naturalWidth`);
+- every `<img>` loads. The page is walked a screen at a time, every image
+  is made eager, awaited (up to `VISUAL_GATE_IMAGE_WAIT_MS`) and
+  **decoded** before the screenshot: the first live agp screenshot showed
+  every menu card as an empty box, because a `decoding="async"` image had
+  loaded but not been drawn. A download that failed is broken (dropped);
+  one still arriving is slow (`images_drawn`, soft — never dropped);
 - every CTA button has an icon and a label;
 - the map iframe is visible with both buttons when an address was given.
 
-Then a vision review of the mobile screenshot by `qwen3-vl-plus` with a
-fixed rubric: *any overlapping, tilted, cut-off or unreadable elements?
-any photo that does not match its item name?* The reply is JSON
-(`issues[]`, `photo_mismatches[]`); a deterministic check always wins over
-the model's opinion where they disagree.
+Then `qwen3-vl-plus` answers three questions at once:
+
+1. **The page**, as overlapping slices of the mobile screenshot (1400 px
+   tall, 250 px shared with the next, up to 10 slices — a 10,000 px page is
+   covered to the end): overlapping, tilted, cut-off or unreadable elements.
+   A cut-off fails the gate only when the browser measured clipping or
+   overflow too. Back-to-back slices cut mamak's menu cards in two and the
+   model failed a good page for "cut off at the bottom edge".
+2. **Each menu card's own photo** (one crop per card, after its name)
+   against its own name. A mismatch drops that photo. On the full page the
+   model blamed agp's burger hero on all seven cards ("same burger photo
+   used") and seven good photos were dropped.
+3. **The hero photo against the business** (name, type, brief, items). A
+   mismatch swaps in the photo-free hero (`bs-hero-solid` for a composed
+   page; a freeform hero loses its photo and takes the primary colour).
+
+A deterministic check always wins over the model's opinion where they
+disagree.
 
 **On failure.** Auto-fix through the existing guards (contrast guard,
 broken-image fix, overflow fixes, strip docking) and re-render once; if
-still failing, regenerate once (freeform) or recompose with the safe
-theme (composed); if still failing, the job fails with a merchant-facing
+still failing, regenerate once — with the first build's images
+(`generate_website(reuse_images=response.image_bundle)`: a composed page
+redoes only plan, copy and composition, ~20 s instead of the 4–5 minute
+image phase), its progress reported in the 93–98 % band; if still failing, the job fails with a merchant-facing
 "Sila cuba lagi" and a `VISUAL_GATE_FAIL` log line carrying the check
 names. `VISUAL_GATE_MODE=enforce|warn|off` (default `enforce`; `warn` for
 sandboxes with no network). Never ship a page that fails the gate.
@@ -138,8 +158,32 @@ branch protection's required checks (a repo setting, not code).
 | Set-meal photo as a whole roast chicken / live roosters (3fa99a3, db0c0ee) | S2 vision review photo-vs-name rubric (removes the photo) |
 | Signature card without a badge (3b0554d) | S1 (menu block, unchanged); S3 golden agp |
 | Image text check silently "pass (unchecked)" on a 404 model (e941c0e) | S2 logs a model failure as a gate warning; S3 nightly fails if the vision step never answers |
+| Burger-and-fries hero on agp (first live build, Standard) | hero prompt from the merchant's dishes, not the direction's example; S2 hero-vs-business check → photo-free hero; S3 `hero_prompt_on_subject` + the burger-hero browser test |
+| Seven good agp card photos dropped for the hero's burger | S2 judges each card's own crop against its own name |
+| mamak failed for menu cards "cut off" at slice edges | S2 overlapping slices; a cut-off needs the measurements to agree |
+| Card photos blank in the gate screenshot | S2 waits for every image to load and decode; slow ≠ broken |
 | Place name used as the map address (6dd0e9a) | S1 spec uses the resolved address; S3 golden checks the full address |
 | Interrupted job left hanging (bff1081) | not a design bug; out of scope |
+
+## Build time
+
+Live agp build on Standard, 2026-11-08 (`TIMING BREAKDOWN`): 362 s of
+generation, of which **352 s were images** (8 Z.ai images, one at a time,
+~40 s each, the last one cut over to Stability by the 300 s budget), 6 s the
+plan, 3 s the copy, 0.01 s the composition; then 47 s in the gate (two
+renders and two reviews). mamak: 242 s + a gate regeneration that redid the
+whole image phase (304 s). The progress bar's drop from 93 % to 25 % during
+that regeneration looked like a worker restart; the logs show one instance,
+no restart, memory flat at 185–231 MB of 2 GB.
+
+| step | before | now |
+|---|---|---|
+| images (8) | 250–352 s (Z.ai serial) | ~80–100 s: two on Z.ai, the rest on Stability in parallel (`IMAGE_PHASE_TARGET_SECONDS`) |
+| image checks | ~2 s each, one after another | in parallel (~3 s) |
+| plan + copy + compose | ~10 s | ~10 s |
+| gate | 30–80 s | ~30–60 s (three reviews at once) |
+| gate regeneration | full rebuild, 270–300 s | images reused: plan + copy + compose + gate, ~40–60 s |
+| **total** | **7–10 min** | **~2.5–3.5 min** |
 
 ## Effort
 
@@ -159,7 +203,12 @@ branch protection's required checks (a repo setting, not code).
 | `VISUAL_GATE_MODE` | `enforce` | `enforce`: a failing page never ships (auto-fix → regenerate once → fail the job); `warn`: report only; `off`: no browser |
 | `VISUAL_GATE_VISION_MODEL` | `qwen3-vl-plus` | the reviewer on DashScope (`QWEN_API_KEY`); GLM-4.5V on Z.ai is the fallback |
 | `VISUAL_GATE_RENDER_TIMEOUT_SECONDS` / `VISUAL_GATE_VISION_TIMEOUT_SECONDS` | `40` / `60` | per-render and per-review caps |
-| `VISUAL_GATE_VISION_TILES` | `6` | how many 1200 px-tall slices of the mobile screenshot the reviewer sees |
+| `VISUAL_GATE_VISION_TILES` | `10` | how many slices of the mobile screenshot the reviewer sees |
+| `VISUAL_GATE_TILE_HEIGHT` / `VISUAL_GATE_TILE_OVERLAP` | `1400` / `250` | slice height and the part each slice shares with the next |
+| `VISUAL_GATE_CARD_PHOTOS` | `16` | menu cards whose photo is judged on its own |
+| `VISUAL_GATE_IMAGE_WAIT_MS` | `15000` | how long one image may take to arrive before the screenshot |
+| `IMAGE_PHASE_TARGET_SECONDS` | `100` | the image phase's target: an image whose turn in the one-at-a-time Z.ai queue would end later goes to Stability at once (parallel, ~5–10 s). `0` = every image waits for Z.ai (the old behaviour; agp's 8 images took 352 s) |
+| `ZAI_IMAGE_EXPECTED_SECONDS` | `40` | first guess at one Z.ai image; the build's own measured mean replaces it |
 | `PLAYWRIGHT_CHROMIUM_EXECUTABLE` | unset | a Chromium binary for the gate when Playwright's own download is unavailable |
 | `PLAYWRIGHT_BROWSERS_PATH` | Render: `/opt/render/project/src/backend/.playwright-browsers` | where `build.sh` installs the Chromium headless shell. It must be inside the project folder: Render discards anything else between the build and the running service |
 | `BROWSER_MIN_FREE_MB` | `450` | free container memory required before Chromium is launched; below it the gate is skipped (`VISUAL_GATE_SKIPPED_MEMORY`) instead of risking an out-of-memory restart |

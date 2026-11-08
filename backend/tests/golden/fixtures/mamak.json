@@ -36,5 +36,5 @@
       {"name": "Sirap Bandung", "price": "3.00", "category": "Minuman"}
     ]
   },
-  "expect": {"min_items": 18, "chips": 0, "banners": 1, "coming_soon": 0, "map": true, "vertical": "food", "is_24h": true}
+  "expect": {"min_items": 18, "chips": 0, "banners": 1, "coming_soon": 0, "map": true, "vertical": "food", "is_24h": true, "hero_forbid": ["burger", "fries", "kraft paper"], "hero_require": ["roti"]}
 }
