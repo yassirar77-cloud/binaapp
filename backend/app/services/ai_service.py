@@ -15,7 +15,7 @@ from urllib.parse import quote, urlsplit
 from collections import Counter
 from contextlib import contextmanager
 from loguru import logger
-from typing import Optional, List, Dict, Tuple, Callable, Awaitable
+from typing import Optional, List, Dict, Tuple, Callable, Awaitable, Sequence
 from app.models.schemas import WebsiteGenerationRequest, AIGenerationResponse
 from app.services.business_types import (
     detect_business_type,
@@ -314,6 +314,25 @@ def image_check_enabled() -> bool:
 def design_critique_enabled() -> bool:
     raw = os.getenv("DESIGN_CRITIQUE_ENABLED", "true").strip().lower()
     return raw in ("1", "true", "yes", "on")
+
+
+# Page mode (quality system, stage 1). "deterministic": code composes every
+# structural section (nav, hero, options strip, info banners, menu slot,
+# coming soon, about, location, contact, footer) from the merchant's data;
+# the design plan supplies the theme and one small model call writes the
+# copy. "freeform": the model writes the whole page and the post-generation
+# guards patch it (the pre-stage-1 pipeline, kept behind this flag).
+PAGE_MODE_DETERMINISTIC = "deterministic"
+PAGE_MODE_FREEFORM = "freeform"
+AI_COPY_TIMEOUT_SECONDS = float(os.getenv("AI_COPY_TIMEOUT_SECONDS", "45"))
+AI_COPY_MAX_TOKENS = int(os.getenv("AI_COPY_MAX_TOKENS", "900"))
+AI_COPY_TEMPERATURE = float(os.getenv("AI_COPY_TEMPERATURE", "0.7"))
+
+
+def page_mode() -> str:
+    """Read at call time so env flips and test patches take effect."""
+    raw = os.getenv("BINAAPP_PAGE_MODE", PAGE_MODE_DETERMINISTIC).strip().lower()
+    return PAGE_MODE_FREEFORM if raw in ("freeform", "ai", "llm", "legacy") else PAGE_MODE_DETERMINISTIC
 
 # Output-budget contract, appended to every HTML-generating system prompt
 # (designer mode, the _call_deepseek default, and GLM).
@@ -8149,6 +8168,201 @@ IMPORTANT RULES:
             logger.warning(f"🍽️ Menu fidelity skipped: {err}")
             return html
 
+    # ------------------------------------------------------------------
+    # Composed pages (quality system, stage 1)
+    # ------------------------------------------------------------------
+
+    async def _call_copy_model(self, prompt: str) -> Optional[str]:
+        """One small text call for the page copy: DeepSeek flash, then GLM,
+        then Qwen. Returns the raw reply or None; never raises."""
+        from app.services.sections.copy import COPY_SYSTEM_PROMPT
+        raw = None
+        try:
+            if self.deepseek_api_key:
+                raw = await self._call_deepseek(
+                    prompt, temperature=AI_COPY_TEMPERATURE, model=self.deepseek_model,
+                    system_prompt=COPY_SYSTEM_PROMPT, max_tokens=AI_COPY_MAX_TOKENS,
+                )
+            if not raw and self.zai_api_key:
+                raw = await self._call_glm(
+                    prompt, temperature=AI_COPY_TEMPERATURE, system_prompt=COPY_SYSTEM_PROMPT,
+                    max_tokens=AI_COPY_MAX_TOKENS,
+                )
+            if not raw and self.qwen_api_key:
+                raw = await self._call_qwen(
+                    COPY_SYSTEM_PROMPT + "\n\n" + prompt, temperature=AI_COPY_TEMPERATURE, max_tokens=AI_COPY_MAX_TOKENS,
+                )
+        except Exception as err:
+            logger.warning(f"✍️ Copy model failed: {err}")
+        return raw
+
+    async def _write_copy(self, spec, *, timeout: Optional[float] = None):
+        """The page copy as a validated ``Copy``; the deterministic fallback
+        when no model answers in time. Never raises."""
+        from app.services.sections.copy import build_copy_prompt, fallback_copy, parse_copy
+        prompt = build_copy_prompt(spec)
+        raw = None
+        try:
+            raw = await asyncio.wait_for(self._call_copy_model(prompt), timeout=timeout or AI_COPY_TIMEOUT_SECONDS)
+        except asyncio.TimeoutError:
+            logger.warning(f"✍️ Copy step timed out after {timeout or AI_COPY_TIMEOUT_SECONDS:.0f}s — using fallback copy")
+        except Exception as err:
+            logger.warning(f"✍️ Copy step failed ({err}) — using fallback copy")
+        copy = parse_copy(raw, spec) if raw else fallback_copy(spec)
+        if copy.rejected:
+            logger.info(f"✍️ Copy fields rejected (invented facts / placeholders): {copy.rejected}")
+        logger.info(f"✍️ Copy ({copy.source}): headline={copy.headline!r} sub={copy.subheadline[:60]!r}")
+        self._last_copy = copy.as_dict()
+        return copy
+
+    def _composed_spec_and_theme(
+        self,
+        request: WebsiteGenerationRequest,
+        *,
+        image_urls: Optional[Dict],
+        plan: Optional[DesignPlan],
+        color_mode: str,
+        language: str,
+        image_choice: str,
+        poster_uploads: Sequence[str] = (),
+    ):
+        """The ``SiteSpec`` (merchant data + item photos) and the repaired
+        ``Theme`` (from the plan) a composed page is built from."""
+        from app.services.sections import build_spec, theme_from_plan
+        wa_digits = self._normalize_wa_digits(request.whatsapp_number)
+        urls = dict(image_urls or {}) if image_choice != "none" else {}
+        items = _mf.normalize_items(self._normalize_supplied_menu_items(getattr(request, "menu_items", None)))
+        if items and urls:
+            items, _n_photos = _mf.attach_item_images(
+                items, self._menu_item_image_pairs(request, urls), ai_urls=getattr(self, "_ai_image_urls", None) or (),
+            )
+            if _n_photos:
+                logger.info(f"🍽️ Composed menu: {_n_photos} item(s) carry their generated/uploaded photo")
+        spec = build_spec(
+            request, image_urls=urls, items=items, ai_image_urls=getattr(self, "_ai_image_urls", None) or (),
+            poster_urls=poster_uploads, wa_digits=wa_digits, language=language, color_mode=color_mode,
+        )
+        theme = theme_from_plan(
+            plan, color_mode=color_mode, design_style=getattr(request, "design_style", None),
+            brand_colors=getattr(request, "colors", None),
+        )
+        self._last_theme = theme.as_dict()
+        self._last_site_spec = spec.as_dict()
+        self._menu_photo_urls = [it.image_url for it in items if it.image_url]
+        return spec, theme
+
+    def _compose_html(self, spec, theme, copy, *, request: WebsiteGenerationRequest, language: str) -> str:
+        """Compose the document and fill the menu slot. The maps / contact /
+        WhatsApp slots are filled by ``TemplateService.inject_integrations``
+        in the job worker, exactly as for a model-written page."""
+        from app.services.sections import compose_page
+        from app.services.whatsapp_prefill import enrich_order_links, order_prefill_for
+        html = compose_page(spec, theme, copy, description=request.description)
+        self._last_menu_fidelity = None
+        if spec.items:
+            prefill = order_prefill_for(getattr(request, "description", ""), language, business_type="food")
+            block = _mf.render_menu_block(
+                spec.items, language=language, wa_digits=spec.wa_digits, show_prices=spec.show_prices,
+                order_prefill=prefill, variant=("outline" if theme.variant == "outline" else "default"),
+            )
+            html, filled = _mf.fill_menu_slot(html, block)
+            logger.info(f"🍽️ Composed menu block: {len(spec.items)} items {'rendered' if filled else 'SLOT MISSING'}")
+            html, _n_links = enrich_order_links(html, getattr(request, "description", ""), language, items=spec.items)
+            self._last_menu_fidelity = {
+                "supplied": len(spec.items), "matched": len(spec.items), "removed": 0, "corrected": 0,
+                "appended": 0, "deterministic": True, "composed": True,
+            }
+        return html
+
+    async def _generate_composed(
+        self,
+        request: WebsiteGenerationRequest,
+        *,
+        image_urls: Optional[Dict],
+        plan: Optional[DesignPlan],
+        color_mode: str,
+        language: str,
+        image_choice: str,
+        ai_images_generated: int,
+        poster_uploads: Sequence[str],
+        step_timings: Dict[str, float],
+        step_outcomes: Dict[str, str],
+        update_progress,
+        start_time: float,
+    ) -> AIGenerationResponse:
+        """generate_website's tail for a COMPOSED page: spec + theme → copy →
+        compose → menu block → brief-fact check → branding → SEO → quality
+        floor → validation (no model repair). Nothing here rewrites layout."""
+        import time
+        self._last_plan_gate = None
+        self._last_hierarchy = None
+        spec, theme = self._composed_spec_and_theme(
+            request, image_urls=image_urls, plan=plan, color_mode=color_mode, language=language,
+            image_choice=image_choice, poster_uploads=poster_uploads,
+        )
+        logger.info(
+            f"🧩 Composing page [mode={PAGE_MODE_DETERMINISTIC}] vertical={spec.vertical} items={len(spec.items)} "
+            f"chips={len(spec.option_chips)} banners={len(spec.banners)} coming_soon={len(spec.coming_soon)} "
+            f"theme={theme.variant}/{'dark' if theme.dark else 'light'} primary={theme.primary} "
+            f"fonts={theme.display_font}+{theme.body_font} repairs={theme.repairs or 'none'}"
+        )
+        await update_progress(55, "Writing the copy")
+        with _timed_step("copy", step_timings, step_outcomes):
+            copy = await self._write_copy(spec)
+        await update_progress(70, "Composing the page")
+        with _timed_step("compose", step_timings, step_outcomes):
+            html = self._compose_html(spec, theme, copy, request=request, language=language)
+        # Safety nets that read the page rather than write layout.
+        html = self._enforce_brief_facts(html, request, language)
+        html = self._sanitize_sensitive_claims(html, request, image_urls)
+        try:
+            from app.services.branding import apply_branding
+            html, _brand = apply_branding(
+                html, business_name=request.business_name, primary=theme.primary, logo_url=getattr(request, "logo", None),
+            )
+            logger.info(f"🏷️ Branding applied: {_brand.as_dict()}")
+        except Exception as _brand_err:
+            logger.warning(f"🏷️ Branding skipped: {_brand_err}")
+        html = self._inject_seo_metadata(
+            html, request, image_urls if image_choice != "none" else None, operating_hours=self._structured_hours_for(request),
+        )
+        try:
+            html, _floor = apply_quality_floor(html, language=language)
+            if _floor.applied:
+                logger.info(f"🧱 Quality floor applied: {_floor.applied}")
+        except Exception as _floor_err:
+            logger.warning(f"⚠️ Quality floor skipped: {_floor_err}")
+        await update_progress(85, "Checking the page against your brief")
+        with _timed_step("validation", step_timings, step_outcomes):
+            # prompt="" → validate only; a composed page is never "repaired"
+            # by a model rewrite.
+            html, validation = await self._validate_and_repair(html, request, prompt="", model="composer")
+        total_time = time.time() - start_time
+        logger.info(f"✅ COMPOSED PAGE COMPLETE — {len(html)} chars in {total_time:.1f}s")
+        self._log_timing_breakdown(step_timings, total_time)
+        await update_progress(90, "Finalizing website")
+        if request.include_ecommerce:
+            integrations = ["Delivery System (to be injected)", "WhatsApp Contact", "Mobile Responsive", "Cloudinary Images"]
+        else:
+            integrations = ["WhatsApp", "Contact Form", "Mobile Responsive", "Cloudinary Images"]
+        from app.services.sections.compose import section_order
+        return AIGenerationResponse(
+            html_content=html,
+            css_content=None,
+            js_content=None,
+            meta_title=request.business_name,
+            meta_description=f"{request.business_name} - {request.description[:150]}",
+            sections=[n.replace("_", " ").title() for n in section_order(spec)],
+            integrations_included=integrations,
+            ai_images_count=ai_images_generated,
+            validation_ok=validation.ok,
+            validation_errors=validation.error_messages(),
+            validation_warnings=[str(w) for w in validation.warnings],
+            step_timings=step_timings,
+            step_outcomes=step_outcomes,
+            menu_fidelity=getattr(self, "_last_menu_fidelity", None),
+        )
+
     def _inject_seo_metadata(
         self,
         html: str,
@@ -9762,6 +9976,27 @@ IMPORTANT RULES:
         # What the page is being generated IN. _enforce_design_constraints
         # holds the output to this, never to the raw toggle (see there).
         self._last_color_mode = color_mode
+
+        # Stage 1 of the quality system: the page is COMPOSED from the
+        # merchant's data; the model only chose the theme (plan above) and
+        # writes the copy. No model-written layout, so none of the regex
+        # guards below are needed. Freeform generation stays behind the flag.
+        if page_mode() == PAGE_MODE_DETERMINISTIC:
+            return await self._generate_composed(
+                request,
+                image_urls=image_urls,
+                plan=plan,
+                color_mode=color_mode,
+                language=language,
+                image_choice=image_choice,
+                ai_images_generated=ai_images_generated,
+                poster_uploads=_poster_uploads,
+                step_timings=step_timings,
+                step_outcomes=step_outcomes,
+                update_progress=update_progress,
+                start_time=start_time,
+            )
+
         prompt = self._build_strict_prompt(
             request.business_name,
             request.description,
@@ -10687,6 +10922,30 @@ IMPORTANT INSTRUCTIONS:
 
         variants: List[Dict] = []
         wa_digits = self._normalize_wa_digits(request.whatsapp_number)
+        if page_mode() == PAGE_MODE_DETERMINISTIC:
+            # Composed previews: one copy call, then every plan's theme on
+            # the same sections — seconds, not three HTML generations, and
+            # what the merchant picks is exactly what the final build renders.
+            await _progress(45, "Writing the copy")
+            spec, _ = self._composed_spec_and_theme(
+                request, image_urls=image_urls, plan=plans[0], color_mode=color_mode, language=language,
+                image_choice=("upload" if uploaded else "none"),
+            )
+            copy = await self._write_copy(spec, timeout=min(AI_COPY_TIMEOUT_SECONDS, 30.0))
+            from app.services.sections import theme_from_plan
+            for i, plan in enumerate(plans):
+                await _progress(60 + i * 10, f"Composing preview {i + 1} of {len(plans)}: {plan.direction_name}")
+                theme = theme_from_plan(plan, color_mode=color_mode, design_style=getattr(request, "design_style", None),
+                                        brand_colors=getattr(request, "colors", None))
+                html = self._compose_html(spec, theme, copy, request=request, language=language)
+                html, _ = apply_quality_floor(html, language=language)
+                variants.append({
+                    "style": plan.direction, "name": plan.direction_name, "description": plan.why,
+                    "html": html, "plan": plan.as_dict(), "lint": {"ok": True, "errors": [], "composed": True},
+                    "theme": theme.as_dict(),
+                })
+                logger.info(f"✅ Composed preview {i + 1}: {plan.direction_name} ({len(html)} chars, {theme.variant})")
+            return variants
         for i, plan in enumerate(plans):
             await _progress(45 + i * 15, f"Building preview {i + 1} of {len(plans)}: {plan.direction_name}")
             concept = plan.to_concept(language)
