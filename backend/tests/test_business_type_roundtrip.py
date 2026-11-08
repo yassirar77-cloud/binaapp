@@ -25,6 +25,8 @@ from unittest.mock import patch, MagicMock, AsyncMock
 
 import pytest
 
+from tests.conftest import generation_auth
+
 SALON_DESC = (
     "Nadira Hair Studio ialah salon rambut & spa kepala untuk wanita di Shah Alam. "
     "Kami khusus dalam colouring dan hair treatment - balayage, korean perm dan "
@@ -97,7 +99,7 @@ class TestEndpointHandsTheVerticalToTheTask:
             patch("app.main.sub_service.check_limit",
                   new=AsyncMock(return_value={"allowed": True})),
         ):
-            resp = client.post("/api/generate/start", json=body)
+            resp = client.post("/api/generate/start", json=body, headers=generation_auth(body.get("user_id") or "u-1"))
         return resp, captured
 
     def test_explicit_business_type_and_hero_prompt_reach_the_task(self, client):
