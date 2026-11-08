@@ -72,3 +72,17 @@ class TestPageLabels:
         assert "Gambar hiasan" not in out[out.index('id="gallery"'):]
         assert out.count("Gambar hiasan") == 3  # menu card + hero + about
         assert label_ai_images(out, ai) == (out, 0)
+
+
+def test_ai_photo_as_css_background_is_labelled():
+    page = ("<html><head><style>.hero-image { background-image: url('" + HERO_AI + "'); background-size: cover; }</style></head>"
+            '<body><section id="hero" class="relative hero-image min-h-[70vh] flex"><h1>AGP</h1></section>'
+            '<div class="card" style="background-image:url(https://res.cloudinary.com/demo/image/upload/v1/ai_about.png)">x</div>'
+            '</body></html>')
+    ai = ["https://res.cloudinary.com/demo/image/upload/v1/ai_hero.jpg", "https://res.cloudinary.com/demo/image/upload/v1/ai_about.png"]
+    out, n = label_ai_images(page, ai)
+    assert n == 2
+    assert '<section id="hero" class="relative hero-image min-h-[70vh] flex"><span class="binaapp-ai-label" style="position:absolute;right:.5rem;top:.5rem' in out
+    # Not positioned before: made relative so the label sits on it.
+    assert '<div class="card" style="position:relative;background-image:url(' in out
+    assert label_ai_images(out, ai) == (out, 0)

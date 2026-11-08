@@ -359,11 +359,15 @@ class SupabaseService:
             traceback.print_exc()
             return None
     
-    async def select_records(self, table: str, filters: Optional[Dict[str, Any]] = None) -> Optional[list]:
-        """Select records from a table"""
+    async def select_records(
+        self, table: str, filters: Optional[Dict[str, Any]] = None, columns: Optional[str] = None,
+    ) -> Optional[list]:
+        """Select records from a table (``columns``: a PostgREST select list)."""
         try:
             url = f"{self.url}/rest/v1/{table}"
             params = {}
+            if columns:
+                params["select"] = columns
             
             if filters:
                 for key, value in filters.items():
@@ -383,10 +387,10 @@ class SupabaseService:
             print(f"❌ Select error: {str(e)}")
             return None
     
-    async def get_user_websites(self, user_id: str) -> Optional[list]:
-        """Get all websites for a user"""
+    async def get_user_websites(self, user_id: str, columns: Optional[str] = None) -> Optional[list]:
+        """Get all websites for a user (all columns unless ``columns`` is given)"""
         try:
-            return await self.select_records("websites", {"user_id": user_id})
+            return await self.select_records("websites", {"user_id": user_id}, columns=columns)
         except Exception as e:
             print(f"❌ Get user websites error: {str(e)}")
             return []

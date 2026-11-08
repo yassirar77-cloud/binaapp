@@ -22,6 +22,9 @@ _PHONE_RE = re.compile(
 _SKIP_RE = re.compile(r"<(a|script|style|textarea|option)\b[^>]*>.*?</\1>|<[^>]+>|<!--.*?-->", re.IGNORECASE | re.DOTALL)
 
 
+_WA_LABEL_RE = re.compile(r"whats\s*app\s*[:：-]?\s*$", re.IGNORECASE)
+
+
 def linkify_phones(html: str, known_digits: Optional[Iterable[str]] = None) -> Tuple[str, int]:
     """Wrap bare phone numbers in tel: links. ``known_digits`` (digit-only,
     60-prefixed) limits linking to the merchant's own numbers when given;
@@ -41,6 +44,10 @@ def linkify_phones(html: str, known_digits: Optional[Iterable[str]] = None) -> T
             if not digits or (wanted and digits not in wanted):
                 return m.group(0)
             added += 1
+            # A number the page labels as WhatsApp ("WhatsApp: 012-697 3105")
+            # opens WhatsApp, not a phone call (agp's footer).
+            if _WA_LABEL_RE.search(segment[max(0, m.start() - 24):m.start()]):
+                return f'<a href="https://wa.me/{digits}" class="binaapp-wa" style="text-decoration:inherit;color:inherit">{m.group(1)}</a>'
             return f'<a href="tel:+{digits}" class="binaapp-tel" style="text-decoration:inherit;color:inherit">{m.group(1)}</a>'
 
         return _PHONE_RE.sub(_sub, segment)
@@ -171,4 +178,40 @@ def add_call_links(html: str, wa_digits: str, *, language: str = "ms") -> Tuple[
         out = out[:insert_at] + call + out[insert_at:]
         pos = end + len(call)
         added += 1
+    return out, added
+
+
+# ---------------------------------------------------------------------------
+# WhatsApp buttons carry the WhatsApp icon
+# ---------------------------------------------------------------------------
+
+_WA_LINK_RE = re.compile(
+    r"(<a\b[^>]*href=[\"']https?://(?:api\.)?(?:wa\.me|whatsapp\.com)/[^\"']*[\"'][^>]*>)(.*?)(</a>)",
+    re.IGNORECASE | re.DOTALL,
+)
+WA_ICON = '<i class="fa-brands fa-whatsapp" aria-hidden="true"></i>'
+
+
+def ensure_whatsapp_icons(html: str) -> Tuple[str, int]:
+    """A link that SAYS WhatsApp ("WhatsApp Kami", "Pesan di WhatsApp") gets
+    the WhatsApp icon when it has no icon or image of its own. agp's
+    'WhatsApp Kami' button came out bare in one generation and with the
+    icon in the next. Per-item 'Pesan' links and a footer line that only
+    prints the number are left alone. Idempotent. Returns (html, added)."""
+    if not html:
+        return html, 0
+    added = 0
+
+    def _sub(m: "re.Match") -> str:
+        nonlocal added
+        inner = m.group(2)
+        text = re.sub(r"<[^>]+>", " ", inner)
+        if not re.search(r"\bwhats\s*app\b", text, re.IGNORECASE):
+            return m.group(0)
+        if re.search(r"<(?:i|svg|img)\b", inner, re.IGNORECASE):
+            return m.group(0)
+        added += 1
+        return f"{m.group(1)}{WA_ICON} {inner.lstrip()}{m.group(3)}"
+
+    out = _WA_LINK_RE.sub(_sub, html)
     return out, added
