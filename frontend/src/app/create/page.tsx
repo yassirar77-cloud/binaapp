@@ -1365,9 +1365,17 @@ export default function CreatePage() {
       console.log('  📱 Social Media:', selectedFeatures.socialMedia);
       console.log('==========================================');
 
+      // The backend takes the merchant from this token, never from the
+      // body's user_id/email (anyone could name anyone).
+      const startToken = (await getApiAuthToken()) || getStoredToken()
+      if (!startToken) {
+        setError('Sila log masuk semula untuk menjana website.')
+        setLoading(false)
+        return
+      }
       const startResponse = await fetch(`${DIRECT_BACKEND_URL}/api/generate/start`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${startToken}` },
         body: JSON.stringify({
           description: finalDescription,
           business_description: finalDescription,
@@ -1430,6 +1438,16 @@ export default function CreatePage() {
 
       if (!startResponse.ok) {
         const errorData = await startResponse.json();
+        if (startResponse.status === 401 || errorData.error === 'auth_required') {
+          setError(errorData.message || 'Sila log masuk semula untuk menjana website.')
+          setLoading(false)
+          return
+        }
+        if (startResponse.status === 429 && (errorData.error === 'rate_limited' || errorData.error === 'too_many_running')) {
+          setError(errorData.message || 'Terlalu banyak penjanaan dalam masa singkat. Sila cuba lagi sebentar lagi.')
+          setLoading(false)
+          return
+        }
         if (startResponse.status === 409 && errorData.error === 'location_conflict' && Array.isArray(errorData.location_conflicts)) {
           setLocationConflicts(errorData.location_conflicts)
           setShowLocationModal(true)
@@ -1506,9 +1524,10 @@ export default function CreatePage() {
         setError('')
         setProgress(0)
         refiningRef.current = true
+        const refineToken = (await getApiAuthToken()) || getStoredToken()
         const res = await fetch(`${DIRECT_BACKEND_URL}/api/generate/refine`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...(refineToken ? { Authorization: `Bearer ${refineToken}` } : {}) },
           body: JSON.stringify({ job_id: currentJobId, style: variation.style }),
         })
         const data = await res.json()

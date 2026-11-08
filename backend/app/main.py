@@ -1578,17 +1578,33 @@ def extract_html(text: str) -> str:
 
 
 @app.post("/api/generate-simple")
-async def generate_simple(request: GenerateRequest):
-    """3-Step AI Pipeline with 3 Style Variations"""
+async def generate_simple(request: GenerateRequest, http_request: Request):
+    """3-Step AI Pipeline with 3 Style Variations (legacy; no live caller).
+
+    Same rule as /api/generate/start: the caller comes from the Bearer
+    token, and the body's user_id/email are ignored (an email in the body
+    used to unlock the founder bypass)."""
+    from app.services import generation_access as _access
+
+    identity = await _access.resolve_identity(http_request.headers, {"user_id": request.user_id})
+    if identity is None:
+        return _auth_required_response()
+    _ip = _access.client_ip(http_request.headers, http_request.client.host if http_request.client else None)
+    _is_admin_caller = bool(identity.authenticated and await sub_service._is_admin(identity.user_id))
+    _rate = _access.check_rate(identity, _ip, is_admin=_is_admin_caller)
+    if not _rate.allowed:
+        return JSONResponse(status_code=_rate.status, content=_rate.response_content(),
+                            headers={"Retry-After": str(_rate.retry_after)})
 
     session_id = str(uuid.uuid4())[:8]
 
     desc = request.business_description or request.description or ""
-    user_id = request.user_id or "anonymous"
-    user_email = request.email
+    user_id = identity.user_id
+    user_email = identity.email
 
     if not desc:
         return JSONResponse(status_code=400, content={"success": False, "error": "Description required"})
+    _access.record_start(identity, _ip)
 
     # Legacy in-memory 3/day guard — anonymous/guest traffic only. Logged-in
     # users are governed by the subscription system (websites_limit, admin
@@ -2842,16 +2858,35 @@ async def run_generation_task(
     logger.info(f"🏁 TASK END: {job_id}")
 
 
+def _auth_required_response() -> JSONResponse:
+    from app.services.generation_access import AUTH_REQUIRED_MESSAGE
+    return JSONResponse(
+        status_code=401,
+        content={"success": False, "error": "auth_required", "message": AUTH_REQUIRED_MESSAGE},
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
 @app.post("/api/generate/start")
 async def start_generation(request: Request):
-    """Start async generation using asyncio.create_task"""
+    """Start async generation using asyncio.create_task.
+
+    The caller is the subject of the Bearer token — never the body's
+    user_id/email (see services/generation_access.py)."""
+    from app.services.generation_access import apply_identity, client_ip, resolve_identity
 
     try:
         body = await request.json()
     except Exception as e:
         logger.error(f"❌ Invalid JSON: {e}")
         return JSONResponse(status_code=400, content={"success": False, "error": "Invalid JSON"})
-    return await _start_generation_from_body(body)
+    if not isinstance(body, dict):
+        return JSONResponse(status_code=400, content={"success": False, "error": "Invalid JSON"})
+    identity = await resolve_identity(request.headers, body)
+    if identity is None:
+        return _auth_required_response()
+    ip = client_ip(request.headers, request.client.host if request.client else None)
+    return await _start_generation_from_body(apply_identity(body, identity), identity=identity, client_addr=ip)
 
 
 def _input_payload_for_job(body: dict) -> dict:
@@ -2968,10 +3003,17 @@ async def refine_picked_variant(request: Request):
     merchant chose from a preview job. The new job carries the picked plan
     as preferred_plan so Pass 1 validates it instead of re-planning, and
     the critique loop runs on that plan alone."""
+    from app.services.generation_access import NOT_YOUR_JOB_MESSAGE, apply_identity, client_ip, resolve_identity
+
     try:
         body = await request.json()
     except Exception:
         return JSONResponse(status_code=400, content={"success": False, "error": "Invalid JSON"})
+    if not isinstance(body, dict):
+        return JSONResponse(status_code=400, content={"success": False, "error": "Invalid JSON"})
+    identity = await resolve_identity(request.headers, body)
+    if identity is None:
+        return _auth_required_response()
     job_id = str(body.get("job_id") or "")
     style = str(body.get("style") or "")
     if not job_id or not style:
@@ -2979,6 +3021,12 @@ async def refine_picked_variant(request: Request):
     job = await get_job_from_supabase(job_id)
     if not job:
         return JSONResponse(status_code=404, content={"success": False, "error": "Job not found"})
+    # A preview job id is not a capability: only the merchant who ran the
+    # preview (or an admin) may spend a full build on it.
+    _owner = str(job.get("user_id") or "")
+    if _owner != identity.user_id and not (identity.authenticated and await sub_service._is_admin(identity.user_id)):
+        logger.warning(f"🔐 GENERATE_REFINE_NOT_OWNER job={job_id[:8]} owner={_owner!r} caller={identity.user_id!r}")
+        return JSONResponse(status_code=403, content={"success": False, "error": "not_your_job", "message": NOT_YOUR_JOB_MESSAGE})
     try:
         styles = json.loads(job["styles"]) if isinstance(job.get("styles"), str) else (job.get("styles") or [])
     except Exception:
@@ -2989,12 +3037,29 @@ async def refine_picked_variant(request: Request):
     stash = next((v.get("_request") for v in styles if isinstance(v, dict) and isinstance(v.get("_request"), dict)), None)
     if not stash:
         return JSONResponse(status_code=409, content={"success": False, "error": "This preview job cannot be refined (no request stashed)"})
-    return await _start_generation_from_body(stash, preferred_plan=picked["plan"])
+    ip = client_ip(request.headers, request.client.host if request.client else None)
+    return await _start_generation_from_body(
+        apply_identity(stash, identity), preferred_plan=picked["plan"], identity=identity, client_addr=ip,
+    )
 
 
-async def _start_generation_from_body(body: dict, preferred_plan: Optional[dict] = None):
+async def _start_generation_from_body(
+    body: dict,
+    preferred_plan: Optional[dict] = None,
+    *,
+    identity=None,
+    client_addr: str = "unknown",
+):
     """Shared by /api/generate/start (the create form) and
-    /api/generate/refine (a multi-style pick)."""
+    /api/generate/refine (a multi-style pick). ``identity`` is the verified
+    caller (services/generation_access.Identity); the body's user_id and
+    email are never read for who is asking."""
+    from app.services import generation_access as _access
+    if identity is None:
+        # Internal callers must pass the verified identity; without one the
+        # request is anonymous, never whoever the body names.
+        identity = _access.Identity(user_id=_access.ANONYMOUS, email="", authenticated=False)
+    body = _access.apply_identity(body, identity)
     # Extract parameters
     description = body.get("description") or body.get("business_description") or ""
     # A fill-in the merchant never filled ("Waktu operasi: [ISI — contoh:
@@ -3045,8 +3110,8 @@ async def _start_generation_from_body(body: dict, preferred_plan: Optional[dict]
                          "location_conflicts": [c.as_dict() for c in _conflicts]},
             )
         logger.info(f"📍 Location conflict resolved: {location_fixups}")
-    user_id = body.get("user_id", "anonymous")
-    user_email = body.get("email", "")
+    user_id = identity.user_id
+    user_email = identity.email
     images = body.get("images", [])  # Extract uploaded images
     features = body.get("features") or {}
     image_choice = body.get("image_choice") or body.get("images_choice") or body.get("imageChoice") or "none"
@@ -3378,6 +3443,19 @@ MANDATORY REQUIREMENTS:
         except Exception as _dedupe_err:
             logger.warning(f"⚠️ Debounce check failed (continuing): {_dedupe_err}")
 
+    # Rate limits — before any model is called (services/generation_access).
+    # A debounced duplicate above is not a new start and is never limited.
+    _is_admin_caller = bool(identity.authenticated and await sub_service._is_admin(user_id))
+    _rate = _access.check_rate(identity, client_addr, is_admin=_is_admin_caller)
+    if not _rate.allowed:
+        return JSONResponse(status_code=_rate.status, content=_rate.response_content(),
+                            headers={"Retry-After": str(_rate.retry_after)})
+    _running = _access.count_processing_jobs(supabase, user_id)
+    _conc = _access.check_concurrency(identity, _running, is_admin=_is_admin_caller)
+    if not _conc.allowed:
+        return JSONResponse(status_code=_conc.status, content=_conc.response_content(),
+                            headers={"Retry-After": str(_conc.retry_after)})
+
     # Subscription website limit — hard count from source-of-truth (websites
     # table). Mirrors backend/app/api/v1/endpoints/websites.py:67-183 so both
     # generation entry points enforce independently.
@@ -3557,6 +3635,9 @@ MANDATORY REQUIREMENTS:
                     "success": False,
                     "error": f"Database error: {str(retry_error)}"
                 })
+
+    # The start counts against the limits only now that the job exists.
+    _access.record_start(identity, client_addr)
 
     # Run generation with asyncio (NOT BackgroundTasks!)
     asyncio.create_task(run_generation_task(
