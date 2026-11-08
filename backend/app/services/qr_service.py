@@ -54,6 +54,27 @@ _ERROR_LEVEL = "m"
 _HEX_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 
 
+#: A small QR-code mark drawn in the text colour. The label used to start
+#: with the 📱 emoji, which rendered as an empty box on pages whose fonts
+#: carry no emoji glyph (mamak's footer, first live build on Standard).
+QR_LABEL_ICON = (
+    '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true" focusable="false" '
+    'style="display:inline-block;vertical-align:-3px;margin-right:.45em">'
+    '<path d="M3 3h8v8H3V3zm2 2v4h4V5H5zm8-2h8v8h-8V3zm2 2v4h4V5h-4zM3 13h8v8H3v-8zm2 2v4h4v-4H5zm8-2h2v2h-2v-2zm2 2h2v2h-2'
+    'v-2zm2-2h4v2h-2v2h-2v-4zm-4 4h2v2h2v4h-4v-6zm6 2h2v4h-2v-4z"/></svg>'
+)
+
+
+def qr_label(language: Optional[str] = "ms") -> str:
+    """The "Scan to visit" label: icon + plain text, no emoji."""
+    text = "Scan to Visit" if str(language or "ms").lower().startswith("en") else "Imbas untuk Lawat"
+    return QR_LABEL_ICON + text
+
+
+def qr_label_text(language: Optional[str] = "ms") -> str:
+    return "Scan to Visit" if str(language or "ms").lower().startswith("en") else "Imbas untuk Lawat"
+
+
 def _safe_color(value: Optional[str], fallback: str) -> str:
     """Only real hex colours reach the SVG — never caller-controlled text."""
     candidate = (value or "").strip()

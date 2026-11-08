@@ -74,6 +74,43 @@ def clean_text(value: Any, limit: int) -> str:
     return cut.rstrip(" ,;:-–—") + "…"
 
 
+_SEGMENT_RE = re.compile(r"\s+[·•|/–—-]\s+")
+
+
+def fit_label(value: Any, limit: int) -> str:
+    """A short label (the hero kicker) cut to ``limit`` at a natural
+    boundary, never with "…": agp shipped "AYAM GEPUK · KOTA BAYU EMAS…".
+    Trailing comma detail goes first ("Kota Bayu Emas, Klang" → "Kota Bayu
+    Emas"), then whole trailing segments ("Ayam Gepuk · Kota Bayu Emas" →
+    "Ayam Gepuk"), then whole words."""
+    text = _WS_RE.sub(" ", _TAG_RE.sub(" ", str(value if value is not None else ""))).strip()
+    text = text.strip("\"'“”‘’ ").rstrip("…").rstrip(". ").strip()
+    if len(text) <= limit:
+        return text
+    parts = _SEGMENT_RE.split(text)
+    seps = _SEGMENT_RE.findall(text)
+    while parts:
+        last = parts[-1]
+        while "," in last:
+            last = last[: last.rfind(",")].strip()
+            joined = "".join(a + b for a, b in zip(parts[:-1], seps)) + last
+            if last and len(joined) <= limit:
+                return joined
+        if len(parts) == 1:
+            break
+        parts, seps = parts[:-1], seps[:-1]
+        joined = "".join(a + b for a, b in zip(parts[:-1], seps)) + parts[-1]
+        if len(joined) <= limit:
+            return joined
+    words = (parts[0] if parts else text).split()
+    out = ""
+    for w in words:
+        if len(f"{out} {w}".strip()) > limit:
+            break
+        out = f"{out} {w}".strip()
+    return out.rstrip(" ,;:-–—·")
+
+
 def _sentences(text: str) -> List[str]:
     parts = re.split(r"(?<=[.!?])\s+|\n+", str(text or ""))
     return [p.strip() for p in parts if p and p.strip()]
@@ -151,7 +188,7 @@ def fallback_copy(spec: SiteSpec) -> Copy:
         town = m.group(1).strip() if m else ""
     kicker = _VERTICAL_WORD[lang].get(spec.vertical, _VERTICAL_WORD[lang]["general"]) + (f" · {town}" if town else "")
     return Copy(
-        kicker=clean_text(kicker, LIMITS["kicker"]),
+        kicker=fit_label(kicker, LIMITS["kicker"]),
         headline=clean_text(spec.business_name, LIMITS["headline"]),
         subheadline=sub,
         menu_lead=("Prices as listed, order straight on WhatsApp." if lang == "en" else "Harga seperti tertera, pesan terus di WhatsApp.") if spec.is_food else "",
@@ -234,7 +271,10 @@ def parse_copy(raw: Optional[str], spec: SiteSpec) -> Copy:
             return fallback
         return value
 
-    out.kicker = pick("kicker", "kicker", fb.kicker, required=False)
+    out.kicker = fit_label(data.get("kicker", ""), LIMITS["kicker"])
+    if out.kicker and suspicious(out.kicker, spec):
+        out.rejected.append(f"kicker: {suspicious(out.kicker, spec)}")
+        out.kicker = ""
     out.headline = pick("headline", "headline", fb.headline)
     out.subheadline = pick("subheadline", "subheadline", fb.subheadline)
     out.menu_lead = pick("menu_lead", "menu_lead", fb.menu_lead, required=False) if spec.has_menu else ""

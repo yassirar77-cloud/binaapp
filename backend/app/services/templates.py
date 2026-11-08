@@ -1055,7 +1055,8 @@ function handleContactSubmit(e) {{
         # it is dropped into. The old version painted itself #f9fafb with
         # #1f2937 text, so inside a dark footer it read as a white sticker
         # someone had pasted over the design.
-        label = "📱 Scan to Visit" if str(language or "ms").lower().startswith("en") else "📱 Imbas untuk Lawat"
+        from app.services.qr_service import qr_label
+        label = qr_label(language)
         qr_html = f"""
 <!-- QR Code Section -->
 <div style="text-align:center;padding:32px 20px 8px;background:inherit;color:inherit;">

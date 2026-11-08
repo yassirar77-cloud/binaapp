@@ -696,7 +696,9 @@ def _inject_qr_block(html_content: str, subdomain: str, language: str = "ms") ->
     if not qr_src:
         qr_src = remote_qr_url(published_url, size=200)
 
-    label = "📱 Imbas untuk Lawat" if language == "ms" else "📱 Scan to Visit"
+    from app.services.qr_service import qr_label, qr_label_text
+    label = qr_label("ms" if language == "ms" else "en")
+    alt = qr_label_text("ms" if language == "ms" else "en")
 
     # color:inherit so the block adopts the (usually dark) footer's text colour
     # instead of a hardcoded near-black that would vanish on a dark background.
@@ -704,7 +706,7 @@ def _inject_qr_block(html_content: str, subdomain: str, language: str = "ms") ->
 <!-- BinaApp QR Block -->
 <div style="text-align:center;padding:32px 20px 8px;background:inherit;color:inherit;">
   <p style="font-size:1.1rem;font-weight:600;margin:0 auto 1rem;text-align:center;color:inherit;">{label}</p>
-  <img src="{qr_src}" alt="{label}" width="200" height="200"
+  <img src="{qr_src}" alt="{alt}" width="200" height="200"
        style="margin:0 auto;display:block;width:200px;height:200px;background:#fff;padding:8px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.15);">
 </div>
 '''

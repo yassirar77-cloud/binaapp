@@ -31,6 +31,8 @@ def test_qr_label_is_centred():
 
     html = "<html><body><main></main><footer><div class='container'><p>&copy;</p></div></footer></body></html>"
     out = _inject_qr_block(html, "agp", "ms")
-    label = re.search(r"<p style=\"([^\"]*)\">📱 Imbas untuk Lawat</p>", out)
+    label = re.search(r"<p style=\"([^\"]*)\"><svg[^>]*aria-hidden=\"true\".*?</svg>Imbas untuk Lawat</p>", out)
     assert label and "margin:0 auto 1rem" in label.group(1) and "text-align:center" in label.group(1)
+    # An icon, not the 📱 emoji (an empty box on fonts without emoji).
+    assert "📱" not in out and 'alt="Imbas untuk Lawat"' in out
     assert "margin:0 0 1rem" not in out
