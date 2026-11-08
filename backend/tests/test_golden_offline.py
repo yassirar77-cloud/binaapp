@@ -16,7 +16,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from golden_run import build_site, list_fixtures, structural_checks  # noqa: E402
 
-HAS_BROWSER = bool(os.getenv("PLAYWRIGHT_CHROMIUM_EXECUTABLE")) or os.path.exists(os.path.expanduser("~/.cache/ms-playwright"))
+HAS_BROWSER = bool(os.getenv("PLAYWRIGHT_CHROMIUM_EXECUTABLE")) or bool(__import__("app.services.browser_budget", fromlist=["x"]).headless_shell_dirs())
 FIXTURES = list_fixtures()
 
 

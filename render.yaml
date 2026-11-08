@@ -14,9 +14,11 @@ services:
       - key: PYTHON_VERSION
         value: "3.11.7"
 
-      # Playwright browser installation enabled in build.sh
+      # Chromium for the visual gate, installed by build.sh INSIDE the project
+      # folder: Render keeps only the project from build to runtime, so a
+      # browser in /opt/render/.cache was gone when the service started.
       - key: PLAYWRIGHT_BROWSERS_PATH
-        value: "/opt/render/.cache/ms-playwright"
+        value: "/opt/render/project/src/backend/.playwright-browsers"
 
       # Database
       - key: DATABASE_URL

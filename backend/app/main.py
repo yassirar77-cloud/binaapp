@@ -289,6 +289,13 @@ async def request_timing(request: Request, call_next):
 
 @app.on_event("startup")
 async def startup_event():
+    # Visual gate readiness (quality system): is Chromium installed in the
+    # project folder, and does this instance have the memory to launch it?
+    try:
+        from app.services.browser_budget import boot_report
+        logger.info(f"🧠 VISUAL_GATE_BOOT {boot_report()}")
+    except Exception as _vg_boot_err:
+        logger.warning(f"🧠 VISUAL_GATE_BOOT check failed: {_vg_boot_err}")
     global supabase
     if supabase is None:
         logger.info("🔄 Retrying Supabase initialization on startup...")

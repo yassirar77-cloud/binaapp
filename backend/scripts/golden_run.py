@@ -241,7 +241,7 @@ async def run_fixture(fixture: Dict[str, Any], *, mode: str, out_dir: Path, base
     gate = await run_gate(
         html, expect_map=bool(req.get("include_maps", True) and req.get("location_address")),
         expect_whatsapp=bool(req.get("whatsapp_number")), item_names=[i["name"] for i in (req.get("menu_items") or [])],
-        language=req.get("language", "ms"), call_vision=call_vision,
+        language=req.get("language", "ms"), call_vision=call_vision, desktop_full_page=True,
     )
     (target / "gate.json").write_text(json.dumps(gate.as_dict(), indent=1, ensure_ascii=False), encoding="utf-8")
     if gate.mobile_png:

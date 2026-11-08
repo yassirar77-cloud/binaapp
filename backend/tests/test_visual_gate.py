@@ -19,7 +19,7 @@ from app.services.visual_gate import (
     gate_with_recovery, parse_vision, run_gate, targeted_fix_css,
 )
 
-HAS_BROWSER = bool(os.getenv("PLAYWRIGHT_CHROMIUM_EXECUTABLE")) or os.path.exists(os.path.expanduser("~/.cache/ms-playwright"))
+HAS_BROWSER = bool(os.getenv("PLAYWRIGHT_CHROMIUM_EXECUTABLE")) or bool(__import__("app.services.browser_budget", fromlist=["x"]).headless_shell_dirs())
 browser = pytest.mark.skipif(not HAS_BROWSER, reason="no headless browser")
 
 GOOD = """<!DOCTYPE html><html><head><meta name=viewport content="width=device-width"><style>

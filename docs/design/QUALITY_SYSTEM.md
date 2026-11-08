@@ -161,6 +161,18 @@ branch protection's required checks (a repo setting, not code).
 | `VISUAL_GATE_RENDER_TIMEOUT_SECONDS` / `VISUAL_GATE_VISION_TIMEOUT_SECONDS` | `40` / `60` | per-render and per-review caps |
 | `VISUAL_GATE_VISION_TILES` | `6` | how many 1200 px-tall slices of the mobile screenshot the reviewer sees |
 | `PLAYWRIGHT_CHROMIUM_EXECUTABLE` | unset | a Chromium binary for the gate when Playwright's own download is unavailable |
+| `PLAYWRIGHT_BROWSERS_PATH` | Render: `/opt/render/project/src/backend/.playwright-browsers` | where `build.sh` installs the Chromium headless shell. It must be inside the project folder: Render discards anything else between the build and the running service |
+| `BROWSER_MIN_FREE_MB` | `450` | free container memory required before Chromium is launched; below it the gate is skipped (`VISUAL_GATE_SKIPPED_MEMORY`) instead of risking an out-of-memory restart |
+| `VISUAL_GATE_CHROMIUM_ARGS` | unset | extra Chromium flags, appended to the low-memory set |
+
+**Memory.** The Playwright driver plus the Chromium headless shell peak at
+roughly 340–410 MB on the agp page (measured as PSS; the desktop capture is
+viewport-only in production, the mobile capture full-page for the vision
+review). The Render backend's Starter instance has 512 MB and the app uses
+160–255 MB of it, so on Starter the guard skips the gate. Every build logs
+`GATE_SELFTEST chromium=… gate=… peak_mb=…` (one gate run on the agp page on
+Render's build machine) and every boot logs `VISUAL_GATE_BOOT … -> gate WILL
+RUN | will be SKIPPED`.
 
 The gate's verdict lives on `generation_jobs.validation.visual_gate` (checks,
 vision verdict, fixes, attempt, `preview_mobile_url` of the mobile

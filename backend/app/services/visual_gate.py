@@ -317,6 +317,32 @@ _MEASURE_JS = r"""
 """
 
 
+#: Flags that keep Chromium inside a small instance's memory (the Render
+#: backend has 512 MB in total): one renderer process, no zygote, no
+#: /dev/shm (often 64 MB in containers), a capped V8 heap, nothing running
+#: in the background. Measured on the composed agp page; see
+#: ``EXTRA_LAUNCH_ARGS`` / VISUAL_GATE_CHROMIUM_ARGS to add more.
+LOW_MEMORY_ARGS = (
+    "--no-sandbox",
+    "--disable-gpu",
+    "--disable-dev-shm-usage",
+    "--no-zygote",
+    "--disable-extensions",
+    "--disable-background-networking",
+    "--disable-background-timer-throttling",
+    "--disable-renderer-backgrounding",
+    "--renderer-process-limit=1",
+    "--disable-features=site-per-process,Translate,MediaRouter",
+    "--js-flags=--max-old-space-size=96",
+)
+EXTRA_LAUNCH_ARGS: Tuple[str, ...] = ()
+
+
+def launch_args() -> List[str]:
+    extra = [a for a in os.getenv("VISUAL_GATE_CHROMIUM_ARGS", "").split() if a]
+    return list(LOW_MEMORY_ARGS) + list(EXTRA_LAUNCH_ARGS) + extra
+
+
 def playwright_available() -> bool:
     try:
         import playwright  # noqa: F401
@@ -325,10 +351,21 @@ def playwright_available() -> bool:
         return False
 
 
-async def render(html: str, *, timeout: float = RENDER_TIMEOUT_SECONDS) -> Tuple[Dict[str, Any], Dict[str, Any], Optional[bytes], Optional[bytes], Optional[str]]:
-    """(mobile_measured, desktop_measured, mobile_png, desktop_png, error)."""
+async def render(html: str, *, timeout: float = RENDER_TIMEOUT_SECONDS,
+                 desktop_full_page: bool = False) -> Tuple[Dict[str, Any], Dict[str, Any], Optional[bytes], Optional[bytes], Optional[str]]:
+    """(mobile_measured, desktop_measured, mobile_png, desktop_png, error).
+
+    The mobile screenshot is full-page (the vision review reads it); the
+    desktop one is the first viewport unless ``desktop_full_page`` (the
+    golden suite keeps both for its artefacts) — a full-page desktop
+    capture costs ~130 MB more at its peak. Refuses to launch Chromium
+    when the container lacks the memory for it (services/browser_budget)."""
     if not playwright_available():
         return {}, {}, None, None, "playwright not installed"
+    from app.services.browser_budget import can_launch
+    allowed, why = can_launch()
+    if not allowed:
+        return {}, {}, None, None, why
     mobile: Dict[str, Any] = {}
     desktop: Dict[str, Any] = {}
     mpng = dpng = None
@@ -338,7 +375,7 @@ async def render(html: str, *, timeout: float = RENDER_TIMEOUT_SECONDS) -> Tuple
         async def _run() -> None:
             nonlocal mobile, desktop, mpng, dpng
             async with async_playwright() as pw:
-                kwargs: Dict[str, Any] = {"headless": True, "args": ["--no-sandbox", "--disable-gpu"]}
+                kwargs: Dict[str, Any] = {"headless": True, "args": launch_args()}
                 exe = os.getenv("PLAYWRIGHT_CHROMIUM_EXECUTABLE")
                 if exe:
                     kwargs["executable_path"] = exe
@@ -360,7 +397,7 @@ async def render(html: str, *, timeout: float = RENDER_TIMEOUT_SECONDS) -> Tuple
                         except Exception as err:
                             logger.warning(f"📐 measurement failed ({name}): {err}")
                             measured = {"error": str(err)}
-                        png = await page.screenshot(full_page=True, type="png")
+                        png = await page.screenshot(full_page=(name == "mobile" or desktop_full_page), type="png")
                         if name == "mobile":
                             mobile, mpng = measured, png
                         else:
@@ -523,10 +560,11 @@ async def run_gate(
     language: str = "ms",
     call_vision: Optional[Callable[[List[Dict[str, Any]]], Awaitable[Optional[str]]]] = None,
     attempt: int = 1,
+    desktop_full_page: bool = False,
 ) -> GateReport:
     """Render, measure, review. Never raises."""
     report = GateReport(attempt=attempt, mode=gate_mode())
-    mobile, desktop, mpng, dpng, err = await render(html)
+    mobile, desktop, mpng, dpng, err = await render(html, desktop_full_page=desktop_full_page)
     report.mobile_png, report.desktop_png, report.error = mpng, dpng, err
     report.rendered = bool(mpng and mobile and "scrollWidth" in mobile)
     if not report.rendered:
@@ -812,7 +850,10 @@ async def gate_with_recovery(
     if not report.rendered:
         # No browser / render crash: nothing to gate on. Logged loudly; not
         # a reason to fail the merchant's job.
-        logger.error(f"🚨 VISUAL_GATE_UNAVAILABLE job={job_id[:8]} error={report.error}")
+        if report.error and report.error.startswith("insufficient memory"):
+            logger.warning(f"🧠 VISUAL_GATE_SKIPPED_MEMORY job={job_id[:8]} {report.error}")
+        else:
+            logger.error(f"🚨 VISUAL_GATE_UNAVAILABLE job={job_id[:8]} error={report.error}")
         return html, report
     soft_only = report.passed and any(not c.ok for c in report.checks)
     if report.passed and not soft_only:
