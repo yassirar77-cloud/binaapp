@@ -44,7 +44,7 @@ def _vision(page=None, cards=None, hero=None, seen=None):
         text = messages[0]["content"][0]["text"]
         if seen is not None:
             seen.append(messages)
-        if "ONE menu card" in text:
+        if "ONE card" in text or "ONE menu card" in text:
             return json.dumps(cards if cards is not None else {"mismatches": []})
         if "hero (top banner)" in text:
             return json.dumps(hero if hero is not None else {"matches": True, "shows": "the dishes", "reason": "fits"})
@@ -100,7 +100,7 @@ def test_card_photos_are_judged_one_by_one(monkeypatch):
     r = asyncio.run(run_gate("<html/>", expect_map=False, expect_whatsapp=False, call_vision=_vision(
         page=page, cards={"mismatches": [{"card": 2, "reason": "fried chicken, not a drink"}]}, seen=seen)))
     assert r.passed and r.photo_mismatches == ["Teh O Ais"]
-    card_msg = next(m for m in seen if "ONE menu card" in m[0]["content"][0]["text"])[0]["content"]
+    card_msg = next(m for m in seen if "ONE card" in m[0]["content"][0]["text"])[0]["content"]
     # name, then that card's own photo, for every card
     assert [c.get("text") for c in card_msg[1::2]] == ["Card 1: Set A – Ayam Gepuk", "Card 2: Teh O Ais", "Card 3: Set B – Ayam Gepuk Tauhu Tempe"]
     assert all(c["type"] == "image_url" for c in card_msg[2::2])
@@ -113,7 +113,7 @@ def test_card_check_without_verdict_keeps_every_photo(monkeypatch):
     monkeypatch.setattr(vg, "render", _render_with(_measured(_crops={"cards": CARDS})))
 
     async def _call(messages):
-        return "not json" if "ONE menu card" in messages[0]["content"][0]["text"] else json.dumps({"issues": [], "overall": "pass"})
+        return "not json" if "ONE card" in messages[0]["content"][0]["text"] else json.dumps({"issues": [], "overall": "pass"})
     r = asyncio.run(run_gate("<html/>", expect_map=False, expect_whatsapp=False, call_vision=_call))
     assert r.passed and r.photo_mismatches == [] and not any(c.name == "photo_matches_name" for c in r.checks)
 
@@ -218,7 +218,11 @@ def test_hero_prompt_keeps_the_example_only_when_it_is_this_business():
     assert "burger" not in other and other.startswith("a generous spread of the shop's freshly cooked dishes")
     salon = direction_hero_cue(image_cue="a bright salon interior with an empty styling chair, soft daylight", vertical="salon",
                                theme="bright", item_names=["Gunting & Blow"], cue_keywords=("salon",), business_text="Salon Ayu")
-    assert "showing Gunting & Blow" in salon and "salon interior" in salon and "appetising" not in salon
+    assert "showing Gunting & Blow" in salon and "salon interior" not in salon and "appetising" not in salon
+    barber = direction_hero_cue(image_cue="a barber chair under a single warm light in a dark shop, warm evening light",
+                                vertical="salon", theme="dark", item_names=["Gunting & Blow", "Warna Penuh"],
+                                cue_keywords=("barber", "gunting"), business_text="Salon Seri Ayu, salon wanita, Gunting & Blow")
+    assert "barber" not in barber and "warm evening light" in barber
     phone = direction_hero_cue(image_cue="a clean studio with a camera on a tripod, soft daylight", vertical="general", theme="bright",
                                item_names=["Screen Replacement"], cue_keywords=("photography", "studio"), business_text="Kedai Telefon Hafiz repair")
     assert "camera" not in phone
@@ -333,7 +337,7 @@ def test_card_with_its_named_dish_and_side_dishes_is_kept():
     assert parse_card_photos(raw, cards) == [{"item": "Set Sotong Krispy", "reason": "only tofu and tempeh"}]
     assert parse_card_photos(json.dumps({"mismatches": [{"card": 2, "named_dish_visible": "yes"}]}), cards) == []
     rubric = vg.CARD_PHOTO_RUBRIC
-    assert "named dish is clearly visible" in rubric and "expected to come with sides" in rubric
+    assert "dish is clearly visible the photo MATCHES" in rubric and "a set meal comes with sides" in rubric
 
 
 def test_hero_kicker_is_never_cut_with_an_ellipsis():
@@ -358,3 +362,26 @@ def test_model_kicker_goes_through_the_fitter():
                                   "subheadline": "Sambal segar setiap hari.", "about_title": "Tentang", "tagline": "Pedas",
                                   "contact_lead": "Hubungi kami", "about_paragraphs": ["Kami di Klang."]}), spec)
     assert copy.kicker == "AYAM GEPUK · KOTA BAYU EMAS"
+
+
+def test_card_check_knows_services_and_hidden_fillings():
+    """Live golden run: salon cards dropped for "salon interior, no colouring
+    visible", kedai telefon's "Screen Replacement" for "not the named service
+    as a dish", mamak's Roti Telur for "no visible egg"."""
+    rubric = vg.CARD_PHOTO_RUBRIC
+    assert "For a SERVICE" in rubric and "Screen Replacement" in rubric and "never has to show a customer" in rubric
+    assert "roti telur" in rubric and "does not have to be visible" in rubric
+    msgs = vg.build_card_photo_messages([{"name": "Warna Penuh", "png": b"\x89PNG"}],
+                                        {"name": "Salon Seri Ayu", "type": "salon", "description": "Salon wanita di Shah Alam"})
+    head = msgs[0]["content"][0]["text"]
+    assert "Salon Seri Ayu (type: salon)" in head and "Salon wanita" in head
+    assert vg.build_card_photo_messages([{"name": "x", "png": b"\x89PNG"}])[0]["content"][0]["text"] == rubric
+
+
+def test_card_check_gets_the_business(monkeypatch):
+    monkeypatch.setattr(vg, "render", _render_with(_measured(_crops={"cards": [{"name": "Warna Penuh", "png": b"p"}]})))
+    seen = []
+    asyncio.run(run_gate("<html/>", expect_map=False, expect_whatsapp=False, call_vision=_vision(seen=seen),
+                         business={"name": "Salon Seri Ayu", "type": "salon", "description": "Salon"}))
+    card_msg = next(m for m in seen if "ONE card" in m[0]["content"][0]["text"])
+    assert "Salon Seri Ayu" in card_msg[0]["content"][0]["text"]

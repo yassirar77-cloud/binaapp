@@ -50,6 +50,29 @@ _CITIES = (
 )
 
 
+_CITY_ALT = "|".join(re.escape(c) for c in sorted(_CITIES, key=len, reverse=True))
+#: A place name inside a dish or ingredient name is not a claim about where
+#: the shop is: "kek pandan gula melaka" (palm sugar) from a Kuala Lumpur
+#: bakery was blocked as "the story says Melaka but the address says Kuala
+#: Lumpur". Same for laksa penang, ipoh white coffee, "Penang style".
+_DISH_WORDS = (
+    "gula", "cendol", "asam pedas", "laksa", "kek lapis", "mee", "mi", "nasi", "kopi", "teh", "char kuey teow",
+    "kuey teow", "koay teow", "rojak", "taugeh ayam", "ayam", "satay", "sate", "sambal", "kuih", "dodol",
+    "otak-otak", "otak otak", "bihun", "pasembur", "popiah", "kari", "curry", "white coffee", "chicken rice",
+    "hokkien mee", "bak kut teh", "kek", "roti", "biskut", "durian", "cucur", "pisang", "tempoyak", "ikan bakar",
+)
+_DISH_PLACE_RE = re.compile(
+    r"\b(?:" + "|".join(re.escape(w) for w in _DISH_WORDS) + r")(?:\s+[a-z]+)?\s+(?:gaya\s+|style\s+)?(?:" + _CITY_ALT + r")\b"
+    r"|\b(?:" + _CITY_ALT + r")\s+(?:white coffee|style|chicken rice|famous|asli)\b"
+    r"|\b(?:gaya|style|ala|cara)\s+(?:" + _CITY_ALT + r")\b",
+    re.IGNORECASE,
+)
+
+
+def _mask_dish_places(lowered: str) -> str:
+    return _DISH_PLACE_RE.sub(lambda m: " " * len(m.group(0)), lowered)
+
+
 @dataclass(frozen=True)
 class LocationToken:
     kind: str  # seksyen | area | city
@@ -82,7 +105,7 @@ def location_tokens(text: Optional[str]) -> List[LocationToken]:
         name = re.sub(r"\s+", " ", m.group(2)).strip().lower()
         # "Taman X" followed by a city on the same line: keep the first 1–3 words only.
         _add(LocationToken("area", f"{kind_word} {name}"))
-    lowered = text.lower()
+    lowered = _mask_dish_places(text.lower())
     for city in _CITIES:
         if re.search(r"\b" + re.escape(city) + r"\b", lowered):
             _add(LocationToken("city", city))

@@ -302,9 +302,11 @@ def direction_hero_cue(
     if items and food:
         parts.append(_spread(_dish_phrases(items)))
     elif items:
+        # Not food: the business's category lock (image_subjects) already
+        # leads with the subject. The direction's example is never added:
+        # Salon Seri Ayu matched the barber direction on "gunting" and its
+        # hero prompt asked for "a barber chair ... in a dark shop".
         parts.append("showing " + ", ".join(items))
-        if cue_subject and subject_fits and cue_keywords:
-            parts.append(cue_subject)
     elif cue_subject and subject_fits:
         parts.append(cue_subject)
     elif food and not (merchant_prompt and merchant_prompt.strip()):

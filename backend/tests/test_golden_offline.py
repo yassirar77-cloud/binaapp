@@ -133,7 +133,7 @@ def test_golden_burger_hero_is_replaced_and_card_photos_are_kept(monkeypatch, sl
     async def vision(messages):
         content = messages[0]["content"]
         text = content[0]["text"]
-        if "ONE menu card" in text:
+        if "ONE card" in text:
             for part in content[2::2]:
                 import base64
                 im = Image.open(io.BytesIO(base64.b64decode(part["image_url"]["url"].split(",", 1)[1]))).convert("RGB")

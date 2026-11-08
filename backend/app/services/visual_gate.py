@@ -622,16 +622,21 @@ VISION_RUBRIC = (
 )
 
 CARD_PHOTO_RUBRIC = (
-    "Each image below is the photo on ONE menu card of a small-business website, and comes right after that card's "
-    "printed name. Judge every photo ONLY against its own card's name. First find the NAMED DISH: the main item the "
-    "name is about (for 'Set Udang Krispy' it is crispy prawns; for 'Set B – Ayam Gepuk Tauhu Tempe' it is ayam "
-    "gepuk). If the named dish is clearly visible in the photo, the photo MATCHES, even when rice, side dishes, "
-    "sambal or garnish take up much of the plate: a set meal is expected to come with sides. A mismatch is ONLY a "
-    "photo where the named dish cannot be seen at all, or a different main dish takes its place: a drink pictured "
-    "as a chicken dish, a burger for 'Ayam Gepuk', squid missing from 'Set Sotong Krispy', a live animal, a menu "
-    "board or a poster photographed as a dish. Plating, angle and garnish are never a reason. Answer ONLY with JSON: "
+    "Each image below is the photo on ONE card (a menu item, a product or a service) of a small-business website, "
+    "and comes right after that card's printed name. Judge every photo ONLY against its own card's name. First find "
+    "what the name is about. For FOOD it is the named dish (for 'Set Udang Krispy' crispy prawns, for 'Set B – Ayam "
+    "Gepuk Tauhu Tempe' ayam gepuk): if that dish is clearly visible the photo MATCHES, even when rice, side dishes, "
+    "sambal or garnish take up much of the plate, because a set meal comes with sides. A filling cooked inside the "
+    "dish (the egg in roti telur, the meat in murtabak, the filling of a kuih or a pie) does not have to be visible: "
+    "judge it by how the dish looks. For a SERVICE (a haircut, hair colouring, a repair, a cleaning job) the photo "
+    "MATCHES when it shows that kind of work, its tools, the items it is done on or the place it is done in: a salon "
+    "interior for 'Warna Penuh' or 'Gunting Kanak-kanak', a phone being repaired for 'Screen Replacement'. A service "
+    "never has to show a customer or the result. A MISMATCH is ONLY a photo where the named thing cannot be seen at "
+    "all or something of a different kind takes its place: a drink pictured as a chicken dish, a burger for 'Ayam "
+    "Gepuk', squid missing from 'Set Sotong Krispy', a car workshop for a hair service, a live animal, a menu board or "
+    "a poster photographed as a dish. Plating, angle and garnish are never a reason. Answer ONLY with JSON: "
     '{"mismatches":[{"card":<number>,"named_dish":"what the name is about","named_dish_visible":false,'
-    '"reason":"what the photo shows instead"}]}. List only cards whose named dish is NOT visible. An empty list is '
+    '"reason":"what the photo shows instead"}]}. List only cards whose named thing is NOT visible. An empty list is '
     "the normal answer."
 )
 
@@ -688,8 +693,12 @@ def _data_url(img: bytes) -> str:
     return f"data:{mime};base64," + base64.b64encode(img).decode("ascii")
 
 
-def build_card_photo_messages(cards: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    content: List[Dict[str, Any]] = [{"type": "text", "text": CARD_PHOTO_RUBRIC}]
+def build_card_photo_messages(cards: Sequence[Dict[str, Any]], business: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    about = ""
+    if business:
+        about = (f"\n\nThe business: {business.get('name') or '-'} (type: {business.get('type') or '-'}). "
+                 f"What it sells or does: {str(business.get('description') or '-')[:300]}")
+    content: List[Dict[str, Any]] = [{"type": "text", "text": CARD_PHOTO_RUBRIC + about}]
     for i, card in enumerate(cards, 1):
         content.append({"type": "text", "text": f"Card {i}: {card['name']}"})
         content.append({"type": "image_url", "image_url": {"url": _data_url(card["png"])}})
@@ -854,7 +863,7 @@ async def run_gate(
         cards = [c for c in (crops.get("cards") or []) if c.get("png")]
         hero_png = crops.get("hero")
         asks = [_ask(call_vision, build_vision_messages(mpng, item_names=item_names, language=language), "page review")]
-        asks.append(_ask(call_vision, build_card_photo_messages(cards), "card photo check") if cards else asyncio.sleep(0, result=None))
+        asks.append(_ask(call_vision, build_card_photo_messages(cards, business), "card photo check") if cards else asyncio.sleep(0, result=None))
         asks.append(_ask(call_vision, build_hero_messages(hero_png, business), "hero check") if (hero_png and business) else asyncio.sleep(0, result=None))
         raw_page, raw_cards, raw_hero = await asyncio.gather(*asks)
 

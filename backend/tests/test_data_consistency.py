@@ -128,3 +128,17 @@ def test_scrub_location_tokens_rewrites_the_losing_side_in_html():
     html = '<h1>Dobi Layan Diri Seksyen 18</h1><p>Alamat: L7/1, Jalan 18/2, Seksyen 7, Shah Alam</p><a href="https://maps.google.com/maps?q=Seksyen+7">peta</a>'
     out, n = scrub_location_tokens(html, {"Seksyen 7": "Seksyen 18"})
     assert "Seksyen 7" not in out and out.count("Seksyen 18") == 2 and n == 1
+
+
+def test_place_names_inside_dish_names_are_not_location_claims():
+    """The kek golden merchant (Taman Melawati, Kuala Lumpur) sells "kek
+    pandan gula melaka": palm sugar, not the state. The start endpoint
+    refused the build with "Cerita sebut Melaka tapi alamat Kuala Lumpur"."""
+    from app.services.data_consistency import location_conflicts, location_tokens
+    story = ("Kek Mak Teh membuat kek dari dapur rumah di Taman Melawati. Kami pakar kek pandan gula melaka "
+             "dan burnt cheesecake. Juga ada cendol Melaka asli, laksa penang dan Ipoh white coffee, nasi kandar Penang style.")
+    assert location_conflicts(story, "Taman Melawati, 53100 Kuala Lumpur") == []
+    assert not [t for t in location_tokens(story) if t.kind == "city"]
+    # A real place claim still counts.
+    assert [c.story_value for c in location_conflicts("Kedai kami di Melaka, pakar asam pedas.", "53100 Kuala Lumpur")] == ["Melaka"]
+    assert [t.value for t in location_tokens("Cawangan Penang buka 2025") if t.kind == "city"] == ["penang"]
