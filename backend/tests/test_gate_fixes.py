@@ -385,3 +385,17 @@ def test_card_check_gets_the_business(monkeypatch):
                          business={"name": "Salon Seri Ayu", "type": "salon", "description": "Salon"}))
     card_msg = next(m for m in seen if "ONE card" in m[0]["content"][0]["text"])
     assert "Salon Seri Ayu" in card_msg[0]["content"][0]["text"]
+
+
+def test_lookalike_variants_of_one_food_match():
+    """mamak (clean rerun): Roti Bom dropped because "authentic Roti Bom is a
+    deep-fried ball", Roti Planta flagged because the photo cannot show
+    margarine. A roti photo on a roti card matches."""
+    rubric = vg.CARD_PHOTO_RUBRIC
+    assert "every roti (canai, planta, bom, telur, tisu, kosong)" in rubric and "cannot show margarine" in rubric
+
+
+def test_dropped_card_photo_keeps_its_src():
+    cards = [{"name": "Roti Bom", "src": "https://res.cloudinary.com/x/roti-bom.jpg", "png": b"p"}]
+    got = parse_card_photos('{"mismatches":[{"card":1,"named_dish_visible":false,"reason":"a pizza"}]}', cards)
+    assert got == [{"item": "Roti Bom", "reason": "a pizza", "src": "https://res.cloudinary.com/x/roti-bom.jpg"}]

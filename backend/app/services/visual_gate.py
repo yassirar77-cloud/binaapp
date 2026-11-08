@@ -393,7 +393,7 @@ _MARK_PHOTOS_JS = r"""
     const name = card.querySelector('.bmf-name');
     if (!drawn(img) || !name) continue;
     img.setAttribute('data-bvg-card', String(cards.length));
-    cards.push(norm(name.innerText || name.textContent).slice(0, 120));
+    cards.push({ name: norm(name.innerText || name.textContent).slice(0, 120), src: (img.currentSrc || img.src || '').slice(0, 300) });
   }
   // The hero photo: the composed hero's media, else the biggest drawn
   // image in the first section, else the section itself when its photo is
@@ -450,10 +450,11 @@ async def _photo_crops(page: Any) -> Dict[str, Any]:
     except Exception as err:
         logger.warning(f"📐 photo marking failed: {err}")
         return out
-    for i, name in enumerate(marked.get("cards") or []):
+    for i, card in enumerate(marked.get("cards") or []):
+        name, src = (card.get("name"), card.get("src")) if isinstance(card, dict) else (card, "")
         try:
             png = await page.locator(f'[data-bvg-card="{i}"]').first.screenshot(type="png", timeout=5000)
-            out["cards"].append({"name": name, "png": _shrink(png)})
+            out["cards"].append({"name": name, "src": src or "", "png": _shrink(png)})
         except Exception as err:
             logger.warning(f"📐 card photo {i} crop failed: {err}")
     if marked.get("heroKind"):
@@ -634,7 +635,10 @@ CARD_PHOTO_RUBRIC = (
     "never has to show a customer or the result. A MISMATCH is ONLY a photo where the named thing cannot be seen at "
     "all or something of a different kind takes its place: a drink pictured as a chicken dish, a burger for 'Ayam "
     "Gepuk', squid missing from 'Set Sotong Krispy', a car workshop for a hair service, a live animal, a menu board or "
-    "a poster photographed as a dish. Plating, angle and garnish are never a reason. Answer ONLY with JSON: "
+    "a poster photographed as a dish. Variants of one base food that look alike count as a MATCH when the photo "
+    "shows that base food: every roti (canai, planta, bom, telur, tisu, kosong), every kopi or teh, every nasi "
+    "lemak or nasi goreng style; a photo cannot show margarine, the flakiness of a dough or which sugar was used. "
+    "Plating, angle, garnish and how the variant is usually served are never a reason. Answer ONLY with JSON: "
     '{"mismatches":[{"card":<number>,"named_dish":"what the name is about","named_dish_visible":false,'
     '"reason":"what the photo shows instead"}]}. List only cards whose named thing is NOT visible. An empty list is '
     "the normal answer."
@@ -757,7 +761,11 @@ def parse_card_photos(raw: Optional[str], cards: Sequence[Dict[str, Any]]) -> Op
         if visible is True or str(visible).strip().lower() in ("true", "yes"):
             continue
         if 0 <= idx < len(cards) and cards[idx]["name"] not in [x["item"] for x in out]:
-            out.append({"item": cards[idx]["name"], "reason": str(m.get("reason") or "")[:200]})
+            entry = {"item": cards[idx]["name"], "reason": str(m.get("reason") or "")[:200]}
+            if cards[idx].get("src"):
+                # The dropped photo, so every drop can be checked by eye.
+                entry["src"] = cards[idx]["src"]
+            out.append(entry)
     return out
 
 
@@ -898,6 +906,8 @@ async def run_gate(
                 report.vision = {**(report.vision or {}), "card_photos_checked": len(cards), "card_photo_mismatches": mism}
                 if mism:
                     report.photo_mismatches = [m["item"] for m in mism]
+                    for m in mism:
+                        logger.info(f"👁️ card photo mismatch: {m['item']!r} src={m.get('src', '')}")
                     report.checks.append(Check("photo_matches_name", False, "; ".join(f"{m['item']}: {m['reason']}" for m in mism[:5]), len(mism), mism, hard=False))
                 else:
                     report.checks.append(Check("photo_matches_name", True, f"{len(cards)} card photo(s) match their names", 0, hard=False))
