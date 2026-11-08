@@ -9,6 +9,8 @@ import os
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+
+from tests.conftest import generation_auth
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
@@ -30,8 +32,11 @@ DOBI_BODY = {
 
 
 @pytest.fixture
-def client():
-    return TestClient(main_module.app)
+def client(monkeypatch):
+    # These cases test how the brief is parsed, not the quota: the caller is
+    # an admin (no website-limit lookup over the network, no rate limit).
+    monkeypatch.setattr(main_module.sub_service, "_is_admin", AsyncMock(return_value=True))
+    return TestClient(main_module.app, headers=generation_auth("admin-1"))
 
 
 def _capture_task(monkeypatch):

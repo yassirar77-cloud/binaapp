@@ -4,6 +4,8 @@ the merchant answers, and the losing token never reaches the page."""
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+
+from tests.conftest import generation_auth
 from fastapi.testclient import TestClient
 
 import app.main as main_module
@@ -21,8 +23,11 @@ DOBI_BODY = {
 
 
 @pytest.fixture
-def client():
-    return TestClient(main_module.app)
+def client(monkeypatch):
+    # These cases test how the brief is parsed, not the quota: the caller is
+    # an admin (no website-limit lookup over the network, no rate limit).
+    monkeypatch.setattr(main_module.sub_service, "_is_admin", AsyncMock(return_value=True))
+    return TestClient(main_module.app, headers=generation_auth("admin-1"))
 
 
 def test_listen_reports_the_conflict(client):
