@@ -42,3 +42,21 @@ def test_a_sentence_or_two_levels_is_not_a_row():
     assert compact_spice_levels("<p>Level 1, Level 2 atau Level 3</p>") == ("<p>Level 1, Level 2 atau Level 3</p>", False)
     two = '<div><div>Level 1 Spicy</div><div>Level 2 Hot</div></div>'
     assert compact_spice_levels(two) == (two, False)
+
+
+def test_number_and_heat_word_tiles_without_level_become_a_row():
+    """agp: '1 / Spicy', '2 / Hot', '3 / Extra Hot' tiles — no word 'Level'."""
+    page = ('<html><head></head><body><section aria-label="Tahap kepedasan"><div class="grid grid-cols-1 sm:grid-cols-3 gap-4">'
+            '<div class="spice-tile-1 p-6"><div class="n">1</div><p>Spicy</p></div>'
+            '<div class="spice-tile-2 p-6"><div class="n">2</div><p>Hot</p></div>'
+            '<div class="spice-tile-3 p-6"><div class="n">3</div><p>Extra Hot</p></div></div></section>'
+            '<section id="menu"><p>Set A (3 pcs) RM12.50 hot plate</p></section></body></html>')
+    out, changed = compact_spice_levels(page)
+    assert changed and f'class="grid grid-cols-1 sm:grid-cols-3 gap-4 {ROW_CLASS}"' in out
+    assert out.count(f' {CHIP_CLASS}"') == 3
+    assert compact_spice_levels(out) == (out, False)
+
+
+def test_every_row_keeps_clear_of_the_floating_whatsapp_button_on_phones():
+    from app.services.spice_levels import SPICE_CSS
+    assert f"@media (max-width:767px){{.{ROW_CLASS}{{padding-right:4.75rem!important}}}}" in SPICE_CSS

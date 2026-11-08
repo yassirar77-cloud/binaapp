@@ -292,6 +292,13 @@ def _unclip_slot(html: str, slot_id: str) -> str:
 
     new = re.sub(r'class=(["\'])(.*?)\1', _cls, tag, count=1)
     new = re.sub(r'(style=["\'][^"\']*?)\b(?:height|max-height|aspect-ratio|overflow)\s*:[^;"\']*;?', r"\1", new)
+    # The page's own stylesheet can size the slot too (agp: .map-slot{
+    # aspect-ratio:16/9; overflow:hidden}). Inline style beats it.
+    unclip = "aspect-ratio:auto;height:auto;max-height:none;overflow:visible"
+    if re.search(r'\bstyle=["\']', new):
+        new = re.sub(r'(\bstyle=["\'])', rf"\g<1>{unclip};", new, count=1)
+    else:
+        new = new[:-1] + f' style="{unclip}">'
     return html[: m.start()] + new + html[m.end():]
 
 

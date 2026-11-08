@@ -10618,6 +10618,16 @@ IMPORTANT INSTRUCTIONS:
                 html, request, wa_digits=wa_digits, language=language, model=_html_model,
                 image_urls=(image_urls if image_choice != "none" else None),
             )
+            # The server owns the menu / map slots: a page script that
+            # refills them on load (agp: menuSlot.innerHTML = <its own list,
+            # invented descriptions, no photos>) is pointed at a hidden decoy.
+            try:
+                from app.services.slot_scripts import neutralize_slot_scripts
+                html, _n_slot_js = neutralize_slot_scripts(html)
+                if _n_slot_js:
+                    logger.warning(f"🧯 {_n_slot_js} page script(s) tried to refill a server-owned slot — neutralised")
+            except Exception as _slot_js_err:
+                logger.warning(f"🧯 Slot-script guard skipped: {_slot_js_err}")
             if bool(getattr(request, "is_24h", False)):
                 html, _n_24 = enforce_24h_copy(html, language)
                 if _n_24:
@@ -10732,6 +10742,16 @@ IMPORTANT INSTRUCTIONS:
                     logger.info("🦸 Hero bottom strip docked under the hero copy (it covered the CTA on mobile)")
             except Exception as _strip_err:
                 logger.warning(f"🦸 Hero strip guard skipped: {_strip_err}")
+            # An element the page's CSS hides on phones (a .desktop-nav in a
+            # max-width media query) must not be shown again by a Tailwind
+            # display class loaded after it (agp: 632px-wide page on a phone).
+            try:
+                from app.services.display_conflicts import fix_hidden_display_conflicts
+                html, _n_disp = fix_hidden_display_conflicts(html)
+                if _n_disp:
+                    logger.info(f"📱 {_n_disp} element(s) the page hides on phones now hidden for real (hidden md:flex)")
+            except Exception as _disp_err:
+                logger.warning(f"📱 Display-conflict guard skipped: {_disp_err}")
             # Spice levels: one compact row of three chips, never three
             # full-width blocks on a phone.
             try:
@@ -10787,6 +10807,14 @@ IMPORTANT INSTRUCTIONS:
                         logger.info(f"📞 {_n_call} tap-to-call link(s) added beside WhatsApp")
             except Exception as _call_err:
                 logger.warning(f"📞 Call links skipped: {_call_err}")
+            # Every link that says WhatsApp shows the WhatsApp icon.
+            try:
+                from app.services.contact_links import ensure_whatsapp_icons
+                html, _n_waicon = ensure_whatsapp_icons(html)
+                if _n_waicon:
+                    logger.info(f"💬 WhatsApp icon added to {_n_waicon} WhatsApp button(s)")
+            except Exception as _waicon_err:
+                logger.warning(f"💬 WhatsApp icon pass skipped: {_waicon_err}")
             # A poster-style upload that still ended up outside the menu is
             # shown whole rather than cropped.
             try:
