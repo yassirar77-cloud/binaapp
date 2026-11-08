@@ -2,7 +2,12 @@ services:
   - type: web
     name: binaapp-backend
     runtime: python
-    plan: starter
+    # Standard (2 GB): the visual QA gate launches headless Chromium, which
+    # peaks at ~400 MB with the Playwright driver. On Starter (512 MB, app
+    # using 160-255 MB) the memory guard skips the gate on every job. This
+    # service is Blueprint-managed: change the plan here, not in the
+    # dashboard, or the next Blueprint sync puts it back.
+    plan: standard
     region: singapore
     rootDir: backend
 
