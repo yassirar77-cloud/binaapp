@@ -183,3 +183,43 @@ class TestListedDrafts:
             client.get("/api/v1/websites/", headers=auth_headers)
         columns = get.call_args.kwargs.get("columns") or ""
         assert "html_content" not in columns and "status" in columns and "subdomain" in columns
+
+
+class TestHeroVideoCarriedOver:
+    """agp: publishing the draft dropped the hero video the merchant had put
+    on the live page (the clip lives in the page HTML; a draft has none)."""
+
+    HERO_PAGE = (
+        "<!DOCTYPE html><html><head><title>AGP</title></head><body>"
+        '<section id="hero" class="relative min-h-[70vh] overflow-hidden"><h1>Ayam Gepuk Panglima</h1>'
+        "<p>Makin Pedas, Rasa Makin Padu.</p></section>"
+        + "<p>menu</p>" * 80
+        + f'<div data-website-id="{DRAFT_ID}"></div></body></html>'
+    )
+    CLIP = "https://res.cloudinary.com/dpisgucmw/video/upload/v1/binaapp/hero_videos/agp.mp4"
+
+    def _live_with_clip(self):
+        from app.services.hero_video_patcher import apply_hero_video, build_settings
+        return apply_hero_video(self.HERO_PAGE, build_settings(video_url=self.CLIP, overlay="dark", text_mode="light")).html
+
+    def test_live_clip_and_look_go_onto_the_draft(self):
+        from app.services.hero_video_patcher import detect_hero_video
+        rows = _rows(draft={"html_content": self.HERO_PAGE}, live={"html_content": self._live_with_clip()})
+        with patch("app.services.menu_persistence.load_menu_items", return_value=[]):
+            fields, err = resolve_replace_request(_Supa(rows), USER, DRAFT_ID, LIVE_ID)
+        assert err is None
+        video = detect_hero_video(fields["html_content"])
+        assert video and video["video_url"].endswith("agp.mp4")
+        assert video["overlay"] == "dark" and video["text_mode"] == "light"
+        assert "Makin Pedas, Rasa Makin Padu." in fields["html_content"]
+
+    def test_no_clip_on_the_live_page_leaves_the_draft_alone(self):
+        rows = _rows(draft={"html_content": self.HERO_PAGE}, live={"html_content": self.HERO_PAGE})
+        with patch("app.services.menu_persistence.load_menu_items", return_value=[]):
+            fields, _ = resolve_replace_request(_Supa(rows), USER, DRAFT_ID, LIVE_ID)
+        assert "binaapp:hero-video" not in fields["html_content"]
+
+    def test_a_broken_live_page_never_blocks_the_publish(self):
+        from app.services.draft_replace import carry_hero_video
+        with patch("app.services.hero_video_patcher.detect_hero_video", side_effect=RuntimeError("boom")):
+            assert carry_hero_video("<html>", self.HERO_PAGE) == self.HERO_PAGE

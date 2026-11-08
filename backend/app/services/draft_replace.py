@@ -20,6 +20,9 @@ replace mode resolves the request server-side:
   rewritten to the live site's id;
 - description, business fields, address and the menu come from the draft
   row (the menu from its persisted ``menu_items``);
+- a hero video background on the live page is carried onto the draft
+  (agp: the swap dropped the clip the merchant had put on the old page —
+  the video lives in the page HTML, and a generated draft has none);
 - the publish then runs as a republish of the live row (same id, same
   subdomain, no promotion, no quota charge).
 
@@ -38,12 +41,32 @@ _DRAFT_COLUMNS = (
     "id, user_id, status, subdomain, html_content, business_name, name, description, "
     "business_type, location_address, hero_image_prompt"
 )
-_TARGET_COLUMNS = "id, user_id, status, subdomain, business_name, name"
+_TARGET_COLUMNS = "id, user_id, status, subdomain, business_name, name, html_content"
 
 
 def _one(supabase, table: str, columns: str, row_id: str) -> Optional[Dict[str, Any]]:
     res = supabase.table(table).select(columns).eq("id", row_id).limit(1).execute()
     return (res.data or [None])[0]
+
+
+def carry_hero_video(live_html: str, draft_html: str) -> str:
+    """The draft with the live page's hero video on it, with the same clip
+    and look. Unchanged when the live page has none, the draft already has
+    one, or the draft has no hero to put it on."""
+    try:
+        from app.services.hero_video_patcher import apply_hero_video, build_settings, detect_hero_video
+
+        current = detect_hero_video(live_html)
+        if not current or detect_hero_video(draft_html):
+            return draft_html
+        result = apply_hero_video(draft_html, build_settings(**current))
+        if result.changed:
+            logger.info(f"🎬 Hero video carried onto the draft: {current['video_url'][:80]}")
+            return result.html
+        logger.warning("🎬 Live page has a hero video but the draft has no hero to put it on")
+    except Exception as err:  # never block the publish over the clip
+        logger.warning(f"🎬 Hero video not carried onto the draft: {err}")
+    return draft_html
 
 
 def resolve_replace_request(
@@ -75,6 +98,8 @@ def resolve_replace_request(
     # The page embeds the draft's id (data-website-id, widget tags): point it
     # at the live site so the publish is a republish, not a draft promotion.
     html = html.replace(draft_id, target_id)
+
+    html = carry_hero_video(str(target.get("html_content") or ""), html)
 
     menu_items = []
     try:
