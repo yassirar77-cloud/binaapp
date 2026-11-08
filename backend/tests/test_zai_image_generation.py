@@ -448,7 +448,10 @@ class TestZaiRateLimitAndSerialization:
     def test_phase_budget_default(self, zai_env):
         service = AIService()
         phase = service._new_zai_image_phase()
-        assert phase == {"spent": 0.0, "budget": 300.0, "exhausted": False}
+        assert {k: phase[k] for k in ("spent", "budget", "exhausted")} == {"spent": 0.0, "budget": 300.0, "exhausted": False}
+        # Deadline routing state (IMAGE_PHASE_TARGET_SECONDS): nothing queued,
+        # the first-guess seconds per Z.ai image until one is measured.
+        assert phase["queued"] == 0 and phase["calls"] == 0 and phase["avg"] == 40.0
 
     def test_outer_timeout_extends_for_zai(self, zai_env, monkeypatch):
         assert ai_service_module.generation_outer_timeout_seconds() == 180.0

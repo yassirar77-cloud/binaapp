@@ -113,10 +113,37 @@ def test_vision_messages_tile_the_screenshot():
     im.save(buf, format="PNG")
     msgs = build_vision_messages(buf.getvalue(), item_names=["Set A", "Teh O"], language="ms")
     content = msgs[0]["content"]
-    assert content[0]["type"] == "text" and "Set A" in content[0]["text"] and "cut off" in content[0]["text"]
+    assert content[0]["type"] == "text" and "cut off" in content[0]["text"] and "SLICES" in content[0]["text"]
+    assert "Do not judge the photos" in content[0]["text"]
     images = [c for c in content if c["type"] == "image_url"]
     assert 4 <= len(images) <= vg.VISION_MAX_TILES
     assert images[0]["image_url"]["url"].startswith("data:image/png;base64,")
+    assert content[1] == {"type": "text", "text": f"Slice 1 of {len(images)}:"}
+
+
+def test_tiles_overlap_and_cover_the_whole_page():
+    """mamak's cards were cut in two by back-to-back 1200px slices and the
+    model failed the page for "cut off at the bottom edge". Every slice now
+    overlaps the next, and a 10,049px page (agp) is covered to the end."""
+    from PIL import Image
+    import io
+    im = Image.new("RGB", (390, 10049), "white")
+    for y in range(0, 10049, 50):  # a ruler: row y has red = y // 50 % 256
+        im.paste((y // 50 % 256, 0, 0), (0, y, 390, min(y + 50, 10049)))
+    buf = io.BytesIO()
+    im.save(buf, format="PNG")
+    tiles = [Image.open(io.BytesIO(t)) for t in vg._tiles(buf.getvalue())]
+    assert len(tiles) <= vg.VISION_MAX_TILES
+    tops, y = [], 0
+    for t in tiles:
+        tops.append(y)
+        y += vg.VISION_TILE_HEIGHT - vg.VISION_TILE_OVERLAP
+    for top, nxt in zip(tops, tops[1:]):
+        assert nxt < top + vg.VISION_TILE_HEIGHT - 200  # >= 200px shared with the next slice
+    assert tops[-1] + tiles[-1].size[1] == 10049  # the last slice reaches the bottom
+    # The bottom row of each slice is inside the next one.
+    for a, b in zip(tiles, tiles[1:]):
+        assert a.getpixel((5, a.size[1] - 1)) == b.getpixel((5, vg.VISION_TILE_OVERLAP - 1))
 
 
 def test_run_gate_vision_verdicts(monkeypatch):
@@ -127,7 +154,7 @@ def test_run_gate_vision_verdicts(monkeypatch):
     monkeypatch.setattr(vg, "render", _render)
 
     async def _high(messages):
-        return json.dumps({"issues": [{"type": "cutoff", "where": "menu", "detail": "price cut", "severity": "high"}], "photo_mismatches": [], "overall": "fail"})
+        return json.dumps({"issues": [{"type": "overlap", "where": "hero", "detail": "strip over the button", "severity": "high"}], "photo_mismatches": [], "overall": "fail"})
     r = asyncio.run(run_gate("<html/>", expect_map=False, expect_whatsapp=False, call_vision=_high))
     assert not r.passed and [c.name for c in r.failed] == ["vision_review"]
 

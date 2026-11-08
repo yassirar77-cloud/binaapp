@@ -289,6 +289,7 @@ def food_dish_subject(name: str) -> str:
 #: image model letters a Malay menu name into the photo far more often
 #: than it does a plain description). Longest phrases first.
 _FOOD_EN: Sequence[Tuple[str, str]] = (
+    ("kari kepala ikan", "fish head curry"), ("kari ayam", "chicken curry"), ("kari", "curry"),
     ("ayam gepuk", "smashed crispy fried chicken"), ("ayam krispy", "crispy fried chicken"),
     ("ayam crispy", "crispy fried chicken"), ("ayam goreng", "fried chicken"), ("ayam bakar", "grilled chicken"),
     ("sotong krispy", "crispy fried squid"), ("udang krispy", "crispy fried prawns"),

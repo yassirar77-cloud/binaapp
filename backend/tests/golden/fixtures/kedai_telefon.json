@@ -26,5 +26,5 @@
       {"name": "Used Samsung A54", "price": "850.00", "category": "Used Phones"}
     ]
   },
-  "expect": {"min_items": 9, "chips": 0, "banners": 0, "coming_soon": 2, "map": true, "vertical": "general", "language": "en"}
+  "expect": {"min_items": 9, "chips": 0, "banners": 0, "coming_soon": 2, "map": true, "vertical": "general", "language": "en", "hero_forbid": ["camera on a tripod", "burger", "dish", "food"], "hero_require": ["Screen Replacement", "phone"]}
 }

@@ -18,5 +18,5 @@
     "description": "Ayam Gepuk Panglima di Kota Bayu Emas, Klang. Ayam gepuk dengan sambal pedas yang digiling segar, dihidang dengan nasi putih, tauhu, tempe, kubis dan timun atas pinggan rotan beralas daun pisang. Spice Level 1 Spicy / Level 2 Hot / Level 3 Extra Hot. FREE refill nasi & sambal (dine-in sahaja). Take away caj RM2.00. Set Panglima Signature ialah pilihan paling laris kami.\nComing soon: Bakso Daging, Nasi Lemak, Bayam Goreng, Kangkung Goreng, Kaki Ayam, Chicken Wing, Korean Chicken.",
     "menu_items": "@../../fixtures/ayam_gepuk_panglima_menu.json"
   },
-  "expect": {"min_items": 32, "chips": 3, "banners": 2, "coming_soon": 7, "map": true, "vertical": "food"}
+  "expect": {"min_items": 32, "chips": 3, "banners": 2, "coming_soon": 7, "map": true, "vertical": "food", "hero_forbid": ["burger", "fries", "kraft paper", "Set A", "Set B"], "hero_require": ["smashed crispy fried chicken"]}
 }

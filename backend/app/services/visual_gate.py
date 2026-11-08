@@ -13,13 +13,20 @@ Before a page reaches the merchant it is rendered in a real browser at
 - the map iframe is visible with both direction buttons (when an address
   was given).
 
-Then a vision model (``qwen3-vl-plus``) reviews the mobile screenshot with
-one fixed rubric: overlapping, tilted, cut-off or unreadable elements, and
-photos that do not match their item name. Measurements are facts; the
-model's opinion is advice: a measured check never passes because the
-model liked the page, and a model complaint on something the measurements
-cleared is logged as a warning, except an explicit photo mismatch, which
-is fixed by dropping that photo.
+Then a vision model (``qwen3-vl-plus``) answers three questions at once:
+
+- the page, as overlapping slices of the mobile screenshot: overlapping,
+  tilted, cut-off or unreadable elements. A cut-off fails the gate only
+  when the browser measured clipping or overflow too (a slice edge is not
+  a page edge);
+- each menu card's OWN photo against its OWN name (one crop per card);
+  a mismatch drops that photo;
+- the hero photo against the business; a mismatch swaps in the
+  photo-free hero.
+
+Every image is loaded AND decoded before the screenshot. Measurements are
+facts; the model's opinion is advice: a measured check never passes
+because the model liked the page.
 
 ``run_gate`` is pure apart from the browser; ``gate_with_recovery`` adds
 the auto-fix → re-render → regenerate-once → fail loop the job worker
@@ -46,13 +53,17 @@ DESKTOP = (1280, 800)
 RENDER_TIMEOUT_SECONDS = float(os.getenv("VISUAL_GATE_RENDER_TIMEOUT_SECONDS", "40"))
 VISION_MODEL = os.getenv("VISUAL_GATE_VISION_MODEL", "qwen3-vl-plus")
 VISION_TIMEOUT_SECONDS = float(os.getenv("VISUAL_GATE_VISION_TIMEOUT_SECONDS", "60"))
-VISION_MAX_TILES = int(os.getenv("VISUAL_GATE_VISION_TILES", "6"))
+VISION_MAX_TILES = int(os.getenv("VISUAL_GATE_VISION_TILES", "10"))
 MAX_ATTEMPTS = 3  # original → auto-fixed → regenerated
 
 HARD_CHECKS = (
     "no_horizontal_overflow", "hero_cta_unobstructed", "floating_button_unobstructed", "no_clipped_text",
     "contrast_aa", "images_load", "cta_icon_and_label", "map_visible", "vision_review",
 )
+#: Fixed by the gate itself, never a reason to fail: a mismatched card
+#: photo is dropped, a mismatched hero photo becomes a solid hero, a slow
+#: image is reported.
+SOFT_CHECKS = ("photo_matches_name", "hero_matches_business", "images_drawn", "floating_whatsapp_present")
 
 
 def gate_mode() -> str:
@@ -118,20 +129,43 @@ class GateReport:
 # Measurement (runs in the page)
 # ---------------------------------------------------------------------------
 
+#: How long one image may take to arrive before the screenshot is taken
+#: without it. A Cloudinary transform (c_fill, f_auto) is generated on its
+#: first request and can take several seconds.
+IMAGE_WAIT_MS = int(os.getenv("VISUAL_GATE_IMAGE_WAIT_MS", "15000"))
+
 _PREPARE_JS = """
-async () => {
-  // Load every image now (lazy ones included) so "did it load" is a fact.
+async (imgWaitMs) => {
+  const frame = () => new Promise(r => requestAnimationFrame(() => r()));
+  const eager = (imgs) => imgs.forEach(i => { try { i.loading = 'eager'; i.decoding = 'sync'; } catch (e) {} });
+  eager(Array.from(document.images));
+  // Walk the page once, a screen at a time: lazy loaders that wait for an
+  // IntersectionObserver (data-src) and content-visibility sections only
+  // start when they reach the viewport.
+  const H = window.innerHeight || 800;
+  const total = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
+  for (let y = 0; y < total; y += Math.max(200, Math.floor(H * 0.9))) { window.scrollTo(0, y); await frame(); }
   const imgs = Array.from(document.images);
-  imgs.forEach(i => { try { i.loading = 'eager'; } catch (e) {} });
+  eager(imgs);
   await Promise.all(imgs.map(i => new Promise(res => {
     if (i.complete) return res();
-    const t = setTimeout(res, 8000);
+    const t = setTimeout(res, imgWaitMs);
     i.addEventListener('load', () => { clearTimeout(t); res(); }, { once: true });
     i.addEventListener('error', () => { clearTimeout(t); res(); }, { once: true });
   })));
+  // Loaded is not drawn: the live agp screenshot showed every menu card as
+  // an empty box with only its "Gambar hiasan" label, because the pixels
+  // of a decoding="async" image were not ready when it was captured.
+  // decode() resolves once they are.
+  await Promise.all(imgs.filter(i => i.complete && i.naturalWidth > 0 && i.decode).map(i => i.decode().catch(() => null)));
   if (document.fonts && document.fonts.ready) { try { await document.fonts.ready; } catch (e) {} }
   window.scrollTo(0, 0);
-  return imgs.length;
+  await frame(); await frame();
+  return {
+    total: imgs.length,
+    loaded: imgs.filter(i => i.complete && i.naturalWidth > 0).length,
+    pending: imgs.filter(i => !i.complete).length,
+  };
 }
 """
 
@@ -276,7 +310,9 @@ _MEASURE_JS = r"""
   }
 
   // --- images ---
-  out.images = Array.from(document.images).map(i => ({ src: (i.currentSrc || i.src || '').slice(0, 160), ok: i.complete && i.naturalWidth > 0, alt: (i.alt || '').slice(0, 40), visible: visible(i) }));
+  // ok = drawn; pending = still downloading after the wait (slow, not
+  // broken: the customer's browser will show it); otherwise it failed.
+  out.images = Array.from(document.images).map(i => ({ src: (i.currentSrc || i.src || '').slice(0, 160), ok: i.complete && i.naturalWidth > 0, pending: !i.complete, alt: (i.alt || '').slice(0, 40), visible: visible(i) }));
 
   // --- CTA buttons: icon + label ---
   const ctaSel = 'a.bs-btn, .binaapp-map-actions a, a[href*="wa.me"]:not(.bmf-order), a[href^="tel:"], a[class*="btn"]:not(.bmf-order), button.bs-btn';
@@ -343,6 +379,92 @@ def launch_args() -> List[str]:
     return list(LOW_MEMORY_ARGS) + list(EXTRA_LAUNCH_ARGS) + extra
 
 
+#: Menu cards whose photo is judged on its own (one small crop each).
+CARD_PHOTO_LIMIT = int(os.getenv("VISUAL_GATE_CARD_PHOTOS", "16"))
+
+_MARK_PHOTOS_JS = r"""
+(limit) => {
+  const drawn = (i) => i && i.complete && i.naturalWidth > 0 && i.getBoundingClientRect().width > 0;
+  const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
+  const cards = [];
+  for (const card of Array.from(document.querySelectorAll('.bmf-card'))) {
+    if (cards.length >= limit) break;
+    const img = card.querySelector('img');
+    const name = card.querySelector('.bmf-name');
+    if (!drawn(img) || !name) continue;
+    img.setAttribute('data-bvg-card', String(cards.length));
+    cards.push(norm(name.innerText || name.textContent).slice(0, 120));
+  }
+  // The hero photo: the composed hero's media, else the biggest drawn
+  // image in the first section, else the section itself when its photo is
+  // a CSS background.
+  let hero = null, heroKind = null;
+  const sec = document.querySelector('#home, section.bs-hero, header + section, main > section:first-of-type, body > section:first-of-type');
+  if (sec) {
+    const media = sec.querySelector('.bs-hero-media img');
+    if (drawn(media)) { hero = media; heroKind = 'img'; }
+    if (!hero) {
+      const W = window.innerWidth;
+      const big = Array.from(sec.querySelectorAll('img')).filter(i => drawn(i) && i.getBoundingClientRect().width >= W * 0.5);
+      if (big.length) { hero = big[0]; heroKind = 'img'; }
+    }
+    if (!hero) {
+      for (const e of [sec, ...Array.from(sec.querySelectorAll('*')).slice(0, 40)]) {
+        const bg = getComputedStyle(e).backgroundImage || '';
+        if (/url\(/.test(bg) && e.getBoundingClientRect().width >= window.innerWidth * 0.5) { hero = e; heroKind = 'background'; break; }
+      }
+    }
+  }
+  if (hero) hero.setAttribute('data-bvg-hero', '1');
+  return { cards, heroKind };
+}
+"""
+
+
+def _shrink(png: Optional[bytes], width: int = 360) -> Optional[bytes]:
+    """A crop at most ``width`` px wide (fewer vision tokens; a photo's
+    subject survives the downscale)."""
+    if not png:
+        return png
+    try:
+        from PIL import Image
+        im = Image.open(io.BytesIO(png))
+        if im.size[0] <= width:
+            return png
+        im = im.resize((width, max(1, round(im.size[1] * width / im.size[0]))))
+        buf = io.BytesIO()
+        im.convert("RGB").save(buf, format="JPEG", quality=80)
+        return buf.getvalue()
+    except Exception:
+        return png
+
+
+async def _photo_crops(page: Any) -> Dict[str, Any]:
+    """Each menu card's OWN photo and the hero photo, as separate images,
+    so the vision model judges a card by its picture alone. On the full
+    page it attributed the hero's burger to all seven agp cards ("same
+    burger photo used") and seven good photos were dropped."""
+    out: Dict[str, Any] = {"cards": [], "hero": None, "hero_kind": None}
+    try:
+        marked = await page.evaluate(_MARK_PHOTOS_JS, CARD_PHOTO_LIMIT)
+    except Exception as err:
+        logger.warning(f"📐 photo marking failed: {err}")
+        return out
+    for i, name in enumerate(marked.get("cards") or []):
+        try:
+            png = await page.locator(f'[data-bvg-card="{i}"]').first.screenshot(type="png", timeout=5000)
+            out["cards"].append({"name": name, "png": _shrink(png)})
+        except Exception as err:
+            logger.warning(f"📐 card photo {i} crop failed: {err}")
+    if marked.get("heroKind"):
+        try:
+            png = await page.locator('[data-bvg-hero="1"]').first.screenshot(type="png", timeout=5000)
+            out["hero"], out["hero_kind"] = _shrink(png, 512), marked["heroKind"]
+        except Exception as err:
+            logger.warning(f"📐 hero photo crop failed: {err}")
+    return out
+
+
 def playwright_available() -> bool:
     try:
         import playwright  # noqa: F401
@@ -389,7 +511,9 @@ async def render(html: str, *, timeout: float = RENDER_TIMEOUT_SECONDS,
                         except Exception:
                             pass
                         try:
-                            await page.evaluate(_PREPARE_JS)
+                            prepared = await page.evaluate(_PREPARE_JS, IMAGE_WAIT_MS)
+                            if isinstance(prepared, dict) and prepared.get("pending"):
+                                logger.warning(f"📐 {prepared['pending']}/{prepared.get('total')} image(s) still loading at the {name} screenshot")
                         except Exception as err:
                             logger.warning(f"📐 prepare step failed ({name}): {err}")
                         try:
@@ -399,6 +523,8 @@ async def render(html: str, *, timeout: float = RENDER_TIMEOUT_SECONDS,
                             measured = {"error": str(err)}
                         png = await page.screenshot(full_page=(name == "mobile" or desktop_full_page), type="png")
                         if name == "mobile":
+                            # After the full-page shot: the crops scroll.
+                            measured["_crops"] = await _photo_crops(page)
                             mobile, mpng = measured, png
                         else:
                             desktop, dpng = measured, png
@@ -438,9 +564,16 @@ def evaluate_checks(mobile: Dict[str, Any], desktop: Dict[str, Any], *, expect_m
     # 5. contrast
     low = list(mobile.get("lowContrast") or [])
     checks.append(Check("contrast_aa", not low, "; ".join(f"{c.get('text')!r} {c.get('ratio')}:1 ({c.get('fg')} on {c.get('bg')})" for c in low[:5]), len(low), low))
-    # 6. images
-    broken = [i for i in (mobile.get("images") or []) if not i.get("ok")]
+    # 6. images: a failed download is broken (the fix drops it); one still
+    # arriving after the wait is slow, which is reported but never a
+    # reason to take the merchant's photo off the page.
+    imgs = mobile.get("images") or []
+    broken = [i for i in imgs if not i.get("ok") and not i.get("pending")]
     checks.append(Check("images_load", not broken, "; ".join(str(i.get("src", ""))[:80] for i in broken[:5]), len(broken), broken))
+    slow = [i for i in imgs if i.get("pending")]
+    if slow:
+        checks.append(Check("images_drawn", False, f"{len(slow)} still loading at the screenshot: "
+                            + "; ".join(str(i.get("src", ""))[:80] for i in slow[:3]), len(slow), slow, hard=False))
     # 7. CTA icon + label
     ctas = mobile.get("ctas") or []
     bad_cta = [c for c in ctas if not (c.get("hasIcon") and c.get("hasLabel"))]
@@ -469,20 +602,49 @@ def evaluate_checks(mobile: Dict[str, Any], desktop: Dict[str, Any], *, expect_m
 # Vision review
 # ---------------------------------------------------------------------------
 
+#: The page is read in slices; each overlaps the next by this much, so an
+#: element cut by one slice's bottom edge is whole at the top of the next.
+VISION_TILE_HEIGHT = int(os.getenv("VISUAL_GATE_TILE_HEIGHT", "1400"))
+VISION_TILE_OVERLAP = int(os.getenv("VISUAL_GATE_TILE_OVERLAP", "250"))
+
 VISION_RUBRIC = (
-    "You are reviewing screenshots of a small-business website rendered on a 390px-wide phone, top to bottom, "
-    "in order. Answer ONLY with JSON of this exact shape:\n"
-    '{"issues":[{"type":"overlap|tilted|cutoff|unreadable|other","where":"short location, e.g. hero buttons","detail":"what is wrong","severity":"high|low"}],'
-    '"photo_mismatches":[{"item":"menu item name as printed","reason":"what the photo shows instead"}],"overall":"pass|fail"}\n'
+    "You are reviewing screenshots of a small-business website rendered on a 390px-wide phone. The page is long, so "
+    "it comes as consecutive SLICES, top of the page first. Each slice overlaps the next by about "
+    f"{VISION_TILE_OVERLAP}px: content touching the top or bottom edge of a slice continues in the next slice. "
+    "That is how the screenshots were cut, NOT a cut-off on the page — never report it. Answer ONLY with JSON of this "
+    "exact shape:\n"
+    '{"issues":[{"type":"overlap|tilted|cutoff|unreadable|other","where":"short location, e.g. hero buttons","detail":"what is wrong","severity":"high|low"}],"overall":"pass|fail"}\n'
     "Rules: report an issue ONLY when you can see it in the pixels: elements overlapping each other, text or buttons "
-    "cut off at an edge, rotated/tilted content, text too small or too low-contrast to read. A photo mismatch is a "
-    "menu card whose picture clearly shows a different kind of thing than its printed name (a drink pictured as a "
-    "chicken dish, a live animal, a menu board photographed as a dish). Design taste is NOT an issue. "
-    "'overall' is 'fail' only when there is at least one high-severity issue. Empty lists are the normal answer."
+    "cut off by the LEFT or RIGHT edge of the phone or by their own box, rotated/tilted content, text too small or too "
+    "low-contrast to read. Do not judge the photos (they are checked separately) and do not report an image that "
+    "looks blank. Design taste is NOT an issue. 'overall' is 'fail' only when there is at least one high-severity "
+    "issue. An empty list is the normal answer."
+)
+
+CARD_PHOTO_RUBRIC = (
+    "Each image below is the photo on ONE menu card of a small-business website, and comes right after that card's "
+    "printed name. Judge every photo ONLY against its own card's name. A mismatch is a photo that clearly shows a "
+    "different kind of thing than the name: a drink pictured as a chicken dish, a burger for 'Ayam Gepuk', a live "
+    "animal, a menu board or a poster photographed as a dish. A close but imperfect plating, garnish or angle is NOT "
+    "a mismatch. Answer ONLY with JSON: "
+    '{"mismatches":[{"card":<number>,"reason":"what the photo shows instead"}]}. An empty list is the normal answer.'
+)
+
+HERO_RUBRIC = (
+    "This image is the hero (top banner) photo of the website of the business described below. Does it show this "
+    "business's own kind of product, food or service? A generic but fitting scene counts as a match (a plate of "
+    "Malaysian rice dishes for a Malaysian restaurant, tools for a workshop). A different kind of food or trade is a "
+    "mismatch (a burger and fries for an ayam gepuk stall, a cake for a mechanic, a salon for a phone shop). Text "
+    "laid over the photo is the page's own heading: ignore it. Answer ONLY with JSON: "
+    '{"matches":true|false,"shows":"what the photo shows","reason":"why it does or does not fit"}'
 )
 
 
-def _tiles(png: bytes, *, height: int = 1200, limit: int = VISION_MAX_TILES) -> List[bytes]:
+def _tiles(png: bytes, *, height: int = VISION_TILE_HEIGHT, overlap: int = VISION_TILE_OVERLAP,
+           limit: int = VISION_MAX_TILES) -> List[bytes]:
+    """The full-page screenshot as overlapping slices. Non-overlapping
+    1200px slices cut mamak's menu cards in two, the model reported every
+    one as "cut off at the bottom edge", and a good page failed."""
     try:
         from PIL import Image
     except Exception:
@@ -492,24 +654,100 @@ def _tiles(png: bytes, *, height: int = 1200, limit: int = VISION_MAX_TILES) -> 
         w, h = im.size
     except Exception:
         return [png]
+    step = max(200, height - max(0, overlap))
     out: List[bytes] = []
-    for top in range(0, h, height):
-        if len(out) >= limit:
-            break
+    top = 0
+    while top < h and len(out) < limit:
         tile = im.crop((0, top, w, min(top + height, h)))
         buf = io.BytesIO()
         tile.save(buf, format="PNG", optimize=True)
         out.append(buf.getvalue())
+        if top + height >= h:
+            break
+        top += step
     return out or [png]
 
 
 def build_vision_messages(mobile_png: bytes, *, item_names: Sequence[str] = (), language: str = "ms") -> List[Dict[str, Any]]:
-    content: List[Dict[str, Any]] = [{"type": "text", "text": VISION_RUBRIC + (
-        f"\nMenu items on this page (name as printed): {', '.join(list(item_names)[:40])}." if item_names else "")
-        + f"\nPage language: {'Bahasa Malaysia' if language != 'en' else 'English'}. The screenshots follow, top of page first."}]
-    for tile in _tiles(mobile_png):
-        content.append({"type": "image_url", "image_url": {"url": "data:image/png;base64," + base64.b64encode(tile).decode("ascii")}})
+    tiles = _tiles(mobile_png)
+    content: List[Dict[str, Any]] = [{"type": "text", "text": VISION_RUBRIC
+        + f"\nPage language: {'Bahasa Malaysia' if language != 'en' else 'English'}. {len(tiles)} slice(s) follow, top of page first."}]
+    for i, tile in enumerate(tiles, 1):
+        content.append({"type": "text", "text": f"Slice {i} of {len(tiles)}:"})
+        content.append({"type": "image_url", "image_url": {"url": _data_url(tile)}})
     return [{"role": "user", "content": content}]
+
+
+def _data_url(img: bytes) -> str:
+    mime = "image/jpeg" if img[:3] == b"\xff\xd8\xff" else "image/png"
+    return f"data:{mime};base64," + base64.b64encode(img).decode("ascii")
+
+
+def build_card_photo_messages(cards: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    content: List[Dict[str, Any]] = [{"type": "text", "text": CARD_PHOTO_RUBRIC}]
+    for i, card in enumerate(cards, 1):
+        content.append({"type": "text", "text": f"Card {i}: {card['name']}"})
+        content.append({"type": "image_url", "image_url": {"url": _data_url(card["png"])}})
+    return [{"role": "user", "content": content}]
+
+
+def build_hero_messages(hero_png: bytes, business: Dict[str, Any]) -> List[Dict[str, Any]]:
+    items = [str(x) for x in (business.get("items") or []) if x][:10]
+    about = (
+        f"Business: {business.get('name') or '-'}\nType: {business.get('type') or '-'}\n"
+        f"What they sell / do: {str(business.get('description') or '-')[:400]}\n"
+        + (f"Items: {', '.join(items)}\n" if items else "")
+    )
+    return [{"role": "user", "content": [
+        {"type": "text", "text": HERO_RUBRIC + "\n\n" + about},
+        {"type": "image_url", "image_url": {"url": _data_url(hero_png)}},
+    ]}]
+
+
+def _json_object(raw: Optional[str]) -> Optional[Dict[str, Any]]:
+    if not raw or not isinstance(raw, str):
+        return None
+    text = raw.strip()
+    fence = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL)
+    if fence:
+        text = fence.group(1).strip()
+    start, end = text.find("{"), text.rfind("}")
+    if start == -1 or end <= start:
+        return None
+    for candidate in (text[start:end + 1], re.sub(r",\s*([}\]])", r"\1", text[start:end + 1])):
+        try:
+            data = json.loads(candidate)
+            return data if isinstance(data, dict) else None
+        except (json.JSONDecodeError, ValueError):
+            continue
+    return None
+
+
+def parse_card_photos(raw: Optional[str], cards: Sequence[Dict[str, Any]]) -> Optional[List[Dict[str, str]]]:
+    """Mismatches as [{"item": card name, "reason": ...}]; None = no verdict."""
+    data = _json_object(raw)
+    if data is None:
+        return None
+    out: List[Dict[str, str]] = []
+    for m in data.get("mismatches") or []:
+        if not isinstance(m, dict):
+            continue
+        try:
+            idx = int(str(m.get("card")).strip().lstrip("#")) - 1
+        except (TypeError, ValueError):
+            continue
+        if 0 <= idx < len(cards) and cards[idx]["name"] not in [x["item"] for x in out]:
+            out.append({"item": cards[idx]["name"], "reason": str(m.get("reason") or "")[:200]})
+    return out
+
+
+def parse_hero(raw: Optional[str]) -> Optional[Dict[str, Any]]:
+    data = _json_object(raw)
+    if data is None or "matches" not in data:
+        return None
+    val = data.get("matches")
+    matches = val if isinstance(val, bool) else str(val).strip().lower() not in ("false", "no", "0")
+    return {"matches": matches, "shows": str(data.get("shows") or "")[:160], "reason": str(data.get("reason") or "")[:200]}
 
 
 def parse_vision(raw: Optional[str]) -> Optional[Dict[str, Any]]:
@@ -551,6 +789,29 @@ def parse_vision(raw: Optional[str]) -> Optional[Dict[str, Any]]:
 # The gate
 # ---------------------------------------------------------------------------
 
+#: Vision issue types that are about something being cut off. The model
+#: cannot tell a page edge from a slice edge reliably, so these fail the
+#: gate only when the browser measured clipping or overflow too.
+_CUTOFF_TYPES = ("cutoff", "cut-off", "cut off", "clipped", "truncated")
+
+
+def _is_cutoff(issue: Dict[str, Any]) -> bool:
+    t = str(issue.get("type") or "").lower()
+    if any(k in t for k in _CUTOFF_TYPES):
+        return True
+    return t == "other" and bool(re.search(r"\bcut(?:\s|-)?off\b|\btruncat", str(issue.get("detail") or ""), re.IGNORECASE))
+
+
+async def _ask(call_vision: Callable[[List[Dict[str, Any]]], Awaitable[Optional[str]]], messages: List[Dict[str, Any]], what: str) -> Optional[str]:
+    try:
+        return await asyncio.wait_for(call_vision(messages), timeout=VISION_TIMEOUT_SECONDS)
+    except asyncio.TimeoutError:
+        logger.warning(f"👁️ Vision {what} timed out after {VISION_TIMEOUT_SECONDS:.0f}s")
+    except Exception as verr:
+        logger.warning(f"👁️ Vision {what} failed: {verr}")
+    return None
+
+
 async def run_gate(
     html: str,
     *,
@@ -561,8 +822,14 @@ async def run_gate(
     call_vision: Optional[Callable[[List[Dict[str, Any]]], Awaitable[Optional[str]]]] = None,
     attempt: int = 1,
     desktop_full_page: bool = False,
+    business: Optional[Dict[str, Any]] = None,
 ) -> GateReport:
-    """Render, measure, review. Never raises."""
+    """Render, measure, review. Never raises.
+
+    Three vision questions, asked at once: the page layout (overlapping
+    slices), each menu card's own photo against its own name, and the hero
+    photo against the business (``business`` = name/type/description/items;
+    skipped without it)."""
     report = GateReport(attempt=attempt, mode=gate_mode())
     mobile, desktop, mpng, dpng, err = await render(html, desktop_full_page=desktop_full_page)
     report.mobile_png, report.desktop_png, report.error = mpng, dpng, err
@@ -571,26 +838,61 @@ async def run_gate(
         logger.warning(f"👁️ Visual gate could not render the page: {err or 'no measurements'}")
         return report
     report.checks = evaluate_checks(mobile, desktop, expect_map=expect_map, expect_whatsapp=expect_whatsapp)
+    crops = mobile.get("_crops") or {}
     if call_vision is not None and mpng:
-        raw = None
-        try:
-            raw = await asyncio.wait_for(call_vision(build_vision_messages(mpng, item_names=item_names, language=language)), timeout=VISION_TIMEOUT_SECONDS)
-        except asyncio.TimeoutError:
-            logger.warning(f"👁️ Vision review timed out after {VISION_TIMEOUT_SECONDS:.0f}s")
-        except Exception as verr:
-            logger.warning(f"👁️ Vision review failed: {verr}")
-        parsed = parse_vision(raw)
+        cards = [c for c in (crops.get("cards") or []) if c.get("png")]
+        hero_png = crops.get("hero")
+        asks = [_ask(call_vision, build_vision_messages(mpng, item_names=item_names, language=language), "page review")]
+        asks.append(_ask(call_vision, build_card_photo_messages(cards), "card photo check") if cards else asyncio.sleep(0, result=None))
+        asks.append(_ask(call_vision, build_hero_messages(hero_png, business), "hero check") if (hero_png and business) else asyncio.sleep(0, result=None))
+        raw_page, raw_cards, raw_hero = await asyncio.gather(*asks)
+
+        parsed = parse_vision(raw_page)
         if parsed is None:
             report.checks.append(Check("vision_review", True, "no verdict (model unavailable or unparseable)", 0, hard=False))
             logger.warning("👁️ Vision review produced no verdict — gating on measurements only")
         else:
             report.vision = parsed
-            report.photo_mismatches = [m["item"] for m in parsed["photo_mismatches"]]
+            measured_clip = any(c.name in ("no_clipped_text", "no_horizontal_overflow") and not c.ok for c in report.checks)
+            for issue in parsed["issues"]:
+                if issue["severity"] == "high" and _is_cutoff(issue) and not measured_clip:
+                    issue["severity"] = "low"
+                    issue["note"] = "cut-off not confirmed by the browser's measurements"
             high = [i for i in parsed["issues"] if i["severity"] == "high"]
+            unconfirmed = [i for i in parsed["issues"] if i.get("note")]
             detail = "; ".join(f"{i['type']} at {i['where']}: {i['detail']}" for i in high[:5])
             report.checks.append(Check("vision_review", not high, detail, len(high), high))
-            if parsed["photo_mismatches"]:
+            if unconfirmed:
+                logger.info(f"👁️ {len(unconfirmed)} cut-off report(s) ignored: the measurements show nothing clipped")
+            # A page-level photo verdict (older prompt) still counts when
+            # no card was cropped; the per-card check supersedes it.
+            if parsed["photo_mismatches"] and not cards:
+                report.photo_mismatches = [m["item"] for m in parsed["photo_mismatches"]]
                 report.checks.append(Check("photo_matches_name", False, "; ".join(f"{m['item']}: {m['reason']}" for m in parsed["photo_mismatches"][:5]), len(parsed["photo_mismatches"]), parsed["photo_mismatches"], hard=False))
+
+        if cards:
+            mism = parse_card_photos(raw_cards, cards)
+            if mism is None:
+                logger.warning(f"👁️ Card photo check produced no verdict ({len(cards)} card(s)) — photos kept")
+            else:
+                report.vision = {**(report.vision or {}), "card_photos_checked": len(cards), "card_photo_mismatches": mism}
+                if mism:
+                    report.photo_mismatches = [m["item"] for m in mism]
+                    report.checks.append(Check("photo_matches_name", False, "; ".join(f"{m['item']}: {m['reason']}" for m in mism[:5]), len(mism), mism, hard=False))
+                else:
+                    report.checks.append(Check("photo_matches_name", True, f"{len(cards)} card photo(s) match their names", 0, hard=False))
+
+        if hero_png and business:
+            hero = parse_hero(raw_hero)
+            if hero is None:
+                logger.warning("👁️ Hero check produced no verdict — hero kept")
+            else:
+                report.vision = {**(report.vision or {}), "hero": {**hero, "kind": crops.get("hero_kind")}}
+                report.checks.append(Check(
+                    "hero_matches_business", hero["matches"],
+                    "" if hero["matches"] else f"hero shows {hero['shows'] or 'something else'}: {hero['reason']}",
+                    0 if hero["matches"] else 1, [hero], hard=False,
+                ))
     logger.info(f"👁️ Visual gate attempt {attempt}: {report.summary()}")
     for c in report.checks:
         if not c.ok:
@@ -657,6 +959,55 @@ def drop_item_photos(html: str, item_names: Sequence[str]) -> Tuple[str, int]:
         if "bmf-text-only" not in cls:
             card["class"] = list(cls) + ["bmf-text-only"]
     return (str(soup) if n else html), n
+
+
+_HERO_FALLBACK_CSS = """
+<style id="binaapp-visual-gate-hero">
+#home,section.bs-hero,body>section:first-of-type{background-image:none!important}
+#home[data-bvg-solid],section[data-bvg-solid]{background-color:var(--primary-color,#1F2937)!important;color:#fff!important}
+</style>
+"""
+
+
+def use_photo_free_hero(html: str) -> Tuple[str, int]:
+    """The hero without its photo (a hero-vs-business mismatch: agp shipped
+    a burger and fries above its ayam gepuk). A composed hero becomes the
+    composer's own solid variant (``bs-hero-solid``: surface colour, dark
+    text); a freeform hero loses its photo and takes the primary colour."""
+    try:
+        from bs4 import BeautifulSoup
+    except Exception:
+        return html, 0
+    soup = BeautifulSoup(html, "html.parser")
+    hero = soup.select_one("section.bs-hero")
+    if hero is not None:
+        removed = 0
+        for el in hero.select(".bs-hero-media, .bs-hero-scrim"):
+            el.decompose()
+            removed += 1
+        cls = hero.get("class") or []
+        if "bs-hero-solid" not in cls:
+            hero["class"] = list(cls) + ["bs-hero-solid"]
+            removed += 1
+        return (str(soup), 1) if removed else (html, 0)
+    hero = soup.select_one("#home") or soup.select_one("header + section") or soup.select_one("main > section") or soup.select_one("body > section")
+    if hero is None:
+        return html, 0
+    n = 0
+    imgs = hero.find_all("img")
+    for img in imgs:
+        w = str(img.get("width") or "")
+        if img.get("fetchpriority") == "high" or (w.isdigit() and int(w) >= 600) or "hero" in " ".join(img.get("class") or []).lower() or len(imgs) == 1:
+            img.decompose()
+            n += 1
+    style = str(hero.get("style") or "")
+    if "background" in style and "url(" in style:
+        hero["style"] = re.sub(r"background(?:-image)?\s*:[^;]*url\([^)]*\)[^;]*;?", "", style)
+        n += 1
+    hero["data-bvg-solid"] = "1"
+    out = str(soup)
+    out = out.replace("</head>", _HERO_FALLBACK_CSS + "</head>", 1) if "</head>" in out else _HERO_FALLBACK_CSS + out
+    return out, 1
 
 
 def _add_cta_icons(html: str) -> Tuple[str, int]:
@@ -748,6 +1099,10 @@ def auto_fix(html: str, report: GateReport) -> Tuple[str, List[str]]:
         out, n = drop_item_photos(out, report.photo_mismatches)
         if n:
             fixes.append(f"dropped_mismatched_photos({n})")
+    if "hero_matches_business" in failed:
+        out, n = use_photo_free_hero(out)
+        if n:
+            fixes.append("photo_free_hero")
     if "cta_icon_and_label" in failed:
         out, n = _add_cta_icons(out)
         if n:
@@ -835,6 +1190,7 @@ async def gate_with_recovery(
     call_vision: Optional[Callable[[List[Dict[str, Any]]], Awaitable[Optional[str]]]] = None,
     regenerate: Optional[Callable[[], Awaitable[Optional[str]]]] = None,
     job_id: str = "",
+    business: Optional[Dict[str, Any]] = None,
 ) -> Tuple[str, GateReport]:
     """Gate → auto-fix + re-gate → regenerate once + gate → fail.
 
@@ -845,7 +1201,8 @@ async def gate_with_recovery(
     if mode == "off":
         rep = GateReport(mode=mode, error="gate off")
         return html, rep
-    kw = dict(expect_map=expect_map, expect_whatsapp=expect_whatsapp, item_names=item_names, language=language, call_vision=call_vision)
+    kw = dict(expect_map=expect_map, expect_whatsapp=expect_whatsapp, item_names=item_names, language=language, call_vision=call_vision,
+              business=business)
     report = await run_gate(html, attempt=1, **kw)
     if not report.rendered:
         # No browser / render crash: nothing to gate on. Logged loudly; not

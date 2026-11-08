@@ -228,6 +228,48 @@ async def dominant_colours(urls: Iterable[Optional[str]], n: int = 3) -> List[st
 _GENERIC_BANNED = ("person eating", "people eating", "customer smiling", "family enjoying", "stock photo")
 
 
+def _dish_phrases(item_names: Sequence[str], limit: int = 3) -> List[str]:
+    """The merchant's items as plain dish descriptions ("Set B – Ayam Gepuk
+    Tauhu Tempe" → "smashed crispy fried chicken with fried tofu and
+    tempeh"): an image model letters a menu label into the picture, and
+    "Set A – Ayam Gepuk" came back as a sign reading "Set A Aman Gepok"."""
+    from app.services import image_subjects
+    out: List[str] = []
+    for name in item_names:
+        if not (name and str(name).strip()):
+            continue
+        dish = image_subjects.plain_dish_prompt(str(name)).split(", top-down")[0].strip()
+        if dish and dish not in out:
+            out.append(dish)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _and(xs: Sequence[str]) -> str:
+    xs = list(xs)
+    return xs[0] if len(xs) == 1 else ", ".join(xs[:-1]) + " and " + xs[-1]
+
+
+def _spread(dishes: Sequence[str]) -> str:
+    """"a generous spread of smashed crispy fried chicken with fried tofu,
+    tempeh and stir-fried cabbage" — main dishes once, sides once."""
+    heads: List[str] = []
+    sides: List[str] = []
+    for d in dishes:
+        head, _, rest = d.partition(" with ")
+        if head and head not in heads:
+            heads.append(head)
+        for side in re.split(r",\s*|\s+and\s+", rest):
+            side = side.strip()
+            if side and side not in sides and side not in heads:
+                sides.append(side)
+    text = _and(heads) if heads else "the shop's dishes"
+    if sides:
+        text += " with " + _and(sides[:4])
+    return ("a generous spread of " if len(dishes) > 1 else "") + text
+
+
 def direction_hero_cue(
     *,
     image_cue: str,
@@ -235,22 +277,41 @@ def direction_hero_cue(
     theme: str,
     item_names: Sequence[str] = (),
     merchant_prompt: Optional[str] = None,
+    business_text: str = "",
+    cue_keywords: Sequence[str] = (),
 ) -> str:
-    """The hero image prompt Pass 1 writes: the direction's dish-specific
-    cue, the merchant's signature items, the light of the theme, merged
-    with the merchant's own words (which lead when present)."""
+    """The hero image prompt Pass 1 writes: the merchant's own dishes, the
+    light of the direction and the theme, merged with the merchant's own
+    words (which lead when present).
+
+    A direction's ``image_cue`` opens with an EXAMPLE subject for the
+    shops it was written for ("a stacked burger and fries on kraft paper"
+    for Halal Street). That subject is used only when the merchant listed
+    no items AND the business matches the direction's keywords; otherwise
+    only its light and mood are kept. agp (ayam gepuk, styled "bold") got
+    Halal Street, and its hero was a burger."""
     items = [n.strip() for n in item_names if n and n.strip()][:3]
+    clauses = [c.strip() for c in str(image_cue or "").split(",") if c.strip()]
+    cue_subject, cue_style = (clauses[0], clauses[1:]) if clauses else ("", [])
+    text = f" {str(business_text or '').lower()} "
+    subject_fits = not cue_keywords or any(str(k).lower() in text for k in cue_keywords)
     parts: List[str] = []
     if merchant_prompt and merchant_prompt.strip():
         parts.append(merchant_prompt.strip())
-    if items and vertical in ("food", "bakery"):
-        parts.append("featuring " + ", ".join(items))
+    food = vertical in ("food", "bakery")
+    if items and food:
+        parts.append(_spread(_dish_phrases(items)))
     elif items:
         parts.append("showing " + ", ".join(items))
-    if image_cue:
-        parts.append(image_cue)
-    parts.append("warm evening light, deep shadows" if theme == "dark" else "bright natural daylight, appetising and warm")
-    if vertical in ("food", "bakery"):
+        if cue_subject and subject_fits and cue_keywords:
+            parts.append(cue_subject)
+    elif cue_subject and subject_fits:
+        parts.append(cue_subject)
+    elif food and not (merchant_prompt and merchant_prompt.strip()):
+        parts.append("freshly baked cakes and pastries" if vertical == "bakery" else "a generous spread of the shop's freshly cooked dishes")
+    parts.extend(cue_style)
+    parts.append("warm evening light, deep shadows" if theme == "dark" else ("bright natural daylight, appetising and warm" if food else "bright natural daylight"))
+    if food:
         parts.append("the dish is the subject, no people, no text")
     cue = ", ".join(parts)
     lowered = cue.lower()

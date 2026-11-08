@@ -165,6 +165,27 @@ def zai_image_request_delay_seconds() -> float:
         return 1.0
 
 
+def image_phase_target_seconds() -> float:
+    """How long a build's image phase should take. Z.ai runs one image at a
+    time (~40s each); an image whose turn in that queue would come after
+    this target goes to Stability at once instead (in parallel, ~5-10s), so
+    8 images take ~1.5 min instead of 5+ (agp: 352s of a 362s build).
+    0 = no target (every image waits for Z.ai, the old behaviour)."""
+    try:
+        return max(0.0, float(os.getenv("IMAGE_PHASE_TARGET_SECONDS", "100")))
+    except (TypeError, ValueError):
+        return 100.0
+
+
+def zai_image_expected_seconds() -> float:
+    """First guess at one Z.ai image (request + download + upload); the
+    build's own measured average replaces it after the first image."""
+    try:
+        return max(1.0, float(os.getenv("ZAI_IMAGE_EXPECTED_SECONDS", "40")))
+    except (TypeError, ValueError):
+        return 40.0
+
+
 def zai_image_phase_budget_seconds() -> float:
     """Cap on the CUMULATIVE time a single build may spend inside Z.ai image
     calls (auto-fill + food-image pass combined). Once exceeded, remaining
@@ -2319,7 +2340,32 @@ Format: Just the image description, no explanations."""
             "spent": 0.0,
             "budget": zai_image_phase_budget_seconds(),
             "exhausted": False,
+            # Deadline routing (image_phase_target_seconds): images waiting
+            # for the Z.ai lock, and the measured seconds per Z.ai image.
+            "queued": 0,
+            "calls": 0,
+            "avg": zai_image_expected_seconds(),
+            "started": time.monotonic(),
+            "rerouted": 0,
         }
+
+    def _zai_turn_too_late(self, zai_phase: Optional[Dict]) -> bool:
+        """True when this image's turn in the Z.ai queue would end after the
+        build's image-phase target: it goes to Stability now instead of
+        waiting (only when Stability is configured to take it)."""
+        target = image_phase_target_seconds()
+        if not zai_phase or target <= 0 or not self.stability_api_key:
+            return False
+        elapsed = time.monotonic() - zai_phase.get("started", time.monotonic())
+        finish = elapsed + (zai_phase.get("queued", 0) + 1) * zai_phase.get("avg", zai_image_expected_seconds())
+        if finish > target:
+            zai_phase["rerouted"] = zai_phase.get("rerouted", 0) + 1
+            logger.info(
+                f"⏱️ Z.ai queue: {zai_phase.get('queued', 0)} ahead at ~{zai_phase.get('avg', 0):.0f}s each would end at "
+                f"{finish:.0f}s > target {target:.0f}s — this image goes to Stability now"
+            )
+            return True
+        return False
 
     def _zai_phase_exhausted(self, zai_phase: Optional[Dict]) -> bool:
         """True once this build's Z.ai image budget is spent (logged once)."""
@@ -2389,19 +2435,29 @@ Format: Just the image description, no explanations."""
             # goes on as positive-phrased exclusions (idempotent).
             zai_prompt = image_subjects.with_negative(zai_prompt)
             url = None
-            if not self._zai_phase_exhausted(zai_phase):
-                async with self._get_zai_image_lock():
-                    # Re-check after queueing: images ahead of us in the lock
-                    # queue may have spent the remaining budget.
-                    if not self._zai_phase_exhausted(zai_phase):
-                        await self._pace_zai_image_request()
-                        _zai_started = time.monotonic()
-                        try:
-                            url = await self._generate_image_zai(zai_prompt)
-                        finally:
-                            self._zai_last_request_at = time.monotonic()
-                            if zai_phase is not None:
-                                zai_phase["spent"] += time.monotonic() - _zai_started
+            if not self._zai_phase_exhausted(zai_phase) and not self._zai_turn_too_late(zai_phase):
+                if zai_phase is not None:
+                    zai_phase["queued"] = zai_phase.get("queued", 0) + 1
+                try:
+                    async with self._get_zai_image_lock():
+                        # Re-check after queueing: images ahead of us in the lock
+                        # queue may have spent the remaining budget.
+                        if not self._zai_phase_exhausted(zai_phase):
+                            await self._pace_zai_image_request()
+                            _zai_started = time.monotonic()
+                            try:
+                                url = await self._generate_image_zai(zai_prompt)
+                            finally:
+                                self._zai_last_request_at = time.monotonic()
+                                if zai_phase is not None:
+                                    _took = time.monotonic() - _zai_started
+                                    zai_phase["spent"] += _took
+                                    zai_phase["calls"] = zai_phase.get("calls", 0) + 1
+                                    # Running mean of this build's Z.ai images.
+                                    zai_phase["avg"] = zai_phase.get("avg", _took) + (_took - zai_phase.get("avg", _took)) / zai_phase["calls"]
+                finally:
+                    if zai_phase is not None:
+                        zai_phase["queued"] = max(0, zai_phase.get("queued", 1) - 1)
             if url:
                 logger.info(f"🖼️ Image served by provider=zai: {url[:60]}...")
                 return url
@@ -3934,9 +3990,16 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
             plan = fallback_plan(brief)
             from app.services.image_intelligence import direction_hero_cue
             items = [i["name"] for i in self._normalize_supplied_menu_items(getattr(request, "menu_items", None))]
+            from app.services import design_directions as _dd
+            _dir = next((d for d in _dd.DIRECTIONS if d.key == plan.direction), None)
             return direction_hero_cue(
                 image_cue=plan.image_cue, vertical=brief.vertical, theme=brief.theme,
                 item_names=items, merchant_prompt=getattr(request, "hero_image_prompt", None),
+                business_text=" ".join(str(x or "") for x in (
+                    getattr(request, "business_name", ""), getattr(request, "description", ""),
+                    getattr(request, "design_brief", ""), " ".join(items),
+                )),
+                cue_keywords=(_dir.keywords if _dir else ()),
             )
         except Exception as err:
             logger.warning(f"🖼️ Hero cue unavailable: {err}")
@@ -9573,8 +9636,9 @@ IMPORTANT RULES:
         )
         _gen_elapsed = time.monotonic() - _gen_started
 
-        generated = 0
-        for (slot_key, item_name, _p), result in zip(work, results):
+        async def _checked(slot_key, item_name, _p, result):
+            """(url, generated?) for one slot: the vision check (with its
+            stricter retries) on a generated image, else the F&B pool."""
             url = result if (result and not isinstance(result, Exception)) else None
             if url:
                 # Round 2 (§A2/§A3): every generated image is checked by the
@@ -9593,11 +9657,8 @@ IMPORTANT RULES:
                     ),
                     verbatim=_p in _verbatim_prompts,
                 )
-                if url:
-                    generated += 1
-                    # Generated (not uploaded, not stock): "Gambar hiasan".
-                    self.__dict__.setdefault("_ai_image_urls", set()).add(url)
-            elif is_food:
+                return url, bool(url)
+            if is_food:
                 # Bug-2 pool fallback so a provider failure (rate limit, 500,
                 # timeout) doesn't leave the slot empty. F&B only: a stock
                 # pool photo on a laundry or salon site is exactly the wrong
@@ -9612,6 +9673,24 @@ IMPORTANT RULES:
                     url = None
             else:
                 logger.info(f"   ⬜ Auto-fill {slot_key}: no image (provider failed) — typographic tile")
+            return url, False
+
+        # The checks run together (they were one after another, ~2s each,
+        # longer with a stricter retry); results are applied in slot order.
+        _checks = await asyncio.gather(
+            *[_checked(sk, nm, pr, res) for (sk, nm, pr), res in zip(work, results)],
+            return_exceptions=True,
+        )
+        generated = 0
+        for (slot_key, item_name, _p), checked in zip(work, _checks):
+            if isinstance(checked, Exception):
+                logger.warning(f"   ⚠️ Image check for {slot_key} failed: {checked}")
+                checked = (None, False)
+            url, _is_generated = checked
+            if _is_generated:
+                generated += 1
+                # Generated (not uploaded, not stock): "Gambar hiasan".
+                self.__dict__.setdefault("_ai_image_urls", set()).add(url)
             if url:
                 image_urls[slot_key] = url
                 if item_name:
@@ -9631,9 +9710,15 @@ IMPORTANT RULES:
         style: Optional[str] = None,
         image_choice: str = "upload",  # NEW: none, upload, or ai
         progress_callback: Optional[Callable[[int, str], Awaitable[None]]] = None,  # NEW: callback for progress updates
-        max_ai_images: Optional[int] = None  # NEW: hard cap on AI images (caller's remaining quota)
+        max_ai_images: Optional[int] = None,  # NEW: hard cap on AI images (caller's remaining quota)
+        reuse_images: Optional[Dict[str, Any]] = None,
     ) -> AIGenerationResponse:
         """Generate website with Stability AI + Cloudinary + DeepSeek + Qwen
+
+        ``reuse_images``: an earlier build's ``response.image_bundle``. Its
+        images are used as they are and no image is generated, checked or
+        classified again (the visual gate's one regeneration re-ran the
+        whole 4-5 minute image phase for mamak).
 
         Args:
             progress_callback: Optional async callback(progress_percent, status_message)
@@ -9730,13 +9815,21 @@ IMPORTANT RULES:
         # here, before any slot is filled: a menu board must never become
         # the about photo, and when the merchant typed no items it IS the
         # menu, read into items by the vision model.
-        if request.uploaded_images and image_choice != "none":
+        _reused = bool(reuse_images and isinstance(reuse_images.get("image_urls"), dict))
+        if request.uploaded_images and image_choice != "none" and not _reused:
             try:
                 await self._classify_uploads_and_read_menu_board(request)
             except Exception as _roles_err:
                 logger.warning(f"🖼️ Upload role classification skipped: {_roles_err}")
 
-        if image_choice == "none":
+        if _reused:
+            image_urls = dict(reuse_images["image_urls"])
+            self._ai_image_urls = set(reuse_images.get("ai_image_urls") or ())
+            self._last_poster_uploads = list(reuse_images.get("poster_uploads") or [])
+            ai_images_generated = int(reuse_images.get("ai_images_generated") or 0)
+            logger.info(f"♻️ Reusing {len([k for k in image_urls if not k.endswith('_name')])} image(s) from the first build — no image generated")
+            await update_progress(45, "Reusing the images")
+        elif image_choice == "none":
             logger.info("🚫 Image choice='none' - SKIPPING ALL image generation")
             # Don't generate or use any images
             pass
@@ -9811,6 +9904,14 @@ IMPORTANT RULES:
         # Which uploads are posters (tall or text-heavy): kept out of the
         # hero/about roles, fitted rather than filled, shown whole.
         _poster_uploads: List[str] = list(getattr(self, "_last_poster_uploads", None) or [])
+        # What a regeneration needs to skip the image phase (before the
+        # section crops below, which are idempotent and re-applied).
+        _image_bundle = {
+            "image_urls": dict(image_urls),
+            "ai_image_urls": sorted(getattr(self, "_ai_image_urls", None) or ()),
+            "poster_uploads": list(_poster_uploads),
+            "ai_images_generated": ai_images_generated,
+        }
 
         # Consistent crop ratios per section (§6): hero 16:9, item tiles
         # 4:3 — applied as Cloudinary transforms on every resolved URL (and
@@ -10029,7 +10130,7 @@ IMPORTANT RULES:
         # writes the copy. No model-written layout, so none of the regex
         # guards below are needed. Freeform generation stays behind the flag.
         if page_mode() == PAGE_MODE_DETERMINISTIC:
-            return await self._generate_composed(
+            _composed = await self._generate_composed(
                 request,
                 image_urls=image_urls,
                 plan=plan,
@@ -10043,6 +10144,10 @@ IMPORTANT RULES:
                 update_progress=update_progress,
                 start_time=start_time,
             )
+            _composed.image_bundle = _image_bundle
+            if _reused:
+                _composed.ai_images_count = 0  # nothing new was generated
+            return _composed
 
         prompt = self._build_strict_prompt(
             request.business_name,

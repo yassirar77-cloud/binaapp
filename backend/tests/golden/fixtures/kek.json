@@ -28,5 +28,5 @@
       {"name": "Doorgift Cupcake (min 50)", "price": "3.50", "category": "Majlis"}
     ]
   },
-  "expect": {"min_items": 9, "chips": 0, "banners": 1, "coming_soon": 0, "map": false, "vertical": "bakery", "socials": 2}
+  "expect": {"min_items": 9, "chips": 0, "banners": 1, "coming_soon": 0, "map": false, "vertical": "bakery", "socials": 2, "hero_forbid": ["burger", "fries", "rice", "plated dish"], "hero_require": ["cheesecake", "kek", "cake"]}
 }
