@@ -315,3 +315,46 @@ def test_regeneration_reuses_images(monkeypatch):
     assert "hero-kopi.jpg" in resp.html_content and resp.ai_images_count == 0
     assert resp.image_bundle["image_urls"]["hero"] == hero
     assert 45 in progress
+
+
+# ---------------------------------------------------------------------------
+# Before enforce: the named dish with sides, the kicker, the QR label
+# ---------------------------------------------------------------------------
+
+def test_card_with_its_named_dish_and_side_dishes_is_kept():
+    """agp's Set Udang Krispy: "shrimp are present, but tofu and tempeh are
+    major components" — the named dish is there, so the photo stays. Set
+    Sotong Krispy with no squid in it is still dropped."""
+    cards = [{"name": "Set Sotong Krispy", "png": b"a"}, {"name": "Set Udang Krispy", "png": b"b"}]
+    raw = json.dumps({"mismatches": [
+        {"card": 1, "named_dish": "crispy squid", "named_dish_visible": False, "reason": "only tofu and tempeh"},
+        {"card": 2, "named_dish": "crispy prawns", "named_dish_visible": True, "reason": "prawns present but tofu and tempeh dominate"},
+    ]})
+    assert parse_card_photos(raw, cards) == [{"item": "Set Sotong Krispy", "reason": "only tofu and tempeh"}]
+    assert parse_card_photos(json.dumps({"mismatches": [{"card": 2, "named_dish_visible": "yes"}]}), cards) == []
+    rubric = vg.CARD_PHOTO_RUBRIC
+    assert "named dish is clearly visible" in rubric and "expected to come with sides" in rubric
+
+
+def test_hero_kicker_is_never_cut_with_an_ellipsis():
+    from app.services.sections.copy import LIMITS, fit_label
+    assert fit_label("Ayam Gepuk · Kota Bayu Emas, Klang", LIMITS["kicker"]) == "Ayam Gepuk · Kota Bayu Emas"
+    assert fit_label("Kedai Kek · Seksyen 7, Shah Alam, Selangor Darul Ehsan", 32) == "Kedai Kek · Seksyen 7, Shah Alam"  # 32: fits
+    assert fit_label("Restoran Mamak 24 Jam di SS2", 32) == "Restoran Mamak 24 Jam di SS2"
+    for text in ("Ayam Gepuk Panglima Kota Bayu Emas Klang Selangor", "Kek · Klang…", "A" * 50):
+        out = fit_label(text, 32)
+        assert "…" not in out and len(out) <= 32
+
+
+def test_model_kicker_goes_through_the_fitter():
+    from app.services.sections.copy import parse_copy
+    from app.services.sections import build_spec
+    from app.models.schemas import WebsiteGenerationRequest
+    req = WebsiteGenerationRequest(description="Ayam gepuk di Kota Bayu Emas, Klang.", business_name="Ayam Gepuk Panglima",
+                                   business_type="food", subdomain="agp", whatsapp_number="0126973105",
+                                   menu_items=[{"name": "Set A", "price": "12.50"}])
+    spec = build_spec(req)
+    copy = parse_copy(json.dumps({"kicker": "AYAM GEPUK · KOTA BAYU EMAS, KLANG", "headline": "Ayam Gepuk Panglima",
+                                  "subheadline": "Sambal segar setiap hari.", "about_title": "Tentang", "tagline": "Pedas",
+                                  "contact_lead": "Hubungi kami", "about_paragraphs": ["Kami di Klang."]}), spec)
+    assert copy.kicker == "AYAM GEPUK · KOTA BAYU EMAS"

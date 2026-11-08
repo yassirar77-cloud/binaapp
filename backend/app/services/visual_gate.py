@@ -623,11 +623,16 @@ VISION_RUBRIC = (
 
 CARD_PHOTO_RUBRIC = (
     "Each image below is the photo on ONE menu card of a small-business website, and comes right after that card's "
-    "printed name. Judge every photo ONLY against its own card's name. A mismatch is a photo that clearly shows a "
-    "different kind of thing than the name: a drink pictured as a chicken dish, a burger for 'Ayam Gepuk', a live "
-    "animal, a menu board or a poster photographed as a dish. A close but imperfect plating, garnish or angle is NOT "
-    "a mismatch. Answer ONLY with JSON: "
-    '{"mismatches":[{"card":<number>,"reason":"what the photo shows instead"}]}. An empty list is the normal answer.'
+    "printed name. Judge every photo ONLY against its own card's name. First find the NAMED DISH: the main item the "
+    "name is about (for 'Set Udang Krispy' it is crispy prawns; for 'Set B – Ayam Gepuk Tauhu Tempe' it is ayam "
+    "gepuk). If the named dish is clearly visible in the photo, the photo MATCHES, even when rice, side dishes, "
+    "sambal or garnish take up much of the plate: a set meal is expected to come with sides. A mismatch is ONLY a "
+    "photo where the named dish cannot be seen at all, or a different main dish takes its place: a drink pictured "
+    "as a chicken dish, a burger for 'Ayam Gepuk', squid missing from 'Set Sotong Krispy', a live animal, a menu "
+    "board or a poster photographed as a dish. Plating, angle and garnish are never a reason. Answer ONLY with JSON: "
+    '{"mismatches":[{"card":<number>,"named_dish":"what the name is about","named_dish_visible":false,'
+    '"reason":"what the photo shows instead"}]}. List only cards whose named dish is NOT visible. An empty list is '
+    "the normal answer."
 )
 
 HERO_RUBRIC = (
@@ -735,6 +740,12 @@ def parse_card_photos(raw: Optional[str], cards: Sequence[Dict[str, Any]]) -> Op
         try:
             idx = int(str(m.get("card")).strip().lstrip("#")) - 1
         except (TypeError, ValueError):
+            continue
+        # The model listed the card but says the named dish IS there (agp's
+        # Set Udang Krispy: "shrimp are present, but tofu and tempeh ..."):
+        # that is a photo with side dishes, not a mismatch.
+        visible = m.get("named_dish_visible")
+        if visible is True or str(visible).strip().lower() in ("true", "yes"):
             continue
         if 0 <= idx < len(cards) and cards[idx]["name"] not in [x["item"] for x in out]:
             out.append({"item": cards[idx]["name"], "reason": str(m.get("reason") or "")[:200]})

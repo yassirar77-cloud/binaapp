@@ -84,6 +84,6 @@ class TestHeroStrip:
 def test_generation_time_qr_label_is_malay_and_centred():
     svc = TemplateService()
     out = svc.inject_qr_code("<html><body><footer><div><p>x</p></div></footer></body></html>", "https://agp.binaapp.my")
-    assert "📱 Imbas untuk Lawat" in out and "margin:0 auto 1rem" in out and "Scan to Visit" not in out
+    assert "</svg>Imbas untuk Lawat</p>" in out and "margin:0 auto 1rem" in out and "Scan to Visit" not in out
     out_en = svc.inject_qr_code("<html><body><footer></footer></body></html>", "https://x", language="en")
-    assert "📱 Scan to Visit" in out_en
+    assert "</svg>Scan to Visit</p>" in out_en and "📱" not in out + out_en
