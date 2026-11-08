@@ -33,7 +33,8 @@ import {
 import { checkCreateWebsiteAllowed } from '@/lib/quota'
 import { GENERATION_POLL_INTERVAL_MS, afterSleep, initialLiveness, observePoll, pollGiveUpMessage, pollVerdict } from '@/lib/generationPoll'
 import { normalizePriceInput } from '@/lib/priceInput'
-import { parseMenuPaste, rowsForRequest, categoriesOf, menuRowsWarning, saveMenuRows, loadMenuRows, clearMenuRows, slugMismatchWarning, type MenuRow } from '@/lib/menuRows'
+import { parseMenuPaste, rowsForRequest, categoriesOf, saveMenuRows, loadMenuRows, clearMenuRows, slugMismatchWarning, type MenuRow } from '@/lib/menuRows'
+import { looksLikeMenuPaste, firstLineOf, suggestSubdomain, portraitPoster, posterWarning, generateBlockedReason, gatePreviewFromStatus, gatePreviewLine, type GatePreview, type ImageRole } from '@/lib/createGuards'
 import {
   BRIEF_EXAMPLES,
   DESIGN_BRIEF_MAX,
@@ -244,6 +245,15 @@ export default function CreatePage() {
   // can display the 5-state machine (edit/available/taken/publishing/success)
   // derived from existing subdomain/subdomainError/publishing/publishedUrl.
   const [pubChecked, setPubChecked] = useState(false)
+  // Create-page guards (quality system, stage 4). The subdomain follows the
+  // business name until the merchant edits it; a hero upload that looks
+  // like a poster gets a warning; the job's visual-gate screenshot is the
+  // preview the merchant checks before publishing.
+  const [subdomainTouched, setSubdomainTouched] = useState(false)
+  const [checkingSubdomain, setCheckingSubdomain] = useState(false)
+  const [heroPosterWarning, setHeroPosterWarning] = useState<string | null>(null)
+  const [gatePreview, setGatePreview] = useState<GatePreview | null>(null)
+  const [previewSeen, setPreviewSeen] = useState(false)
 
   // AI listening: when the brief is too thin to plan from, the designer
   // asks these before generating instead of inventing.
@@ -481,6 +491,17 @@ export default function CreatePage() {
   // address (bji: Kota Damansara on a Shah Alam shop — it was in the
   // generation payload because the form sent it). A new site starts from a
   // blank form.
+  // The subdomain is suggested from the business name (kedai-mak-teh) until
+  // the merchant types their own — a slug one letter off the name went live
+  // and stayed wrong (ayamgepukpaglima).
+  useEffect(() => {
+    if (subdomainTouched) return
+    const suggested = suggestSubdomain(businessName)
+    setSubdomain(suggested)
+    setSubdomainError(suggested ? validateSubdomain(suggested) : null)
+    setPubChecked(false)
+  }, [businessName, subdomainTouched])
+
   const resetMerchantInputs = () => {
     setDescription('')
     setBusinessName('')
@@ -511,6 +532,10 @@ export default function CreatePage() {
     setHeroImagePrompt('')
     setSubdomain('')
     setProjectName('')
+    setSubdomainTouched(false)
+    setHeroPosterWarning(null)
+    setGatePreview(null)
+    setPreviewSeen(false)
     publishedWebsiteIdRef.current = ''
   }
 
@@ -566,6 +591,7 @@ export default function CreatePage() {
     try {
       const url = await uploadImageToBackend(file)
       setUploadedImages(prev => ({ ...prev, hero: url }))
+      void checkHeroRole(file, url)
     } catch (err: any) {
       toast.error(err.message || 'Gagal muat naik gambar')
       URL.revokeObjectURL(preview)
@@ -573,6 +599,45 @@ export default function CreatePage() {
     } finally {
       setUploadingHero(false)
     }
+  }
+
+  // A menu board or a promo poster makes a bad hero: it is cropped top and
+  // bottom and its text cannot be read. The pixels say "portrait" at once;
+  // the backend's vision check says "text-heavy" for a landscape board.
+  const checkHeroRole = async (file: File, url: string) => {
+    setHeroPosterWarning(null)
+    let role: ImageRole | null = null
+    try {
+      const bmp = await createImageBitmap(file)
+      if (portraitPoster(bmp.width, bmp.height)) role = { poster: true, portrait: true, text_heavy: false, width: bmp.width, height: bmp.height }
+      bmp.close()
+    } catch { /* no local dimensions; the backend probe still runs */ }
+    if (!role) {
+      try {
+        const res = await fetch(`${DIRECT_BACKEND_URL}/api/image/role`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image_url: url }),
+        })
+        const data = await res.json()
+        if (res.ok && data.success && data.poster) role = data as ImageRole
+      } catch { /* best effort */ }
+    }
+    setHeroPosterWarning(role ? posterWarning(role) : null)
+  }
+
+  // "Guna sebagai papan menu": the poster leaves the hero slot, becomes a
+  // menu row, and the vision model reads its items.
+  const moveHeroToMenuBoard = () => {
+    const url = uploadedImages.hero
+    if (!url) return
+    const idx = uploadedImages.gallery.length
+    setUploadedImages(prev => ({ hero: null, gallery: [...prev.gallery, { url, name: '', price: '' }] }))
+    if (heroPreview) URL.revokeObjectURL(heroPreview)
+    setHeroPreview('')
+    setHeroPosterWarning(null)
+    toast.success('Gambar dipindahkan ke langkah 06 sebagai papan menu')
+    void readMenuFromImage(idx, url)
   }
 
   const handleLogoFile = async (file: File) => {
@@ -633,15 +698,15 @@ export default function CreatePage() {
   // into a row and typed nothing, and both sites were built with no items.
   // The vision model reads the board into rows the merchant reviews here.
   const [readingMenuIdx, setReadingMenuIdx] = useState<number | null>(null)
-  const readMenuFromImage = async (idx: number) => {
-    const row = uploadedImages.gallery[idx]
-    if (!row?.url) { toast.error('Muat naik gambar papan menu dahulu'); return }
+  const readMenuFromImage = async (idx: number, imageUrl?: string) => {
+    const url = imageUrl || uploadedImages.gallery[idx]?.url
+    if (!url) { toast.error('Muat naik gambar papan menu dahulu'); return }
     setReadingMenuIdx(idx)
     try {
       const res = await fetch(`${DIRECT_BACKEND_URL}/api/menu/read-image`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image_url: row.url }),
+        body: JSON.stringify({ image_url: url }),
       })
       const data = await res.json()
       if (!res.ok || !data.success) throw new Error(data.error || 'Gagal membaca menu')
@@ -667,16 +732,42 @@ export default function CreatePage() {
   // A whole menu pasted at once ("Set Ayam: Set A – Ayam Gepuk 12.50 | ...")
   // becomes rows with their section labels. Appended after the rows that
   // already exist; blank rows are dropped so the list stays tidy.
-  const importMenuPaste = () => {
-    const parsed = parseMenuPaste(menuPasteText)
-    if (parsed.length === 0) { toast.error('Tiada item dikesan. Satu item setiap baris, contoh: Nasi Lemak 5.50'); return }
+  const importMenuPasteText = (text: string): MenuRow[] => {
+    const parsed = parseMenuPaste(text)
+    if (parsed.length === 0) return []
     setUploadedImages(prev => ({
       ...prev,
       gallery: [...prev.gallery.filter(g => g.name || g.price || g.url), ...parsed],
     }))
+    return parsed
+  }
+
+  const importMenuPaste = () => {
+    const parsed = importMenuPasteText(menuPasteText)
+    if (parsed.length === 0) { toast.error('Tiada item dikesan. Satu item setiap baris, contoh: Nasi Lemak 5.50'); return }
     setMenuPasteText('')
     setMenuPasteOpen(false)
     toast.success(`${parsed.length} item ditambah${categoriesOf(parsed).length ? ` dalam ${categoriesOf(parsed).length} kategori` : ''}`)
+  }
+
+  // A whole menu pasted into the NAME box (it happens: the merchant copies
+  // their menu and lands in the first field) goes to the bulk parser, not
+  // into the business name.
+  const handleBusinessNamePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const text = e.clipboardData?.getData('text') ?? ''
+    if (!looksLikeMenuPaste(text)) return
+    e.preventDefault()
+    const parsed = importMenuPasteText(text)
+    if (!businessName.trim()) {
+      const first = firstLineOf(text)
+      if (first && !/\d/.test(first) && !first.includes('|')) setBusinessName(first.replace(/:$/, '').slice(0, 80))
+    }
+    if (parsed.length > 0) {
+      toast.success(`Senarai menu dikesan — ${parsed.length} item ditambah ke langkah 06`)
+      document.getElementById('v3-menu-upload-0')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    } else {
+      toast.error('Senarai dikesan tetapi tiada item dapat dibaca. Satu item setiap baris, contoh: Nasi Lemak 5.50')
+    }
   }
 
   const removeMenuItemRow = (idx: number) => {
@@ -976,6 +1067,8 @@ export default function CreatePage() {
     const startedAt = Date.now();
     let liveness = initialLiveness(startedAt);
     let lastTickAt = startedAt;
+    setGatePreview(null);
+    setPreviewSeen(false);
 
     // CRITICAL: Store interval in ref so it can be cleared on retry
     pollIntervalRef.current = setInterval(async () => {
@@ -1037,6 +1130,10 @@ export default function CreatePage() {
 
           // Set progress to 100% FIRST (before hiding modal)
           setProgress(100);
+
+          // The visual gate's verdict + mobile screenshot (quality system,
+          // stage 2) is the preview the merchant checks before publishing.
+          setGatePreview(gatePreviewFromStatus(statusData));
 
           // Handle completed job - backend returns 'variants' not 'styles'
           if (statusData.variants?.length > 0) {
@@ -1125,15 +1222,17 @@ export default function CreatePage() {
       return
     }
 
-    // A food business with no items gets a page built from the prose — that
-    // is where invented dishes and prices come from. Say so before credit
-    // is spent; the merchant can still go ahead deliberately.
-    const menuWarning = menuRowsWarning(uploadedImages.gallery, businessType, finalDescription)
-    if (menuWarning && !o.skipListening) {
-      if (!window.confirm(`${menuWarning}\n\nPilihan: taip item, tampal senarai menu, atau "Baca menu dari gambar" jika anda muat naik papan menu.\n\nTeruskan tanpa menu?`)) {
-        document.getElementById('v3-menu-upload-0')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-        return
-      }
+    // A restaurant with no items gets a page built from the prose — that
+    // is where invented dishes and prices come from. Generate is BLOCKED,
+    // not confirmed: the page cannot be good without the menu.
+    const blocked = generateBlockedReason(
+      uploadedImages.gallery.filter(r => (r.name || '').trim()).length, businessType, finalDescription,
+    )
+    if (blocked) {
+      setError(blocked)
+      toast.error('Tambah item menu dahulu')
+      document.getElementById('v3-menu-upload-0')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      return
     }
 
     // Check if user is logged in
@@ -2523,6 +2622,7 @@ export default function CreatePage() {
                       className="cr-input"
                       value={businessName}
                       onChange={(e) => setBusinessName(e.target.value.slice(0, 80))}
+                      onPaste={handleBusinessNamePaste}
                     />
                     <div style={{ fontSize: 11, color: '#5A5A6E', marginTop: 6, lineHeight: 1.4 }}>
                       Nama ini jadi tajuk website, nama dalam Google, dan nama di footer. Tanpa nama, website tak boleh dijana.
@@ -2689,6 +2789,16 @@ export default function CreatePage() {
                   </button>
                 </div>
               </div>
+
+              {heroPosterWarning && uploadedImages.hero && (
+                <div data-testid="hero-poster-warning" style={{ marginTop: 10, padding: '12px 14px', background: 'rgba(255,176,32,.06)', border: '1px solid rgba(255,176,32,.3)', borderRadius: 12, fontSize: 12, color: '#FFB020', lineHeight: 1.5 }}>
+                  <div style={{ marginBottom: 8 }}>{heroPosterWarning}</div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <button type="button" className="chip" onClick={moveHeroToMenuBoard} style={{ borderColor: 'rgba(255,176,32,.35)', background: 'rgba(255,176,32,.08)', color: '#FFB020' }}>Guna sebagai papan menu</button>
+                    <button type="button" className="chip" onClick={() => setHeroPosterWarning(null)} style={{ color: '#B8B8C8' }}>Kekalkan sebagai hero</button>
+                  </div>
+                </div>
+              )}
 
               {/* Hero IMAGE prompt — the merchant's own description of the
                   hero visual. Without an upload it drives the AI-generated
@@ -3667,7 +3777,7 @@ export default function CreatePage() {
               <button onClick={handleCopyHtml} className="cr-btn cr-btn-ghost">
                 {copied ? <><Check size={14} /> Copied!</> : <><Copy size={14} /> Copy HTML</>}
               </button>
-              <button onClick={() => setShowPublishModal(true)} className="cr-btn" style={{ background: 'linear-gradient(180deg, #DDFF7A, #C7FF3D)', color: '#05050C', boxShadow: '0 0 0 1px rgba(199,255,61,.5), 0 8px 24px rgba(199,255,61,.25)' }}>
+              <button onClick={() => { if (!projectName.trim()) setProjectName(businessName.trim()); setPreviewSeen(false); setShowPublishModal(true) }} className="cr-btn" style={{ background: 'linear-gradient(180deg, #DDFF7A, #C7FF3D)', color: '#05050C', boxShadow: '0 0 0 1px rgba(199,255,61,.5), 0 8px 24px rgba(199,255,61,.25)' }}>
                 <Upload size={14} /> Publish Website
               </button>
 
@@ -3714,15 +3824,17 @@ export default function CreatePage() {
 
       {showPublishModal && (() => {
         // Derive 5-state machine from existing primitives (no new backend).
-        type PubState = 'edit' | 'available' | 'taken' | 'publishing' | 'success'
+        type PubState = 'preview' | 'edit' | 'available' | 'taken' | 'publishing' | 'success'
         const pubState: PubState =
           publishedUrl ? 'success'
           : publishing ? 'publishing'
+          : !previewSeen ? 'preview'
           : (subdomain && subdomainError) ? 'taken'
           : (subdomain && !subdomainError && pubChecked) ? 'available'
           : 'edit'
 
         const stateMeta: Record<PubState, { l: string; desc: string }> = {
+          preview:     { l: 'Semak pratonton telefon', desc: 'Inilah rupa laman anda pada telefon pelanggan. Pastikan semuanya elok sebelum terbit.' },
           edit:        { l: 'Choose your subdomain',  desc: 'Pilih address website anda. Boleh tukar nanti via custom domain.' },
           available:   { l: 'Subdomain available',    desc: 'Bagus pilihan! Tekan publish untuk go live.' },
           taken:       { l: 'Already taken',          desc: 'Subdomain ni dah ada orang ambik. Try yang lain.' },
@@ -3745,12 +3857,29 @@ export default function CreatePage() {
           setSubdomainError(null)
           setSubdomainConflict(null)
           setPubChecked(false)
+          setPreviewSeen(false)
         }
 
-        const handleCheckAvailability = () => {
+        // Format first, then the live check: a slug another merchant owns is
+        // "taken" here, not a 409 after the merchant pressed publish.
+        const handleCheckAvailability = async () => {
           const v = validateSubdomain(subdomain)
-          setSubdomainError(v)
-          setPubChecked(true)
+          if (v) { setSubdomainError(v); setPubChecked(true); return }
+          setCheckingSubdomain(true)
+          try {
+            const res = await fetch(`${API_BASE_URL}/api/subdomain/check/${encodeURIComponent(subdomain)}`)
+            const data = await res.json().catch(() => ({}))
+            if (res.ok && data && data.available === false && !data.error) {
+              setSubdomainError('Subdomain ni dah ada orang ambik. Cuba yang lain.')
+            } else {
+              setSubdomainError(null)
+            }
+          } catch {
+            setSubdomainError(null) // offline: the publish call still refuses a taken slug
+          } finally {
+            setCheckingSubdomain(false)
+            setPubChecked(true)
+          }
         }
 
         const copyLiveUrl = () => {
@@ -3794,8 +3923,26 @@ export default function CreatePage() {
                 </div>
                 <p style={{ color: '#86869A', fontSize: 14, lineHeight: 1.5, margin: '12px 0 22px' }}>{meta.desc}</p>
 
+                {/* Preview before publish: the gate's mobile screenshot (or
+                    the page itself at phone width when no screenshot exists) */}
+                {pubState === 'preview' && (
+                  <div data-testid="publish-preview-step">
+                    <div style={{ borderRadius: 14, border: '1px solid rgba(255,255,255,.08)', background: '#16161F', overflow: 'auto', maxHeight: 420, display: 'flex', justifyContent: 'center' }}>
+                      {gatePreview?.url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={gatePreview.url} alt="Pratonton laman pada telefon" style={{ width: 300, height: 'auto', display: 'block' }} />
+                      ) : (
+                        <iframe title="Pratonton telefon" srcDoc={generatedHtml} sandbox="allow-same-origin" style={{ width: 390, height: 700, border: 0, background: '#fff', transform: 'scale(.77)', transformOrigin: 'top center', pointerEvents: 'none' }} />
+                      )}
+                    </div>
+                    <div data-testid="publish-preview-gate" style={{ marginTop: 10, padding: '10px 12px', borderRadius: 10, fontSize: 12, lineHeight: 1.5, background: gatePreview?.passed === false ? 'rgba(255,90,95,.06)' : 'rgba(199,255,61,.05)', border: `1px solid ${gatePreview?.passed === false ? 'rgba(255,90,95,.25)' : 'rgba(199,255,61,.2)'}`, color: gatePreview?.passed === false ? '#FF8A8E' : '#DDFF7A' }}>
+                      {gatePreviewLine(gatePreview)}
+                    </div>
+                  </div>
+                )}
+
                 {/* Project name + subdomain input — visible in edit/available/taken */}
-                {pubState !== 'success' && pubState !== 'publishing' && (
+                {pubState !== 'success' && pubState !== 'publishing' && pubState !== 'preview' && (
                   <>
                     <div style={{ marginBottom: 14 }}>
                       <label className="eyebrow" style={{ display: 'block', color: '#B8B8C8', letterSpacing: '.1em', fontSize: 11, marginBottom: 8 }}>Project name</label>
@@ -3814,6 +3961,7 @@ export default function CreatePage() {
                           value={subdomain}
                           onChange={(e) => {
                             const value = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '')
+                            setSubdomainTouched(true)
                             setSubdomain(value)
                             setSubdomainError(validateSubdomain(value))
                             setPubChecked(false)
@@ -3943,17 +4091,31 @@ export default function CreatePage() {
 
                 {/* Actions row */}
                 <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>
+                  {pubState === 'preview' && (
+                    <>
+                      <button type="button" className="cr-btn cr-btn-ghost" onClick={closeModal} style={{ flex: 1 }}>Semak semula</button>
+                      <button
+                        type="button"
+                        className="cr-btn"
+                        data-testid="publish-preview-continue"
+                        onClick={() => setPreviewSeen(true)}
+                        style={{ flex: 1, background: 'linear-gradient(180deg, #6B5CFF, #4F3DFF)', color: '#fff', boxShadow: '0 0 0 1px rgba(107,92,255,.5), 0 8px 24px rgba(79,61,255,.35)' }}
+                      >
+                        Nampak OK — teruskan
+                      </button>
+                    </>
+                  )}
                   {pubState === 'edit' && (
                     <>
                       <button type="button" className="cr-btn cr-btn-ghost" onClick={closeModal} style={{ flex: 1 }} disabled={publishing}>Cancel</button>
                       <button
                         type="button"
                         className="cr-btn"
-                        onClick={handleCheckAvailability}
-                        disabled={!subdomain || !projectName}
+                        onClick={() => void handleCheckAvailability()}
+                        disabled={!subdomain || !projectName || checkingSubdomain}
                         style={{ flex: 1, background: 'linear-gradient(180deg, #6B5CFF, #4F3DFF)', color: '#fff', boxShadow: '0 0 0 1px rgba(107,92,255,.5), 0 8px 24px rgba(79,61,255,.35)', opacity: !subdomain || !projectName ? .35 : 1, cursor: !subdomain || !projectName ? 'not-allowed' : 'pointer' }}
                       >
-                        Check availability
+                        {checkingSubdomain ? 'Menyemak…' : 'Check availability'}
                       </button>
                     </>
                   )}
