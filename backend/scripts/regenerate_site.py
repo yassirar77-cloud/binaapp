@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -45,8 +46,10 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--fixture", required=True)
     ap.add_argument("--api", default="https://binaapp-backend.onrender.com")
-    ap.add_argument("--user-id", required=True)
-    ap.add_argument("--email", default="")
+    # The backend takes the merchant from this token (the user_id/email in
+    # the body are ignored): log in as the merchant, or as an admin, and pass
+    # the access token. BINAAPP_TOKEN in the environment works too.
+    ap.add_argument("--token", default=os.getenv("BINAAPP_TOKEN", ""), help="Bearer token of the account to build as")
     ap.add_argument("--hero-url", default="")
     ap.add_argument("--logo-url", default="")
     ap.add_argument("--out", default="regenerated.html")
@@ -61,8 +64,6 @@ def main() -> int:
         "business_name": fixture["business_name"],
         "business_type": "food",
         "language": "ms",
-        "user_id": args.user_id,
-        "email": args.email,
         "whatsapp_number": "0126973105",
         "address": "No. 44-1, Jalan Bayu Impian 4A/KS9, Kota Bayu Emas, 41200 Klang, Selangor",
         "features": {"whatsapp": True, "googleMap": True, "priceList": True, "operatingHours": True, "gallery": True,
@@ -76,8 +77,11 @@ def main() -> int:
         "logo": args.logo_url or None,
         "multi_style": False,
     }
+    if not args.token:
+        print("a --token (or BINAAPP_TOKEN) is required: /api/generate/start builds as the token's account")
+        return 2
     with httpx.Client(timeout=60) as client:
-        r = client.post(f"{args.api}/api/generate/start", json=body)
+        r = client.post(f"{args.api}/api/generate/start", json=body, headers={"Authorization": f"Bearer {args.token}"})
         r.raise_for_status()
         job_id = r.json()["job_id"]
         print(f"job {job_id} started")

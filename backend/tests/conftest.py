@@ -39,6 +39,23 @@ os.environ.setdefault("IMAGE_CHECK_ENABLED", "false")
 os.environ.setdefault("BINAAPP_PAGE_MODE", "freeform")
 
 
+def generation_auth(user_id: str = "u-1", email: str = "") -> dict:
+    """Authorization header for /api/generate/start and /refine, which take
+    the merchant from a verified token (never the body)."""
+    from app.core.security import create_access_token
+    return {"Authorization": f"Bearer {create_access_token(data={'sub': user_id, 'email': email})}"}
+
+
+@pytest.fixture(autouse=True)
+def _reset_generation_rate_windows():
+    """Generation rate limits live in process memory; no test may inherit
+    another's starts."""
+    from app.services.generation_access import reset_windows
+    reset_windows()
+    yield
+    reset_windows()
+
+
 @pytest.fixture
 def mock_settings():
     """Provide test settings without touching real config."""

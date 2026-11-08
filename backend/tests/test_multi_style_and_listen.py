@@ -13,6 +13,8 @@ import json
 from unittest.mock import AsyncMock
 
 import pytest
+
+from tests.conftest import generation_auth
 from fastapi.testclient import TestClient
 
 import app.main as main_module
@@ -100,26 +102,38 @@ def test_status_strips_stashed_request(client, monkeypatch):
 def test_refine_starts_a_full_job_with_the_picked_plan(client, monkeypatch):
     stash = {"description": "Nasi kandar mamak buka 24 jam di Shah Alam.", "business_name": "Nasi Kandar Crystal",
              "language": "ms", "business_type": "food", "multi_style": True}
-    job = {"job_id": "j1", "status": "completed", "progress": 100, "html": HTML, "styles": json.dumps([
+    job = {"job_id": "j1", "user_id": "u-1", "status": "completed", "progress": 100, "html": HTML, "styles": json.dumps([
         {"style": "warung_cerah", "name": "Warung Cerah", "html": HTML, "plan": {"direction": "warung_cerah", "source": "ai"}, "_request": stash},
         {"style": "pasar_pagi", "name": "Pasar Pagi", "html": HTML, "plan": {"direction": "pasar_pagi", "source": "ai"}},
     ])}
     monkeypatch.setattr(main_module, "get_job_from_supabase", AsyncMock(return_value=job))
     captured = {}
 
-    async def _fake_start(body, preferred_plan=None):
+    async def _fake_start(body, preferred_plan=None, **kwargs):
         captured["body"] = body
         captured["plan"] = preferred_plan
+        captured["identity"] = kwargs.get("identity")
         return {"success": True, "job_id": "j2"}
 
     monkeypatch.setattr(main_module, "_start_generation_from_body", _fake_start)
-    r = client.post("/api/generate/refine", json={"job_id": "j1", "style": "pasar_pagi"})
+    monkeypatch.setattr(main_module.sub_service, "_is_admin", AsyncMock(return_value=False))
+    auth = generation_auth("u-1", "owner@example.com")
+    r = client.post("/api/generate/refine", json={"job_id": "j1", "style": "pasar_pagi"}, headers=auth)
     assert r.status_code == 200 and r.json()["job_id"] == "j2"
     assert captured["plan"]["direction"] == "pasar_pagi" and captured["body"]["business_name"] == "Nasi Kandar Crystal"
-    r = client.post("/api/generate/refine", json={"job_id": "j1", "style": "nope"})
+    # the stashed request is re-run as the verified caller
+    assert captured["body"]["user_id"] == "u-1" and captured["body"]["email"] == "owner@example.com"
+    assert captured["identity"].user_id == "u-1"
+    r = client.post("/api/generate/refine", json={"job_id": "j1", "style": "nope"}, headers=auth)
     assert r.status_code == 404
-    r = client.post("/api/generate/refine", json={"job_id": "j1"})
+    r = client.post("/api/generate/refine", json={"job_id": "j1"}, headers=auth)
     assert r.status_code == 400
+    # another merchant cannot spend a full build on this preview
+    r = client.post("/api/generate/refine", json={"job_id": "j1", "style": "pasar_pagi"}, headers=generation_auth("u-2"))
+    assert r.status_code == 403 and r.json()["error"] == "not_your_job"
+    # no token, no refine
+    r = client.post("/api/generate/refine", json={"job_id": "j1", "style": "pasar_pagi"})
+    assert r.status_code == 401 and r.json()["error"] == "auth_required"
 
 
 def test_stash_drops_qr_image_and_multi_flag():
