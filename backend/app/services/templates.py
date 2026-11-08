@@ -536,6 +536,7 @@ class TemplateService:
    id="whatsapp-button"
    target="_blank"
    rel="noopener"
+   aria-label="WhatsApp"
    style="position:fixed;bottom:20px;right:20px;background:#25D366;color:white;
           width:60px;height:60px;border-radius:50%;display:flex;align-items:center;
           justify-content:center;font-size:30px;z-index:1000;text-decoration:none;
@@ -588,7 +589,7 @@ class TemplateService:
         )
         return (
             '<div class="binaapp-map-actions" style="display:flex;flex-wrap:wrap;justify-content:center;gap:.75rem;margin-top:1rem;">'
-            f'<a href="{html_escape(gmaps)}" target="_blank" rel="noopener" style="{btn}background:var(--primary-color, #1C1917);color:#fff;">'
+            f'<a href="{html_escape(gmaps)}" target="_blank" rel="noopener" style="{btn}background:var(--primary-color, #1C1917);color:var(--on-primary, #fff);">'
             f'<i class="fa-solid fa-location-dot" aria-hidden="true"></i> {label_g}</a>'
             f'<a href="{html_escape(waze)}" target="_blank" rel="noopener" style="{btn}background:transparent;color:var(--primary-color, inherit);">'
             f'<i class="fa-brands fa-waze" aria-hidden="true"></i> {label_w}</a>'

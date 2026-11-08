@@ -149,3 +149,22 @@ branch protection's required checks (a repo setting, not code).
 | 2 Visual gate | ~2 days | Playwright measurement JS, vision call, auto-fix loop, job persistence |
 | 3 Golden suite | ~1 day | fixtures, runner, workflow, baselines |
 | 4 Create-page guards | ~1.5 days | five guards + preview step + tests |
+
+## Environment
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `BINAAPP_PAGE_MODE` | `deterministic` | `deterministic` composes pages from data; `freeform` runs the model-writes-everything pipeline and its guards |
+| `AI_COPY_TIMEOUT_SECONDS` / `AI_COPY_MAX_TOKENS` / `AI_COPY_TEMPERATURE` | `45` / `900` / `0.7` | the copy call (DeepSeek flash → GLM → Qwen); on timeout the fallback copy ships |
+| `VISUAL_GATE_MODE` | `enforce` | `enforce`: a failing page never ships (auto-fix → regenerate once → fail the job); `warn`: report only; `off`: no browser |
+| `VISUAL_GATE_VISION_MODEL` | `qwen3-vl-plus` | the reviewer on DashScope (`QWEN_API_KEY`); GLM-4.5V on Z.ai is the fallback |
+| `VISUAL_GATE_RENDER_TIMEOUT_SECONDS` / `VISUAL_GATE_VISION_TIMEOUT_SECONDS` | `40` / `60` | per-render and per-review caps |
+| `VISUAL_GATE_VISION_TILES` | `6` | how many 1200 px-tall slices of the mobile screenshot the reviewer sees |
+| `PLAYWRIGHT_CHROMIUM_EXECUTABLE` | unset | a Chromium binary for the gate when Playwright's own download is unavailable |
+
+The gate's verdict lives on `generation_jobs.validation.visual_gate` (checks,
+vision verdict, fixes, attempt, `preview_mobile_url` of the mobile
+screenshot on Cloudinary) and is returned by `GET /api/generate/status/{job}`
+as `visual_gate` + `preview_mobile_url`. A `VISUAL_GATE_FAIL` log line
+carries the failing check names; `VISUAL_GATE_UNAVAILABLE` means no browser
+could render (the page ships, loudly).

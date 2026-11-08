@@ -218,7 +218,7 @@ def render_css(theme: Theme) -> str:
     card_shadow = {"soft": "0 8px 28px rgba(0,0,0,.07)", "outline": "6px 6px 0 var(--text-color)", "editorial": "none"}[theme.variant]
     heading_tt = "text-transform:uppercase;letter-spacing:.02em;" if theme.variant == "outline" else ""
     return f"""<style id="binaapp-sections-css">
-:root{{--bg-color:{theme.bg};--surface-color:{theme.surface};--text-color:{theme.text};--text-muted:{theme.muted};--primary-color:{theme.primary};--on-primary:{theme.on_primary};--accent-color:{theme.accent};--secondary-color:{theme.accent};--font-heading:{_font_stack(theme.display_font)};--font-body:{_font_stack(theme.body_font)};--radius:{radius};--btn-radius:{btn_radius};--card-border:{card_border};--card-shadow:{card_shadow};}}
+:root{{--bg-color:{theme.bg};--surface-color:{theme.surface};--text-color:{theme.text};--text-muted:{theme.muted};--primary-color:{theme.primary};--on-primary:{theme.on_primary};--accent-color:{theme.accent};--on-accent:{_on(theme.accent)};--secondary-color:{theme.accent};--font-heading:{_font_stack(theme.display_font)};--font-body:{_font_stack(theme.body_font)};--radius:{radius};--btn-radius:{btn_radius};--card-border:{card_border};--card-shadow:{card_shadow};}}
 *,*::before,*::after{{box-sizing:border-box}}
 html{{-webkit-text-size-adjust:100%;scroll-behavior:smooth}}
 body{{margin:0;background:var(--bg-color);color:var(--text-color);font-family:var(--font-body);line-height:1.55;overflow-x:hidden;overflow-wrap:anywhere}}

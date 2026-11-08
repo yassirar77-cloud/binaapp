@@ -408,7 +408,8 @@ def _check_item_integrity(html: str, brief: GenerationBrief) -> List[ValidationI
         return issues
 
     stripped = _strip_scripts(html)
-    text = _norm(_TAG_RE.sub(" ", stripped))
+    # Entity-decoded: "Gunting &amp; Blow" on the page IS "Gunting & Blow".
+    text = _norm(_htmllib.unescape(_TAG_RE.sub(" ", stripped)))
     headings = _headings_with_positions(html)
     supplied_by_name = {_norm(i["name"]): i for i in items}
 

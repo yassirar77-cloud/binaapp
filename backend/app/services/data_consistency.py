@@ -284,7 +284,10 @@ _PRICE_INPUT_RE = re.compile(r"^\s*(?:rm)?\s*(\d{0,6})(?:[.,](\d{0,2}))?\s*(?:/\
 #: A price whose decimal part is not digits: "RM25.oo", "RM6.", "RM12.5x".
 #: Same word-boundary guard as _PRICE_IN_TEXT_RE below: the "RM" at the end
 #: of "transfoRM" is not a currency prefix.
-BAD_PRICE_RE = re.compile(r"(?<![A-Za-z0-9])RM\s?\d+\.(?!\d)[^\s<,;]*")
+#: ``RM10.`` at the end of a sentence ("caj RM10. Kami pakar.") is a whole
+#: amount followed by a full stop, not a typo: the dot must be followed by
+#: something that is not whitespace or punctuation to count.
+BAD_PRICE_RE = re.compile(r"(?<![A-Za-z0-9])RM\s?\d+\.(?!\d)(?=[^\s<,;:)\]!?])[^\s<,;]*")
 #: Text that must never be substituted for a missing price.
 PRICE_PLACEHOLDER_RE = re.compile(r"atas permintaan|price on request|hubungi (?:kami )?untuk harga|\bTBA\b", re.IGNORECASE)
 
@@ -345,7 +348,7 @@ def find_bad_prices(html: str) -> List[str]:
 #:
 #: ``(?![\d.])`` — don't take half of a longer number.
 _PRICE_IN_TEXT_RE = re.compile(
-    r"(?<![A-Za-z0-9])RM\s?\d{1,6}(?:[.,]\d{1,2})?(?:\s*/\s*[a-z]{1,12})?(?![\d.])",
+    r"(?<![A-Za-z0-9])RM\s?\d{1,6}(?:[.,]\d{1,2})?(?:\s*/\s*[a-z]{1,12})?(?!\d|[.,]\d)",
     re.IGNORECASE,
 )
 

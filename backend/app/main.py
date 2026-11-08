@@ -1039,11 +1039,30 @@ async def get_generation_status(job_id: str):
             }]
             logger.info(f"   Created single variant from HTML for job {job_id[:8]}")
 
+    # The visual gate's verdict and the mobile screenshot it took, for the
+    # create page's preview-before-publish step.
+    _vg = None
+    try:
+        _validation = job.get("validation")
+        if isinstance(_validation, str):
+            _validation = json.loads(_validation)
+        _vg_full = (_validation or {}).get("visual_gate") if isinstance(_validation, dict) else None
+        if isinstance(_vg_full, dict):
+            _vg = {
+                "passed": _vg_full.get("passed"), "summary": _vg_full.get("summary"), "attempt": _vg_full.get("attempt"),
+                "fixes": _vg_full.get("fixes") or [], "preview_mobile_url": _vg_full.get("preview_mobile_url"),
+                "failed_checks": [c.get("name") for c in (_vg_full.get("checks") or []) if isinstance(c, dict) and not c.get("ok")],
+            }
+    except Exception as _vg_err:
+        logger.warning(f"👁️ Could not read the visual gate for {job_id[:8]}: {_vg_err}")
+
     response = {
         "success": True,
         "status": job_status,
         "progress": job_progress,
         "html": job_html if job_status == "completed" else None,
+        "visual_gate": _vg,
+        "preview_mobile_url": (_vg or {}).get("preview_mobile_url"),
         "styles": styles if job_status == "completed" else None,
         "variants": variants if job_status == "completed" else None,  # Frontend expects this!
         "error": job_error,
@@ -2566,6 +2585,99 @@ async def run_generation_task(
                         logger.warning(f"⚠️ Could not record feature contract: {_fc_db_err}")
         except Exception as _fc_err:
             logger.warning(f"⚠️ Feature contract check skipped: {_fc_err}")
+
+        # VISUAL QA GATE (quality system, stage 2). The page the customer
+        # will see — widgets injected — is rendered at 390px and 1280px,
+        # measured (overflow, CTA/floating-button overlap, clipped text,
+        # contrast, broken images, icon+label CTAs, map visible) and
+        # reviewed by the vision model. A failing page is auto-fixed, then
+        # regenerated once, then FAILED: it never reaches the merchant.
+        try:
+            from app.services.visual_gate import VisualGateFailed, gate_mode, gate_with_recovery, upload_preview
+            if gate_mode() != "off":
+                if supabase:
+                    try:
+                        supabase.table("generation_jobs").update({
+                            "progress": 93, "updated_at": datetime.now().isoformat(),
+                        }).eq("job_id", job_id).execute()
+                    except Exception:
+                        pass
+                _gate_items = [str(m.get("name") or "") for m in (menu_items or []) if isinstance(m, dict)] or [
+                    str(getattr(m, "name", "") or "") for m in (getattr(ai_request, "menu_items", None) or [])
+                ]
+
+                async def _regenerate_for_gate() -> Optional[str]:
+                    """One fresh build through the same steps as above."""
+                    _resp = await ai_service.generate_website(
+                        ai_request, image_choice=normalized_image_choice, progress_callback=progress_callback,
+                    )
+                    _html = _resp.html_content
+                    if location_fixups:
+                        from app.services.data_consistency import scrub_location_tokens
+                        _html, _ = scrub_location_tokens(_html, location_fixups)
+                    try:
+                        _html = template_service.apply_image_safety_guard(
+                            html=_html, image_choice=normalized_image_choice, user_images=user_image_urls,
+                        )
+                    except Exception:
+                        pass
+                    try:
+                        from app.services.ai_service import extract_theme_tokens as _ett
+                        user_data["theme_tokens"] = _ett(_html)
+                        _html = template_service.inject_integrations(_html, features_list, user_data)
+                    except Exception as _re_err:
+                        logger.warning(f"⚠️ Integrations on the regenerated page skipped: {_re_err}")
+                    return _html
+
+                _vision = ai_service._call_gate_vision_model if (ai_service.qwen_api_key or ai_service.zai_api_key) else None
+                try:
+                    html, _gate = await gate_with_recovery(
+                        html,
+                        expect_map=bool(selected_features.get("googleMap") and address),
+                        expect_whatsapp=bool(whatsapp_enabled and phone_number),
+                        item_names=_gate_items,
+                        language=language,
+                        call_vision=_vision,
+                        regenerate=_regenerate_for_gate,
+                        job_id=job_id,
+                    )
+                except VisualGateFailed as _vg:
+                    _gate = _vg.report
+                    _url = upload_preview(_gate.mobile_png, job_id)
+                    if supabase:
+                        try:
+                            _row = supabase.table("generation_jobs").select("validation").eq("job_id", job_id).execute()
+                            _existing = (_row.data or [{}])[0].get("validation") or {}
+                            _existing["visual_gate"] = {**_gate.as_dict(), "preview_mobile_url": _url}
+                            supabase.table("generation_jobs").update({
+                                "validation": _existing, "needs_manual_review": True,
+                                "updated_at": datetime.now().isoformat(),
+                            }).eq("job_id", job_id).execute()
+                        except Exception as _vg_db_err:
+                            logger.warning(f"⚠️ Could not record the failed visual gate: {_vg_db_err}")
+                    raise
+                _preview_url = upload_preview(_gate.mobile_png, job_id)
+                _gate_dict = {**_gate.as_dict(), "preview_mobile_url": _preview_url}
+                logger.info(
+                    f"👁️ Visual gate: {_gate.summary()} attempt={_gate.attempt} fixes={_gate.fixes} "
+                    f"preview={'yes' if _preview_url else 'no'}"
+                )
+                if supabase:
+                    try:
+                        _row = supabase.table("generation_jobs").select("validation").eq("job_id", job_id).execute()
+                        _existing = (_row.data or [{}])[0].get("validation") or {}
+                        _existing["visual_gate"] = _gate_dict
+                        _patch = {"validation": _existing, "updated_at": datetime.now().isoformat()}
+                        if not _gate.passed and _gate.rendered:
+                            _patch["needs_manual_review"] = True
+                        supabase.table("generation_jobs").update(_patch).eq("job_id", job_id).execute()
+                    except Exception as _vg_db_err:
+                        logger.warning(f"⚠️ Could not record the visual gate: {_vg_db_err}")
+        except Exception as _gate_err:
+            from app.services.visual_gate import VisualGateFailed as _VGF
+            if isinstance(_gate_err, _VGF):
+                raise
+            logger.error(f"🚨 VISUAL_GATE_ERROR job={job_id[:8]}: {_gate_err}")
 
         # Step 4: Update progress to 95% - delivery system injected
         logger.info("📊 Updating progress to 95% - delivery system processed")
