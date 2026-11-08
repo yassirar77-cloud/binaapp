@@ -697,12 +697,46 @@ def _data_url(img: bytes) -> str:
     return f"data:{mime};base64," + base64.b64encode(img).decode("ascii")
 
 
+#: Business types whose cards are dishes, drinks or baked goods: each card
+#: photo is judged against its own name. Every other business (a salon, a
+#: repair shop, a laundry) has cards for services, where the photo is a
+#: picture OF the business: it is judged only on belonging to it. Three live
+#: rounds of salon cards dropped for "empty salon interior, no colouring
+#: visible" showed the model will not apply a service rule inside the dish
+#: rubric.
+FOOD_BUSINESS_TYPES = ("food", "bakery", "restaurant", "cafe", "café", "catering", "drinks", "fnb", "f&b")
+
+TRADE_PHOTO_RUBRIC = (
+    "Each image below is the photo on ONE card of a small-business website, and comes right after that card's "
+    "printed name. The business is described at the end. Cards here are mostly services, and a card photo is a "
+    "picture of the business: its premises, its tools, its equipment, the items it works on or sells, or its work "
+    "in progress. Such a photo MATCHES every card of the business, even when it does not show that exact service, a "
+    "customer or the finished result (an empty salon interior matches 'Warna Penuh'; a phone on a repair bench "
+    "matches 'Battery Replacement'). A MISMATCH is ONLY a photo that belongs to a different kind of business or "
+    "shows something unrelated: food on a salon card, a car engine on a phone-repair card, a live animal, a poster or "
+    "a menu board. Answer ONLY with JSON: "
+    '{"mismatches":[{"card":<number>,"named_dish":"the service or product","named_dish_visible":false,'
+    '"reason":"what unrelated thing the photo shows"}]}. List only cards whose photo is unrelated to this business. '
+    "An empty list is the normal answer."
+)
+
+
+def is_food_business(business: Optional[Dict[str, Any]]) -> bool:
+    """True unless the business is known to be something other than F&B
+    (no business given = the dish rubric, as before)."""
+    if not business:
+        return True
+    kind = str(business.get("type") or "").strip().lower()
+    return (not kind) or kind in FOOD_BUSINESS_TYPES
+
+
 def build_card_photo_messages(cards: Sequence[Dict[str, Any]], business: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
     about = ""
     if business:
         about = (f"\n\nThe business: {business.get('name') or '-'} (type: {business.get('type') or '-'}). "
                  f"What it sells or does: {str(business.get('description') or '-')[:300]}")
-    content: List[Dict[str, Any]] = [{"type": "text", "text": CARD_PHOTO_RUBRIC + about}]
+    rubric = CARD_PHOTO_RUBRIC if is_food_business(business) else TRADE_PHOTO_RUBRIC
+    content: List[Dict[str, Any]] = [{"type": "text", "text": rubric + about}]
     for i, card in enumerate(cards, 1):
         content.append({"type": "text", "text": f"Card {i}: {card['name']}"})
         content.append({"type": "image_url", "image_url": {"url": _data_url(card["png"])}})

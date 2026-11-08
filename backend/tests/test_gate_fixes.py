@@ -399,3 +399,16 @@ def test_dropped_card_photo_keeps_its_src():
     cards = [{"name": "Roti Bom", "src": "https://res.cloudinary.com/x/roti-bom.jpg", "png": b"p"}]
     got = parse_card_photos('{"mismatches":[{"card":1,"named_dish_visible":false,"reason":"a pizza"}]}', cards)
     assert got == [{"item": "Roti Bom", "reason": "a pizza", "src": "https://res.cloudinary.com/x/roti-bom.jpg"}]
+
+
+def test_service_business_cards_are_judged_on_belonging_to_the_business():
+    """Clean rerun: salon's four service cards dropped for "empty salon
+    interior, no colouring visible" even with the service rule in the dish
+    rubric. A non-food business gets the trade rubric."""
+    salon = {"name": "Salon Seri Ayu", "type": "salon", "description": "Salon wanita"}
+    text = vg.build_card_photo_messages([{"name": "Warna Penuh", "png": b"p"}], salon)[0]["content"][0]["text"]
+    assert text.startswith(vg.TRADE_PHOTO_RUBRIC) and "empty salon interior matches 'Warna Penuh'" in text
+    phone = {"name": "Mobile Hub", "type": "general", "description": "phone repair"}
+    assert vg.build_card_photo_messages([{"name": "Screen Replacement", "png": b"p"}], phone)[0]["content"][0]["text"].startswith(vg.TRADE_PHOTO_RUBRIC)
+    for food in ({"type": "food"}, {"type": "bakery"}, {"type": ""}, None):
+        assert vg.build_card_photo_messages([{"name": "Set A", "png": b"p"}], food)[0]["content"][0]["text"].startswith(vg.CARD_PHOTO_RUBRIC)
