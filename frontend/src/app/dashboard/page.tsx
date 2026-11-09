@@ -35,6 +35,7 @@ import DraftPublishBanner from '@/components/dashboard-new/DraftPublishBanner'
 import ReportIssueModal from '@/components/dashboard-new/ReportIssueModal'
 import { isIssueReportKnownDisabled } from '@/lib/issueReport'
 import '@/components/dashboard-new/dashboard.css'
+import { siteHost, siteUrl } from '@/lib/siteDomains'
 
 interface Project {
   id: string
@@ -44,6 +45,7 @@ interface Project {
   created_at: string
   published_at?: string
   published_url?: string
+  site_domain?: string | null
 }
 
 export default function DashboardPage() {
@@ -139,7 +141,8 @@ export default function DashboardPage() {
         id: website.id,
         name: website.name || 'Untitled Project',
         subdomain: website.subdomain || '',
-        url: website.published_url || `https://${website.subdomain}.binaapp.my`,
+        url: website.published_url || website.public_url || siteUrl(website.subdomain, website.site_domain),
+        site_domain: website.site_domain,
         created_at: website.created_at,
         published_at: website.updated_at,
         published_url: website.published_url
@@ -267,7 +270,7 @@ export default function DashboardPage() {
   const websiteItems: WebsiteItem[] = projects.map((p) => ({
     id: p.id,
     name: p.name,
-    subdomain: `${p.subdomain}.binaapp.my`,
+    subdomain: siteHost(p.subdomain, p.site_domain),
     status: p.published_at ? 'published' : 'draft',
     orders: 0,   // TODO: wire real order counts per website
     views: '—',  // TODO: wire real analytics per website

@@ -24,6 +24,7 @@ import {
   LoadingSpinner,
   Modal,
 } from '@/components/ui'
+import { SITE_DOMAINS, hostOf, resolveSiteDomain, siteHost, siteUrl } from '@/lib/siteDomains'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://binaapp-backend.onrender.com'
 
@@ -32,6 +33,8 @@ interface Website {
   business_name: string
   subdomain: string | null
   full_url: string | null
+  /** binaapp.my or mysyg.com (migration 061). */
+  site_domain?: string | null
   status: string
   created_at: string
   published_at: string | null
@@ -165,9 +168,9 @@ export default function MyProjectsPage() {
       if (!response.ok || data?.success === false) {
         throw new Error(replaceErrorMessage(response.status, data))
       }
-      const url = data?.url || `https://${target.subdomain}.binaapp.my`
+      const url = data?.url || target.full_url || siteUrl(target.subdomain || '', target.site_domain)
       setPublishDraft(null)
-      toast.success(`Diterbitkan ke ${target.subdomain}.binaapp.my`, { duration: 6000 })
+      toast.success(`Diterbitkan ke ${hostOf(url) || url}`, { duration: 6000 })
       window.open(url, '_blank', 'noopener')
       await checkAuthAndGetWebsites()
     } catch (error) {
@@ -306,6 +309,7 @@ export default function MyProjectsPage() {
                 website={website}
                 deleting={deleting === website.id}
                 onDelete={() => setConfirmDelete(website)}
+                onDomainChanged={checkAuthAndGetWebsites}
                 onPublishToSubdomain={
                   canPublishToSubdomain(website, websites) ? () => openPublishToSubdomain(website) : undefined
                 }
@@ -468,15 +472,42 @@ function ProjectCard({
   deleting,
   onDelete,
   onPublishToSubdomain,
+  onDomainChanged,
 }: {
   website: Website
   deleting: boolean
   onDelete: () => void
+  onDomainChanged?: () => void | Promise<void>
   /** Present on a generated draft that can replace one of the user's live sites. */
   onPublishToSubdomain?: () => void
 }) {
   const isLive = website.status === 'published'
-  const liveUrl = website.full_url || (website.subdomain ? `https://${website.subdomain}.binaapp.my` : null)
+  const liveUrl = website.full_url || (website.subdomain ? siteUrl(website.subdomain, website.site_domain) : null)
+  const [switchingDomain, setSwitchingDomain] = useState(false)
+
+  // Move a live site between binaapp.my and mysyg.com. Same subdomain; the
+  // old address keeps working and redirects to the new one.
+  const changeDomain = async (domain: string) => {
+    if (domain === resolveSiteDomain(website.site_domain)) return
+    try {
+      setSwitchingDomain(true)
+      const token = await getApiAuthToken()
+      if (!token) throw new Error('Sila log masuk semula.')
+      const response = await fetch(`${API_BASE}/api/v1/websites/${website.id}/domain`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ site_domain: domain }),
+      })
+      const data = await response.json().catch(() => null)
+      if (!response.ok) throw new Error(data?.detail || 'Gagal menukar domain.')
+      toast.success(`Laman kini di ${hostOf(data?.url) || domain}`)
+      await onDomainChanged?.()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Gagal menukar domain.')
+    } finally {
+      setSwitchingDomain(false)
+    }
+  }
   const initials = website.business_name
     .split(' ')
     .map((s) => s[0])
@@ -509,10 +540,25 @@ function ProjectCard({
             rel="noopener noreferrer"
             className="mt-1 text-xs text-brand-600 hover:text-brand-700 truncate block"
           >
-            {website.subdomain}.binaapp.my
+            {hostOf(liveUrl) || siteHost(website.subdomain, website.site_domain)}
           </a>
         ) : (
           <p className="mt-1 text-xs text-ink-400">Belum diterbitkan</p>
+        )}
+        {isLive && website.subdomain && (
+          <label className="mt-2 flex items-center gap-2 text-xs text-ink-500">
+            Domain
+            <select
+              value={resolveSiteDomain(website.site_domain)}
+              disabled={switchingDomain}
+              onChange={(e) => changeDomain(e.target.value)}
+              className="rounded-md border border-ink-200 bg-white px-2 py-1 text-xs text-ink-800 disabled:opacity-50"
+            >
+              {SITE_DOMAINS.map((d) => (
+                <option key={d} value={d}>.{d}</option>
+              ))}
+            </select>
+          </label>
         )}
         <p className="mt-2 text-xs text-ink-400">
           Dibuat {new Date(website.created_at).toLocaleDateString('ms-MY', {

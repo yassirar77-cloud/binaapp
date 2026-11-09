@@ -12,10 +12,14 @@
  * Pure module (no React, no fetch) so the rules are unit-testable.
  */
 
+import { siteHost } from './siteDomains'
+
 export interface SiteRow {
   id: string
   business_name: string
   subdomain: string | null
+  /** binaapp.my or mysyg.com */
+  site_domain?: string | null
   status: string
   replaceable_draft?: boolean
 }
@@ -43,7 +47,7 @@ export function defaultTarget(draft: SiteRow, targets: SiteRow[]): SiteRow | nul
 }
 
 export function targetLabel(target: SiteRow): string {
-  return `${target.subdomain}.binaapp.my — ${target.business_name}`
+  return `${siteHost(target.subdomain || '', target.site_domain)} — ${target.business_name}`
 }
 
 /** The request body for the replace publish. */
@@ -54,7 +58,7 @@ export function replacePublishBody(draftId: string, targetId: string): { draft_i
 /** The warning shown before the swap. */
 export function replaceWarning(draft: SiteRow, target: SiteRow): string {
   return (
-    `Halaman langsung di ${target.subdomain}.binaapp.my akan digantikan dengan draf ` +
+    `Halaman langsung di ${siteHost(target.subdomain || '', target.site_domain)} akan digantikan dengan draf ` +
     `"${draft.business_name}". Halaman lama tidak boleh dipulihkan selepas ini.`
   )
 }

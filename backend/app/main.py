@@ -182,7 +182,9 @@ if _extra_origins:
     ALLOWED_ORIGINS.extend([o.strip() for o in _extra_origins.split(",") if o.strip()])
 
 # Regex to match binaapp.my subdomains and Vercel preview/production deployments
-ALLOWED_ORIGIN_REGEX = r"^https://([\w-]+\.binaapp\.my|binaapp\.my|[\w-]+\.vercel\.app)$"
+ALLOWED_ORIGIN_REGEX = (
+    r"^https://([\w-]+\.binaapp\.my|binaapp\.my|[\w-]+\.mysyg\.com|mysyg\.com|[\w-]+\.vercel\.app)$"
+)
 
 _allowed_origin_pattern = re.compile(ALLOWED_ORIGIN_REGEX)
 
@@ -4119,6 +4121,18 @@ async def save_publish_intent(
             logger.warning(f"⚠️ publish-intent: name update failed for {draft_id}: {u_err}")
 
     subdomain_saved = False
+    # binaapp.my / mysyg.com, picked in the publish modal. Written on its own
+    # (migration 061 may not be applied) and read back at promotion.
+    from app.services.site_domains import normalize_site_domain as _norm_sd
+    _intent_domain = _norm_sd(body.get("site_domain"))
+    if _intent_domain:
+        try:
+            supabase.table("websites").update({"site_domain": _intent_domain}).eq(
+                "id", draft_id
+            ).eq("status", "pending_payment").execute()
+        except Exception as d_err:
+            logger.warning(f"⚠️ publish-intent: site_domain not saved for {draft_id} (migration 061?): {d_err}")
+
     if requested_subdomain:
         try:
             _res = supabase.table("websites").update(
@@ -4594,6 +4608,29 @@ async def publish_website(
         except Exception as _hv_err:
             logger.warning(f"🎬 [PUBLISH] prepared hero video skipped: {_hv_err}")
 
+        # ── Which domain the site lives on (binaapp.my / mysyg.com) ────
+        # Sent by the publish modal as site_domain. A republish that omits
+        # it keeps whatever the row already says (it is not written below),
+        # so editing a mysyg.com site never silently moves it to binaapp.my.
+        from app.services.site_domains import (
+            normalize_site_domain as _norm_site_domain,
+            resolve_site_domain as _resolve_site_domain,
+            site_url as _site_url,
+        )
+        requested_site_domain = _norm_site_domain(body.get("site_domain"))
+        site_domain = requested_site_domain
+        if not site_domain and supabase and not is_new_website:
+            try:
+                _sd = supabase.table("websites").select("site_domain").eq(
+                    "id", website_id
+                ).limit(1).execute()
+                if _sd.data:
+                    site_domain = _sd.data[0].get("site_domain")
+            except Exception as _sd_err:
+                logger.warning(f"🌐 site_domain lookup skipped (migration 061?): {_sd_err}")
+        site_domain = _resolve_site_domain(site_domain)
+        published_url = _site_url(subdomain, site_domain)
+
         # ── Metadata that only the publish step can know ──────────────
         # The page was generated with subdomain="preview", so it still says
         # it lives at preview.binaapp.my in og:url and in the JSON-LD node,
@@ -4606,7 +4643,7 @@ async def publish_website(
 
             html_content = finalize_published_seo(
                 html_content,
-                f"https://{subdomain}.binaapp.my",
+                published_url,
                 business_name=body.get("business_name") or body.get("project_name") or "",
                 geo=map_geo,
             )
@@ -4635,7 +4672,6 @@ async def publish_website(
         # CRITICAL FIX: ALWAYS create database record BEFORE storage upload
         # Without this, websites appear in storage but NOT in dashboard
         # Previously, DB record was only created when delivery_enabled=True
-        published_url = f"https://{subdomain}.binaapp.my"
         if supabase:
             try:
                 logger.info(f"💾 Creating database record for website: {website_id}")
@@ -4735,6 +4771,8 @@ async def publish_website(
                 )
                 if is_new_website:
                     upsert_payload["generation_count"] = 1
+                if requested_site_domain or is_new_website:
+                    upsert_payload["site_domain"] = site_domain
                 # Migration 055 may not have been applied yet (production is
                 # the only environment, so code and schema can land in either
                 # order). These two columns are OPTIONAL metadata: if the
@@ -4743,7 +4781,7 @@ async def publish_website(
                 # losing their website because of an optional column is an
                 # outage, and the whole point of this change is that a wrong
                 # hero beats no hero only when nothing worse is on offer.
-                _OPTIONAL_055_COLUMNS = ("business_type", "hero_image_prompt")
+                _OPTIONAL_055_COLUMNS = ("business_type", "hero_image_prompt", "site_domain")
                 try:
                     supabase.table("websites").upsert(
                         upsert_payload, on_conflict="id"
@@ -4922,7 +4960,7 @@ async def publish_website(
             )
 
             if storage_response.status_code in [200, 201]:
-                logger.info(f"✅ Published successfully: {subdomain}.binaapp.my")
+                logger.info(f"✅ Published successfully: {published_url}")
                 # This upload bypasses storage_service, so it must drop the
                 # middleware's 60s copy of the page and give the storage
                 # object a fresh CDN key itself — otherwise a republish to
@@ -4957,7 +4995,8 @@ async def publish_website(
                     "success": True,
                     "website_id": website_id,
                     "subdomain": subdomain,
-                    "url": f"https://{subdomain}.binaapp.my",
+                    "site_domain": site_domain,
+                    "url": published_url,
                     "message": "Website published successfully! Visit your site at the URL above.",
                     "status": "live",
                     "hero_video": hero_video_info,

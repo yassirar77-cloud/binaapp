@@ -310,6 +310,7 @@ class WebsiteResponse(BaseModel):
     business_name: Optional[str] = None
     subdomain: Optional[str] = None
     full_url: Optional[str] = None
+    site_domain: Optional[str] = None
     status: WebsiteStatus = WebsiteStatus.DRAFT
     created_at: datetime
     updated_at: Optional[datetime] = None
@@ -331,6 +332,7 @@ class WebsiteListResponse(BaseModel):
     business_name: str
     subdomain: Optional[str] = None
     full_url: Optional[str] = None
+    site_domain: Optional[str] = None
     status: WebsiteStatus
     created_at: datetime
     published_at: Optional[datetime] = None
