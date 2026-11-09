@@ -73,6 +73,26 @@ SUBJECTS: Tuple[ImageSubject, ...] = (
         keywords=("barber", "barbershop", "gunting rambut lelaki", "grooming", "fade"),
     ),
     ImageSubject(
+        # Before workshop and retail: a phone shop's AI images all came back
+        # with Apple / Samsung logos and battery labels and every one was
+        # rejected as text (Mobile Hub Seremban, two live runs: no photo on
+        # the page). Unbranded devices with blank backs, nothing printed.
+        key="phone_shop",
+        vision_label="a phone shop or phone repair counter (smartphones, phone parts, small repair tools)",
+        hero_clause=(
+            "generic unbranded smartphones with plain blank backs and dark screens on a clean grey repair mat, "
+            "precision screwdrivers, tweezers and a suction cup beside them, bright daylight, product photography, "
+            "no brand logos, no printed markings, no labels on any device or part"
+        ),
+        item_clause=(
+            "{item} on a generic unbranded smartphone with a plain blank back and a dark screen, precision repair "
+            "tools on a clean grey repair mat, product photography, no brand logos, no printed markings, no labels"
+        ),
+        verticals=("general", "services"),
+        keywords=("telefon", "handphone", "smartphone", "phone", "iphone", "android", "skrin", "screen replacement",
+                  "battery replacement", "tukar bateri", "tempered glass", "phone case", "casing", "gadget", "tablet"),
+    ),
+    ImageSubject(
         key="workshop",
         vision_label="a repair or service workshop (tools, equipment, workbench, air-conditioner or plumbing parts)",
         hero_clause="service workshop bench with tools and equipment laid out, clean and organised, bright daylight, product photography",
@@ -213,6 +233,31 @@ def subject_for(vertical: Optional[str], *texts: Optional[str]) -> Optional[Imag
     return _BY_KEY.get(_VERTICAL_DEFAULT.get(v, "retail"))
 
 
+#: Brand names in an item ("Screen Replacement (iPhone 11-13)", "Used
+#: Samsung A54") make the image model draw that brand's logo, which the
+#: text check then rejects. Image prompts get the generic word instead.
+_BRAND_WORDS = {
+    "iphone": "smartphone", "ipad": "tablet", "macbook": "laptop", "airpods": "wireless earbuds", "apple": "",
+    "samsung": "smartphone", "galaxy": "", "huawei": "smartphone", "xiaomi": "smartphone", "redmi": "smartphone",
+    "oppo": "smartphone", "vivo": "smartphone", "realme": "smartphone", "honor": "smartphone", "nokia": "smartphone",
+    "sony": "", "asus": "", "lenovo": "", "pixel": "smartphone", "infinix": "smartphone",
+    "nike": "", "adidas": "", "puma": "", "dyson": "", "philips": "", "panasonic": "", "daikin": "",
+}
+_BRAND_RE = re.compile(r"\b(?:" + "|".join(sorted(_BRAND_WORDS, key=len, reverse=True)) + r")\b(?:\s+[a-z]?\d+[a-z]*(?:\s*-\s*\d+)?)?", re.IGNORECASE)
+
+
+def scrub_brands(text: str) -> str:
+    """'Screen Replacement (iPhone 11-13)' → 'Screen Replacement (smartphone)';
+    'Used Samsung A54' → 'Used smartphone'-ish. For image prompts only."""
+    def _sub(m: "re.Match") -> str:
+        word = m.group(0).split()[0].lower()
+        return _BRAND_WORDS.get(word, "")
+    out = _BRAND_RE.sub(_sub, text or "")
+    out = re.sub(r"\(\s*\)", "", out)
+    out = re.sub(r"\s{2,}", " ", out)
+    return re.sub(r"\s+([,)])", r"\1", out).strip()
+
+
 def scrub_fnb_wording(prompt: str) -> str:
     """Remove F&B words from a non-F&B prompt (the words, not the sentence)."""
     cleaned = _FNB_WORD_RE.sub("", prompt or "")
@@ -249,9 +294,9 @@ def lock_prompt(
     if kind == "hero":
         body = subject.hero_clause
     else:
-        body = subject.item_clause.format(item=(item or "the service").strip())
+        body = subject.item_clause.format(item=scrub_brands((item or "the service").strip()) or "the service")
     if context:
-        body = f"{body}, for the business: {scrub_fnb_wording(context)}"
+        body = f"{body}, for the business: {scrub_brands(scrub_fnb_wording(context))}"
     if extra:
         body = f"{body}, {extra.strip().rstrip(',')}"
     return with_negative(scrub_fnb_wording(body))

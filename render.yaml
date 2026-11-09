@@ -105,6 +105,19 @@ services:
       - key: WAN_USD_TO_MYR
         value: "4.40"
 
+      # Operator alerts on Telegram (services/ops_alerts.py): a build blocked
+      # by the visual gate, a start refused with the location question, and
+      # a weekly summary on Mondays. Set the values in the Render dashboard;
+      # without them alerts are only logged (OPS_ALERT ...).
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_ALERT_CHAT_ID
+        sync: false
+      # Comma-separated user ids / emails left out of alerts and the summary
+      # (test accounts).
+      - key: OPS_ALERT_IGNORE_USERS
+        sync: false
+
       # App config
       - key: FRONTEND_URL
         value: "https://binaapp.my"

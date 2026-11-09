@@ -9063,7 +9063,7 @@ IMPORTANT RULES:
                 )
             elif (direction_cue or "").strip():
                 locked = image_subjects.with_negative(
-                    f"{subject.hero_clause}, {image_subjects.scrub_fnb_wording(direction_cue.strip())}"
+                    f"{subject.hero_clause}, {image_subjects.scrub_brands(image_subjects.scrub_fnb_wording(direction_cue.strip()))}"
                     + (f", {_extra}" if _extra else "")
                 )
             logger.info(f"🖼️ Hero prompt: CATEGORY-LOCKED [{subject.key}]: {locked!r}")

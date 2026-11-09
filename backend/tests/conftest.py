@@ -183,3 +183,18 @@ def client():
     from app.main import app
 
     return TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def _no_ops_alert_delivery(monkeypatch):
+    """Alerts are recorded and formatted in tests, never delivered: no
+    Supabase insert, no Telegram call (tests/test_ops_alerts.py covers
+    delivery with fakes)."""
+    from app.services import ops_alerts
+    delivered = []
+
+    async def _fake_deliver(kind, text, row):
+        delivered.append((kind, text, row))
+    monkeypatch.setattr(ops_alerts, "_deliver", _fake_deliver)
+    monkeypatch.setattr(ops_alerts, "_recent", {})
+    return delivered

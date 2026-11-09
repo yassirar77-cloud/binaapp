@@ -209,6 +209,8 @@ no restart, memory flat at 185–231 MB of 2 GB.
 | `VISUAL_GATE_IMAGE_WAIT_MS` | `15000` | how long one image may take to arrive before the screenshot |
 | `IMAGE_PHASE_TARGET_SECONDS` | `100` | the image phase's target: an image whose turn in the one-at-a-time Z.ai queue would end later goes to Stability at once (parallel, ~5–10 s). `0` = every image waits for Z.ai (the old behaviour; agp's 8 images took 352 s) |
 | `ZAI_IMAGE_EXPECTED_SECONDS` | `40` | first guess at one Z.ai image; the build's own measured mean replaces it |
+| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_ALERT_CHAT_ID` | unset | operator alerts (`services/ops_alerts.py`): a build the gate blocked, a start refused with the location question, and a Monday 08:23 MYT weekly summary. Unset = alerts are only logged (`OPS_ALERT …`) |
+| `OPS_ALERT_IGNORE_USERS` | unset | comma-separated user ids / emails left out of alerts and the weekly summary (test accounts) |
 | `PLAYWRIGHT_CHROMIUM_EXECUTABLE` | unset | a Chromium binary for the gate when Playwright's own download is unavailable |
 | `PLAYWRIGHT_BROWSERS_PATH` | Render: `/opt/render/project/src/backend/.playwright-browsers` | where `build.sh` installs the Chromium headless shell. It must be inside the project folder: Render discards anything else between the build and the running service |
 | `BROWSER_MIN_FREE_MB` | `450` | free container memory required before Chromium is launched; below it the gate is skipped (`VISUAL_GATE_SKIPPED_MEMORY`) instead of risking an out-of-memory restart |
