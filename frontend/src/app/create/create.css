@@ -332,7 +332,7 @@
   align-items: start;
 }
 .cr-form-col { min-width: 0; }
-.cr-rail { position: sticky; top: 96px; }
+.cr-rail { position: sticky; top: 96px; display: flex; flex-direction: column; gap: 14px; }
 .cr-rail-card { padding: 24px; }
 @media (max-width: 1100px) {
   .cr-layout { grid-template-columns: 1fr; }
@@ -945,4 +945,119 @@
 @media (max-width: 560px) {
   .lbs-eq { display: none !important; }
   .lbs-hud { padding: 10px 12px; }
+}
+
+/* ------- Step bar (jump between form sections) ------- */
+.cr-sec { scroll-margin-top: 132px; }
+.cr-steps {
+  position: sticky; top: 64px; z-index: 40;
+  display: flex; gap: 6px;
+  margin: 0 0 28px;
+  padding: 10px 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  background: rgba(5,5,12,.82);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid rgba(255,255,255,.06);
+}
+.cr-steps::-webkit-scrollbar { display: none; }
+.cr-step-chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  flex: 0 0 auto;
+  min-height: 36px;
+  padding: 6px 12px 6px 6px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.03);
+  border: 1px solid rgba(255,255,255,.08);
+  color: #86869A;
+  font-family: 'Geist', 'Inter', -apple-system, sans-serif;
+  font-size: 13px; font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 160ms, border-color 160ms, color 160ms;
+}
+.cr-step-chip .n {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: rgba(255,255,255,.06);
+  font-family: 'Geist Mono', monospace; font-size: 11px;
+  color: #B8B8C8;
+}
+.cr-step-chip:hover { color: #F5F5FA; border-color: rgba(255,255,255,.16); }
+.cr-step-chip.active {
+  color: #F5F5FA;
+  background: rgba(79,61,255,.16);
+  border-color: rgba(107,92,255,.55);
+}
+.cr-step-chip.active .n { background: #4F3DFF; color: #fff; }
+.cr-step-chip.done .n { background: rgba(199,255,61,.16); color: #C7FF3D; }
+.cr-step-chip:focus-visible { outline: 2px solid #6B5CFF; outline-offset: 2px; }
+
+.cr-optional {
+  margin-left: 8px; padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.1);
+  color: #86869A;
+  font-size: 10px; letter-spacing: .08em;
+}
+
+/* ------- Mobile generate bar (rail is hidden under 1100px) ------- */
+.cr-mobilebar { display: none; }
+@media (max-width: 1100px) {
+  .cr-main { padding-bottom: calc(120px + env(safe-area-inset-bottom)) !important; }
+  .cr-mobilebar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 45;
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+    background: rgba(11,11,21,.92);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    border-top: 1px solid rgba(255,255,255,.08);
+  }
+  .cr-mobilebar-hint {
+    flex: 1; min-width: 0;
+    display: flex; align-items: center; gap: 10px;
+    padding: 0; border: 0; background: transparent;
+    text-align: left; color: inherit; cursor: pointer;
+    font-family: 'Geist', 'Inter', -apple-system, sans-serif;
+  }
+  .cr-mobilebar-hint:disabled { cursor: default; }
+  .cr-mobilebar-dot {
+    flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%;
+    background: #FFB020; box-shadow: 0 0 10px rgba(255,176,32,.7);
+  }
+  .cr-mobilebar-dot.ready { background: #C7FF3D; box-shadow: 0 0 10px rgba(199,255,61,.7); }
+  .cr-mobilebar-text {
+    display: block; font-size: 13px; font-weight: 600; color: #F5F5FA;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .cr-mobilebar-sub { display: block; font-size: 11px; color: #86869A; margin-top: 1px; }
+  /* Lift the support-chat button clear of the bar. */
+  body:has(.cr-mobilebar) [data-chat-fab] { bottom: calc(78px + env(safe-area-inset-bottom)); }
+}
+
+/* ------- Phone layout fixes ------- */
+@media (max-width: 920px) {
+  /* Designer-freedom options pushed the card wider than the screen. */
+  .cr-freedom { flex: 1 1 100%; flex-shrink: 1 !important; }
+  .cr-freedom > .opt { flex: 1 1 0; }
+  .cr-freedom-hint { white-space: normal !important; }
+}
+@media (max-width: 540px) {
+  .shell-create { padding: 0 16px; }
+  .cr-steps { margin-left: -16px; margin-right: -16px; padding-left: 16px; padding-right: 16px; }
+  .cr-hero { padding: 22px !important; margin-bottom: 20px !important; }
+  .cr-hero-title { font-size: 40px !important; }
+  .cr-hero-lede { font-size: 16px !important; margin: 14px 0 20px !important; }
+  .cr-nav-username { display: none; }
+  .cr-sec h2 { font-size: 24px !important; }
+  /* Business types: two compact columns instead of seven tall rows. */
+  .biz-grid { grid-template-columns: repeat(2, minmax(0,1fr)) !important; gap: 8px !important; }
+  .biz-grid [data-biz-card] { min-height: 0 !important; padding: 12px !important; }
+  .biz-grid [data-biz-card] .pill { position: static !important; display: inline-flex; margin-bottom: 6px; float: right; }
+  /* Story box: keep the badge and the status strip off the typed text. */
+  .cr-story-pill { display: none !important; }
+  .cr-story-input { padding: 16px 16px 88px !important; min-height: 280px !important; }
 }
