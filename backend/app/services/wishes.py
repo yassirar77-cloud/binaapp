@@ -201,6 +201,19 @@ def build_video_prompt(occasion: str, music_style: str) -> str:
     return " ".join(parts)
 
 
+def keep_audio_url(url: Optional[str]) -> Optional[str]:
+    """Drop Cloudinary's ``ac_none`` (strip audio) from a delivery URL.
+
+    ``zai_video_service.store`` returns the hero-video delivery URL, which
+    removes the soundtrack because hero clips play muted behind a page. A
+    wish clip's soundtrack is the point, so its URL must keep the audio.
+    The stored asset itself always has the audio; only the URL differs.
+    """
+    if not url:
+        return url
+    return re.sub(r"(?<=[/,])ac_none(?:,|(?=/))", "", url).replace(",/", "/")
+
+
 def wants_audio(music_style: str) -> bool:
     return bool(MUSIC_STYLES.get(music_style or "", MUSIC_STYLES[DEFAULT_MUSIC])["prompt"])
 
@@ -575,7 +588,7 @@ async def poll_video(row: Dict[str, Any]) -> Dict[str, Any]:
         return await _video_attempt_failed(storing, f"store: {exc}")
     ready = await transition(row["id"], "storing", {
         "status": "ready",
-        "video_url": stored.get("video_url"),
+        "video_url": keep_audio_url(stored.get("video_url")),
         "poster_url": stored.get("poster_url"),
         "video_error": None,
     })

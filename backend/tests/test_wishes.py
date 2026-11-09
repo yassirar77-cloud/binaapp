@@ -417,3 +417,25 @@ def test_status_needs_the_token(table):
     assert client.get(f"/api/v1/wishes/{row['id']}/status?t=wrong").status_code == 404
     ok = client.get(f"/api/v1/wishes/{row['id']}/status?t=tok")
     assert ok.status_code == 200 and ok.json()["url"] == "https://aisyah.mysyg.com"
+
+
+def test_keep_audio_url_drops_ac_none_only():
+    base = "https://res.cloudinary.com/x/video/upload/"
+    assert W.keep_audio_url(base + "q_auto:good,w_1920,c_limit,ac_none/v1/a.mp4") == base + "q_auto:good,w_1920,c_limit/v1/a.mp4"
+    assert W.keep_audio_url(base + "ac_none,q_auto:good/v1/a.mp4") == base + "q_auto:good/v1/a.mp4"
+    assert W.keep_audio_url(base + "q_auto:good,ac_none,w_1920/v1/a.mp4") == base + "q_auto:good,w_1920/v1/a.mp4"
+    assert W.keep_audio_url(base + "v1/a.mp4") == base + "v1/a.mp4"
+    assert W.keep_audio_url(None) is None
+
+
+def test_ready_wish_url_keeps_its_soundtrack(table):
+    row = table.add(slug="aisyah", status="generating", video_task_id="t1",
+                    video_provider="dashscope", video_started_at=_ago(2), last_polled_at=_ago(1))
+    ctx, _ = _video_service(
+        result={"status": "success", "video_url": "https://tmp/clip.mp4"},
+        stored={"video_url": "https://res.cloudinary.com/x/video/upload/q_auto:good,w_1920,c_limit,ac_none/v1/w.mp4",
+                "poster_url": "https://res.cloudinary.com/x/video/upload/v1/w.jpg"},
+    )
+    with ctx:
+        asyncio.run(W.advance(row))
+    assert "ac_none" not in table.rows[row["id"]]["video_url"]
