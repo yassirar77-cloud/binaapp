@@ -323,6 +323,13 @@ async def startup_event():
     except Exception as e:
         logger.error(f"📧 Failed to start email polling service: {e}")
 
+    # Operator alerts: weekly Telegram summary (services/ops_alerts.py).
+    try:
+        from app.services.ops_alerts import start_weekly_summary
+        start_weekly_summary()
+    except Exception as e:
+        logger.error(f"📣 Failed to schedule the weekly ops summary: {e}")
+
     # Stuck-generation sweeper (Layer 2 of stuck-generating safety net).
     # Watches for websites that get stranded on status='generating' when
     # the worker that owned the background task dies. Independent of
@@ -2666,6 +2673,19 @@ async def run_generation_task(
                 except VisualGateFailed as _vg:
                     _gate = _vg.report
                     _url = upload_preview(_gate.mobile_png, job_id)
+                    try:
+                        from app.services.ops_alerts import alert as _ops_alert
+                        _failed = "; ".join(f"{c.name}: {c.detail}" for c in _gate.failed)[:700]
+                        _ops_alert(
+                            "gate_failed",
+                            business_name=str(getattr(ai_request, "business_name", "") or ""),
+                            email=str(user_email or ""), user_id=str(user_id or ""),
+                            website_id=generated_website_id, job_id=job_id,
+                            reason=f"{_gate.summary()} — {_failed}" if _failed else _gate.summary(),
+                            details={"Fixes tried": ", ".join(_gate.fixes) or "none", "Screenshot": _url or ""},
+                        )
+                    except Exception as _alert_err:
+                        logger.warning(f"📣 gate alert skipped: {_alert_err}")
                     if supabase:
                         try:
                             _row = supabase.table("generation_jobs").select("validation").eq("job_id", job_id).execute()
@@ -3107,6 +3127,17 @@ async def _start_generation_from_body(
     location_fixups: dict = {}
     if _conflicts and not _resolution:
         logger.warning(f"📍 Location conflict blocks generation: {[c.as_dict() for c in _conflicts]}")
+        try:
+            from app.services.ops_alerts import alert as _ops_alert
+            _ops_alert(
+                "location_conflict",
+                business_name=str(body.get("business_name") or ""), email=str(identity.email or ""),
+                user_id=str(identity.user_id or ""), reason=_conflicts[0].question_ms,
+                details={"Brief": description[:200], "Address": _raw_address[:160],
+                         "Subdomain": str(body.get("subdomain") or "")},
+            )
+        except Exception as _alert_err:
+            logger.warning(f"📣 location alert skipped: {_alert_err}")
         return JSONResponse(
             status_code=409,
             content={
