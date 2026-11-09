@@ -88,6 +88,7 @@ export default function ChatWidget() {
             {/* Chat Button - Smaller on mobile */}
             <button
                 onClick={() => setIsOpen(!isOpen)}
+                data-chat-fab
                 className="fixed bottom-4 right-4 z-50 rounded-full bg-ink-800 p-3 text-volt-400 shadow-2xl shadow-black/50 ring-1 ring-white/[0.12] transition-all duration-300 hover:bg-ink-700 hover:ring-volt-400/40 md:p-4"
                 aria-label="Chat Support"
             >
