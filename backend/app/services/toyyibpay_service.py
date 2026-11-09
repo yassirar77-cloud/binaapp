@@ -110,6 +110,7 @@ class ToyyibPayService:
         bill_phone: str,
         bill_name_customer: str,
         bill_external_reference_no: Optional[str] = None,
+        return_url: Optional[str] = None,
     ) -> Dict:
         """
         Create a bill in ToyyibPay
@@ -122,6 +123,7 @@ class ToyyibPayService:
             bill_phone: Customer phone number
             bill_name_customer: Customer name
             bill_external_reference_no: Optional external reference number
+            return_url: Optional per-bill return URL (defaults to the global one)
 
         Returns:
             Dict with bill_code and payment_url on success
@@ -157,7 +159,7 @@ class ToyyibPayService:
                 }
 
             # Convert amount to cents (ToyyibPay expects amount in cents)
-            amount_in_cents = int(bill_amount * 100)
+            amount_in_cents = int(round(bill_amount * 100))
 
             logger.info("📤 Creating ToyyibPay bill:")
             logger.info(f"   Bill Name: {cleaned_bill_name}")
@@ -175,7 +177,7 @@ class ToyyibPayService:
                 'billPriceSetting': 1,  # Fixed price
                 'billPayorInfo': 1,  # Require payer info
                 'billAmount': amount_in_cents,
-                'billReturnUrl': self.return_url or '',
+                'billReturnUrl': return_url or self.return_url or '',
                 'billCallbackUrl': self.callback_url or '',
                 'billExternalReferenceNo': bill_external_reference_no or '',
                 'billTo': cleaned_name,

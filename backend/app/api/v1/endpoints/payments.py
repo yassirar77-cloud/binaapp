@@ -382,6 +382,10 @@ async def _process_successful_payment(bill_code: str, tp_transaction_id: str = N
         transactions = response.json()
 
         if not transactions:
+            # A mysyg.com wish bill has no transactions row (no BinaApp user).
+            from app.services.wishes import handle_paid_bill as _handle_wish_bill
+            if await _handle_wish_bill(bill_code, tp_transaction_id):
+                return
             logger.warning(f"⚠️ No transaction found for bill_code: {bill_code}")
             # Try legacy payments table as fallback
             await _process_legacy_payment(bill_code, tp_transaction_id)

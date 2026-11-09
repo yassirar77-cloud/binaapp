@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="ms">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>Kejutan anda — mysyg</title>
+<meta name="theme-color" content="#2A1030">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Pinyon+Script&family=Plus+Jakarta+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root { --plum-night: #2A1030; --plum: #4A1A3F; --gold: #E3B65C; --gold-soft: rgba(227, 182, 92, .38); --rose: #F2C4CC; --pearl: #FFF8F3; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body { background: radial-gradient(120% 80% at 50% 0%, var(--plum) 0%, var(--plum-night) 62%); color: var(--pearl); font-family: "Plus Jakarta Sans", system-ui, sans-serif; font-size: 16px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+  .script { font-family: "Pinyon Script", "Brush Script MT", cursive; font-weight: 400; color: var(--gold); }
+  main { max-width: 480px; margin: 0 auto; padding: 28px 20px 56px; }
+  .brand { margin: 0 0 28px; font-size: 32px; line-height: 1; }
+  h1 { margin: 0 0 8px; font-size: 28px; line-height: 1.2; font-weight: 600; }
+  .sub { margin: 0 0 28px; color: var(--rose); }
+
+  ol.progress { list-style: none; margin: 0 0 32px; padding: 0; }
+  ol.progress li { position: relative; padding: 0 0 22px 44px; color: rgba(255, 248, 243, .55); }
+  ol.progress li:last-child { padding-bottom: 0; }
+  ol.progress li::before { content: attr(data-n); position: absolute; left: 0; top: -2px; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; border: 1px solid var(--gold-soft); font-size: 14px; }
+  ol.progress li:not(:last-child)::after { content: ""; position: absolute; left: 15px; top: 30px; bottom: 2px; width: 1px; background: var(--gold-soft); }
+  ol.progress li.done { color: var(--pearl); }
+  ol.progress li.done::before { content: "✓"; background: var(--gold); border-color: var(--gold); color: var(--plum-night); font-weight: 600; }
+  ol.progress li.now { color: var(--pearl); font-weight: 600; }
+  ol.progress li.now::before { border-color: var(--gold); color: var(--gold); animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 6px rgba(227, 182, 92, .18); } }
+  ol.progress small { display: block; font-weight: 400; color: var(--rose); font-size: 14px; }
+
+  .panel { padding: 20px; border-radius: 18px; background: rgba(255, 248, 243, .06); box-shadow: inset 0 0 0 1px var(--gold-soft); }
+  .linkbox { display: block; margin: 0 0 14px; padding: 14px; border-radius: 12px; background: var(--pearl); color: var(--plum); font-weight: 600; font-size: 17px; word-break: break-all; text-decoration: none; }
+  .actions { display: grid; gap: 10px; }
+  .btn { display: flex; align-items: center; justify-content: center; min-height: 50px; border-radius: 14px; border: 0; font: 600 16px "Plus Jakarta Sans", sans-serif; text-decoration: none; cursor: pointer; }
+  .btn.wa { background: #25D366; color: #0B3D20; }
+  .btn.gold { background: var(--gold); color: var(--plum-night); }
+  .btn.ghost { background: transparent; color: var(--pearl); box-shadow: inset 0 0 0 1px var(--gold-soft); }
+  .btn:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
+  .film { margin: 0 auto 20px; width: min(100%, 300px); aspect-ratio: 9 / 16; border-radius: 18px; overflow: hidden; background: #1a0a1e; box-shadow: 0 0 0 1px var(--gold-soft); }
+  .film video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .note { margin: 16px 0 0; font-size: 14px; color: var(--rose); }
+  [hidden] { display: none !important; }
+  @media (prefers-reduced-motion: reduce) { ol.progress li.now::before { animation: none; } }
+</style>
+</head>
+<body>
+<main>
+  <p class="brand script">mysyg</p>
+  <h1 id="title">Menyemak kejutan anda…</h1>
+  <p class="sub" id="sub">Simpan halaman ini. Anda boleh tutup dan buka semula bila-bila masa.</p>
+
+  <ol class="progress" id="progress">
+    <li data-n="1" id="s1">Bayaran<small id="s1note"></small></li>
+    <li data-n="2" id="s2"><span id="s2label">Video sedang dibuat</span><small id="s2note">Biasanya 2 hingga 5 minit.</small></li>
+    <li data-n="3" id="s3">Kejutan sedia untuk dihantar</li>
+  </ol>
+
+  <section class="panel" id="readyPanel" hidden>
+    <div class="film" id="film" hidden></div>
+    <a class="linkbox" id="link" target="_blank" rel="noopener"></a>
+    <div class="actions">
+      <a class="btn wa" id="wa" target="_blank" rel="noopener">Hantar melalui WhatsApp</a>
+      <button class="btn gold" id="copy" type="button">Salin pautan</button>
+      <a class="btn ghost" id="open" target="_blank" rel="noopener">Lihat dulu kejutan ini</a>
+    </div>
+    <p class="note" id="readyNote"></p>
+  </section>
+
+  <section class="panel" id="payPanel" hidden>
+    <p style="margin-top:0">Bayaran belum diterima. Jika anda sudah bayar, tunggu seminit, halaman ini akan dikemas kini sendiri.</p>
+    <div class="actions"><a class="btn gold" id="payAgain">Buka semula pembayaran</a></div>
+  </section>
+</main>
+
+<script id="config" type="application/json">__CONFIG_JSON__</script>
+<script>
+(function () {
+  var cfg = JSON.parse(document.getElementById('config').textContent);
+  var $ = function (id) { return document.getElementById(id); };
+  var params = new URLSearchParams(location.search);
+  var token = params.get('t') || '';
+  var wishId = location.pathname.split('/').filter(Boolean).pop();
+  var timer = null;
+  var shownVideo = null;
+
+  function step(id, state) {
+    var el = $(id);
+    el.className = state;
+  }
+
+  function render(w) {
+    var s = w.status;
+    var paid = s !== 'awaiting_payment' && s !== 'cancelled';
+    step('s1', paid ? 'done' : 'now');
+    $('s1note').textContent = paid ? (w.amount_rm > 0 ? 'RM' + w.amount_rm.toFixed(2) + ' diterima' : 'Percuma') : 'Menunggu pengesahan ToyyibPay';
+    step('s2', s === 'ready' || s === 'video_failed' ? 'done' : (paid ? 'now' : ''));
+    step('s3', s === 'ready' || s === 'video_failed' ? 'done' : '');
+    $('payPanel').hidden = !(s === 'awaiting_payment' && params.get('status_id') && params.get('status_id') !== '1' && w.payment_url);
+    if (w.payment_url) $('payAgain').href = w.payment_url;
+
+    if (s === 'awaiting_payment') {
+      $('title').textContent = 'Menunggu bayaran disahkan';
+    } else if (s === 'cancelled') {
+      $('title').textContent = 'Kejutan ini dibatalkan';
+      $('sub').textContent = 'Pembayaran tidak dapat dibuka. Sila buat kejutan baru.';
+    } else if (s === 'ready' || s === 'video_failed') {
+      $('title').textContent = 'Kejutan untuk ' + w.recipient_name + ' sudah sedia';
+      $('sub').textContent = 'Hantar pautan ini kepadanya. Dia akan tekan kotak hadiah untuk membukanya.';
+      $('s2label').textContent = s === 'ready' ? 'Video siap' : 'Video tidak dapat dihasilkan';
+      $('s2note').textContent = '';
+      $('readyPanel').hidden = false;
+      $('link').textContent = w.url.replace('https://', '');
+      $('link').href = w.url;
+      $('open').href = w.url;
+      $('wa').href = 'https://wa.me/?text=' + encodeURIComponent('Ada kejutan untuk awak 🎁 ' + w.url);
+      if (s === 'ready' && w.video_url && shownVideo !== w.video_url) {
+        shownVideo = w.video_url;
+        var v = document.createElement('video');
+        v.src = w.video_url;
+        if (w.poster_url) v.poster = w.poster_url;
+        v.controls = true;
+        v.playsInline = true;
+        v.setAttribute('playsinline', '');
+        $('film').innerHTML = '';
+        $('film').appendChild(v);
+        $('film').hidden = false;
+      }
+      if (s === 'video_failed') {
+        $('readyNote').textContent = 'Video tidak dapat dihasilkan daripada gambar ini, tetapi halaman kejutan dengan gambar dan ucapan anda tetap sedia.' + (cfg.support ? ' Untuk bayaran balik, hubungi ' + cfg.support + '.' : '');
+      }
+      clearInterval(timer);
+    } else {
+      $('title').textContent = 'Video sedang dibuat';
+      $('sub').textContent = 'Simpan halaman ini. Anda boleh tutup dan buka semula bila-bila masa.';
+      if (w.attempts > 1) $('s2note').textContent = 'Mencuba sekali lagi untuk hasil terbaik. Sedikit masa lagi.';
+    }
+  }
+
+  function poll() {
+    fetch('/api/v1/wishes/' + encodeURIComponent(wishId) + '/status?t=' + encodeURIComponent(token))
+      .then(function (r) {
+        if (r.status === 404) throw new Error('missing');
+        return r.json();
+      })
+      .then(render)
+      .catch(function (err) {
+        if (err && err.message === 'missing') {
+          $('title').textContent = 'Kejutan tidak dijumpai';
+          $('sub').textContent = 'Semak pautan halaman ini, atau buat kejutan baru.';
+          $('progress').hidden = true;
+          clearInterval(timer);
+        }
+      });
+  }
+
+  $('copy').addEventListener('click', function () {
+    var url = $('link').href;
+    var done = function () { $('copy').textContent = 'Pautan disalin'; setTimeout(function () { $('copy').textContent = 'Salin pautan'; }, 2000); };
+    if (navigator.clipboard) navigator.clipboard.writeText(url).then(done, function () { prompt('Salin pautan ini:', url); });
+    else prompt('Salin pautan ini:', url);
+  });
+
+  poll();
+  timer = setInterval(poll, 6000);
+})();
+</script>
+</body>
+</html>

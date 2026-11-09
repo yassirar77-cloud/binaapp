@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="ms">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>__OG_TITLE__</title>
+<meta property="og:title" content="__OG_TITLE__">
+<meta property="og:description" content="Tekan untuk buka kejutan ini.">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#2A1030">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Pinyon+Script&family=Plus+Jakarta+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --plum-night: #2A1030;
+    --plum: #4A1A3F;
+    --gold: #E3B65C;
+    --gold-soft: rgba(227, 182, 92, .38);
+    --rose: #F2C4CC;
+    --pearl: #FFF8F3;
+    --ink: #3A1534;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    background: radial-gradient(120% 80% at 50% 0%, var(--plum) 0%, var(--plum-night) 62%);
+    color: var(--pearl);
+    font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+  .script { font-family: "Pinyon Script", "Brush Script MT", cursive; font-weight: 400; color: var(--gold); line-height: 1.1; }
+  main { max-width: 480px; margin: 0 auto; padding: 0 20px 48px; text-align: center; }
+
+  /* ---------- Closed: the gift ---------- */
+  #closed { min-height: 100svh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 32px 0; }
+  #closed .lead { margin: 0; font-size: 17px; color: var(--rose); }
+  #closed h1 { margin: 0 0 28px; font-size: clamp(56px, 18vw, 84px); overflow-wrap: anywhere; }
+  .gift { position: relative; width: 210px; height: 210px; border: 0; padding: 0; background: none; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  .gift:focus-visible { outline: 2px solid var(--gold); outline-offset: 10px; border-radius: 12px; }
+  .box, .lid {
+    position: absolute; left: 50%;
+    background:
+      repeating-linear-gradient(45deg, transparent 0 11px, var(--gold-soft) 11px 12px),
+      repeating-linear-gradient(-45deg, transparent 0 11px, var(--gold-soft) 11px 12px),
+      linear-gradient(160deg, #6B2457, #4A1A3F);
+    box-shadow: inset 0 0 0 2px rgba(227, 182, 92, .7);
+  }
+  .box { bottom: 0; width: 170px; height: 132px; transform: translateX(-50%); border-radius: 4px 4px 10px 10px; }
+  .lid { bottom: 126px; width: 190px; height: 40px; transform: translateX(-50%); border-radius: 6px; z-index: 2; transition: transform .7s cubic-bezier(.2, .9, .3, 1.2), opacity .7s; }
+  .band-v { position: absolute; left: 50%; top: 0; bottom: 0; width: 22px; transform: translateX(-50%); background: var(--gold); }
+  .band-h { position: absolute; left: 0; right: 0; top: 50%; height: 20px; transform: translateY(-50%); background: var(--gold); }
+  .lid .band-v { width: 24px; }
+  .bow { position: absolute; left: 50%; top: -30px; width: 0; height: 0; }
+  .bow::before, .bow::after {
+    content: ""; position: absolute; top: 0; width: 44px; height: 32px;
+    border: 7px solid var(--gold); border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+  }
+  .bow::before { right: 2px; transform: rotate(-22deg); }
+  .bow::after { left: 2px; transform: rotate(22deg); }
+  .gift { animation: sway 3.2s ease-in-out infinite; transform-origin: 50% 100%; }
+  @keyframes sway { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(-2.5deg); } 75% { transform: rotate(2deg); } }
+  .gift.opening { animation: none; }
+  .gift.opening .lid { transform: translate(-50%, -120px) rotate(-18deg); opacity: 0; }
+  .hint { margin-top: 30px; color: var(--rose); font-size: 15px; }
+
+  /* ---------- Open: the wish ---------- */
+  #open { display: none; padding-top: 40px; }
+  #open.shown { display: block; animation: rise .9s ease-out both; }
+  @keyframes rise { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+  .occasion { margin: 0; font-size: 18px; font-weight: 500; color: var(--rose); }
+  #open h2 { margin: 0 0 24px; font-size: clamp(60px, 19vw, 92px); overflow-wrap: anywhere; }
+
+  .film { position: relative; margin: 0 auto; width: min(100%, 360px); aspect-ratio: 9 / 16; border-radius: 22px; overflow: hidden; background: #1a0a1e; box-shadow: 0 0 0 1px var(--gold-soft), 0 24px 60px rgba(0, 0, 0, .45); }
+  .film video, .film img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .film img.drift { animation: drift 14s ease-in-out infinite alternate; }
+  @keyframes drift { from { transform: scale(1); } to { transform: scale(1.12) translateY(-2%); } }
+  .sound { position: absolute; right: 12px; bottom: 12px; min-width: 44px; height: 44px; padding: 0 14px; border-radius: 22px; border: 0; background: rgba(42, 16, 48, .72); color: var(--pearl); font: 500 14px "Plus Jakarta Sans", sans-serif; cursor: pointer; backdrop-filter: blur(6px); }
+  .sound:focus-visible, .again:focus-visible, .make a:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
+  .pending { position: absolute; left: 12px; right: 12px; bottom: 12px; padding: 10px 14px; border-radius: 14px; background: rgba(42, 16, 48, .78); font-size: 14px; color: var(--pearl); }
+
+  .letter { margin: 36px auto 0; padding: 28px 24px 24px; max-width: 420px; background: var(--pearl); color: var(--ink); border-radius: 4px; text-align: left; font-size: 17px; line-height: 1.75; white-space: pre-line; overflow-wrap: anywhere; box-shadow: 0 18px 40px rgba(0, 0, 0, .35); position: relative; }
+  .letter::before { content: ""; position: absolute; inset: 7px; border: 1px solid rgba(227, 182, 92, .55); border-radius: 2px; pointer-events: none; }
+  .signoff { margin: 18px 0 0; text-align: right; white-space: normal; }
+  .signoff .from { display: block; font-size: 14px; color: #8a5a7c; }
+  .signoff .script { font-size: 40px; color: var(--plum); }
+
+  .photos { margin: 36px -20px 0; padding: 0 20px 6px; display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory; }
+  .photos img { flex: 0 0 auto; width: 62%; max-width: 260px; aspect-ratio: 4 / 5; object-fit: cover; border-radius: 14px; scroll-snap-align: center; border: 1px solid var(--gold-soft); }
+  .photos:empty { display: none; }
+
+  .again { margin-top: 32px; background: none; border: 1px solid var(--gold-soft); color: var(--gold); border-radius: 22px; padding: 10px 20px; font: 500 15px "Plus Jakarta Sans", sans-serif; cursor: pointer; }
+  .make { margin-top: 48px; font-size: 14px; color: rgba(255, 248, 243, .62); }
+  .make a { color: var(--gold); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+
+  #petals { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .gift, .film img.drift { animation: none; }
+    #open.shown { animation: none; }
+    .lid { transition: opacity .2s; }
+  }
+</style>
+</head>
+<body>
+<canvas id="petals" aria-hidden="true"></canvas>
+<main>
+  <section id="closed">
+    <p class="lead">Ada kejutan untuk</p>
+    <h1 class="script" id="toName"></h1>
+    <button class="gift" id="gift" type="button" aria-label="Buka kejutan">
+      <span class="lid"><span class="band-v"></span><span class="bow"></span></span>
+      <span class="box"><span class="band-v"></span><span class="band-h"></span></span>
+    </button>
+    <p class="hint">Tekan kotak untuk buka</p>
+  </section>
+
+  <section id="open" aria-live="polite">
+    <p class="occasion" id="occasion"></p>
+    <h2 class="script" id="toName2"></h2>
+    <div class="film" id="film"></div>
+    <div class="letter" id="letter"></div>
+    <div class="photos" id="photos"></div>
+    <button class="again" id="again" type="button">Main semula video</button>
+    <p class="make">Nak buat kejutan macam ni? <a href="__CREATOR_URL__">Buat di mysyg.com</a></p>
+  </section>
+</main>
+
+<script id="wish-data" type="application/json">__WISH_JSON__</script>
+<script>
+(function () {
+  var data = JSON.parse(document.getElementById('wish-data').textContent);
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var $ = function (id) { return document.getElementById(id); };
+
+  $('toName').textContent = data.recipient_name;
+  $('toName2').textContent = data.recipient_name;
+  $('occasion').textContent = data.title + ' ' + data.emoji;
+
+  // The letter: message, then the sender's signature. textContent only.
+  var letter = $('letter');
+  letter.appendChild(document.createTextNode(data.message));
+  var sign = document.createElement('p');
+  sign.className = 'signoff';
+  var from = document.createElement('span');
+  from.className = 'from';
+  from.textContent = 'Dengan sayang,';
+  var name = document.createElement('span');
+  name.className = 'script';
+  name.textContent = data.sender_name;
+  sign.appendChild(from);
+  sign.appendChild(name);
+  letter.appendChild(sign);
+
+  var photos = data.photo_urls || [];
+  photos.forEach(function (url, i) {
+    var img = document.createElement('img');
+    img.src = url;
+    img.alt = 'Gambar ' + (i + 1);
+    img.loading = 'lazy';
+    $('photos').appendChild(img);
+  });
+
+  var video = null;
+  var soundBtn = null;
+
+  function buildFilm() {
+    var film = $('film');
+    film.innerHTML = '';
+    video = null;
+    if (data.video_url) {
+      video = document.createElement('video');
+      video.src = data.video_url;
+      if (data.poster_url) video.poster = data.poster_url;
+      video.setAttribute('playsinline', '');
+      video.playsInline = true;
+      video.loop = true;
+      video.preload = 'auto';
+      film.appendChild(video);
+      if (data.has_music) {
+        soundBtn = document.createElement('button');
+        soundBtn.className = 'sound';
+        soundBtn.type = 'button';
+        soundBtn.addEventListener('click', function () {
+          video.muted = !video.muted;
+          if (!video.muted) video.play();
+          setSoundLabel();
+        });
+        film.appendChild(soundBtn);
+      }
+      $('again').style.display = '';
+    } else {
+      var img = document.createElement('img');
+      img.src = photos[0] || '';
+      img.alt = '';
+      if (!reduce) img.className = 'drift';
+      film.appendChild(img);
+      if (data.video_pending) {
+        var note = document.createElement('div');
+        note.className = 'pending';
+        note.textContent = 'Video sedang disiapkan. Ia akan muncul di sini sekejap lagi.';
+        film.appendChild(note);
+      }
+      $('again').style.display = 'none';
+    }
+  }
+
+  function setSoundLabel() {
+    if (soundBtn && video) soundBtn.textContent = video.muted ? 'Bunyi: tutup' : 'Bunyi: buka';
+  }
+
+  function playVideo() {
+    if (!video) return;
+    video.muted = !data.has_music;
+    video.currentTime = 0;
+    var p = video.play();
+    if (p && p.catch) {
+      p.catch(function () {
+        // Autoplay with sound refused: play muted, let the button unmute.
+        video.muted = true;
+        video.play();
+        setSoundLabel();
+      });
+    }
+    setSoundLabel();
+  }
+
+  // Gold petals burst from the box. One orchestrated moment, then gone.
+  function burst(originX, originY) {
+    if (reduce) return;
+    var canvas = $('petals');
+    var ctx = canvas.getContext('2d');
+    var dpr = window.devicePixelRatio || 1;
+    canvas.width = innerWidth * dpr;
+    canvas.height = innerHeight * dpr;
+    ctx.scale(dpr, dpr);
+    var colors = ['#E3B65C', '#F2C4CC', '#FFF8F3', '#C9953F'];
+    var parts = [];
+    for (var i = 0; i < 90; i++) {
+      var angle = -Math.PI / 2 + (Math.random() - 0.5) * 2.2;
+      var speed = 6 + Math.random() * 9;
+      parts.push({
+        x: originX, y: originY,
+        vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+        r: 4 + Math.random() * 6, rot: Math.random() * 6, vr: (Math.random() - 0.5) * 0.3,
+        c: colors[i % colors.length]
+      });
+    }
+    var start = performance.now();
+    (function frame(now) {
+      var t = now - start;
+      ctx.clearRect(0, 0, innerWidth, innerHeight);
+      parts.forEach(function (p) {
+        p.vy += 0.22; p.vx *= 0.99; p.x += p.vx; p.y += p.vy; p.rot += p.vr;
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rot);
+        ctx.globalAlpha = Math.max(0, 1 - t / 2600);
+        ctx.fillStyle = p.c;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, p.r, p.r * 0.55, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      });
+      if (t < 2600) requestAnimationFrame(frame);
+      else ctx.clearRect(0, 0, innerWidth, innerHeight);
+    })(start);
+  }
+
+  buildFilm();
+
+  $('gift').addEventListener('click', function () {
+    var gift = $('gift');
+    if (gift.classList.contains('opening')) return;
+    gift.classList.add('opening');
+    var rect = gift.getBoundingClientRect();
+    burst(rect.left + rect.width / 2, rect.top + 30);
+    // Start playback inside the tap so the browser allows sound.
+    playVideo();
+    setTimeout(function () {
+      $('closed').style.display = 'none';
+      $('open').classList.add('shown');
+      window.scrollTo(0, 0);
+      if (video && video.paused) playVideo();
+    }, reduce ? 50 : 750);
+  });
+
+  $('again').addEventListener('click', playVideo);
+
+  // Still rendering? Check every 20 s and swap the clip in when it lands.
+  if (data.video_pending) {
+    var timer = setInterval(function () {
+      fetch('/api/v1/wishes/public/' + encodeURIComponent(data.slug))
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (fresh) {
+          if (!fresh) return;
+          if (fresh.video_url) {
+            data.video_url = fresh.video_url;
+            data.poster_url = fresh.poster_url;
+            data.video_pending = false;
+            clearInterval(timer);
+            buildFilm();
+            if ($('open').classList.contains('shown')) {
+              video.muted = true;
+              video.play();
+              setSoundLabel();
+            }
+          } else if (!fresh.video_pending) {
+            data.video_pending = false;
+            clearInterval(timer);
+            buildFilm();
+          }
+        })
+        .catch(function () {});
+    }, 20000);
+  }
+})();
+</script>
+</body>
+</html>

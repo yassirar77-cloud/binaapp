@@ -153,11 +153,11 @@ class Settings(BaseSettings):
     # Domain Configuration
     MAIN_DOMAIN: str = Field(default="binaapp.my", env="MAIN_DOMAIN")
     SUBDOMAIN_SUFFIX: str = Field(default=".binaapp.my", env="SUBDOMAIN_SUFFIX")
-    # Extra apex domains a merchant may publish under, comma-separated
-    # (e.g. "mysyg.com"). Each site picks ONE of MAIN_DOMAIN + these as its
-    # websites.site_domain; the subdomain itself stays globally unique, so
-    # kedai.binaapp.my and kedai.mysyg.com are always the same site.
-    ALT_SITE_DOMAINS: str = Field(default="mysyg.com", env="ALT_SITE_DOMAINS")
+    # Extra apex domains a merchant may publish under, comma-separated.
+    # Each site picks ONE of MAIN_DOMAIN + these as its websites.site_domain;
+    # the subdomain itself stays globally unique. Empty by default: mysyg.com
+    # is the surprise-wish product (services/wishes.py), not a shop domain.
+    ALT_SITE_DOMAINS: str = Field(default="", env="ALT_SITE_DOMAINS")
     
     # Security
     JWT_SECRET_KEY: str = Field(default="dev-secret-key-change-in-production", env="JWT_SECRET_KEY")

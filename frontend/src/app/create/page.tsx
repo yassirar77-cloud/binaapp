@@ -47,7 +47,7 @@ import {
 import { User } from '@supabase/supabase-js'
 import { checkImageSafety } from '@/utils/imageModeration'
 import toast from 'react-hot-toast'
-import { SITE_DOMAINS, DEFAULT_SITE_DOMAIN, siteHost, siteUrl, type SiteDomain } from '@/lib/siteDomains'
+import { SITE_DOMAINS, DEFAULT_SITE_DOMAIN, HAS_DOMAIN_CHOICE, siteHost, siteUrl, type SiteDomain } from '@/lib/siteDomains'
 import './create.css'
 
 const EXAMPLE_DESCRIPTIONS = [
@@ -168,7 +168,7 @@ export default function CreatePage() {
   const [error, setError] = useState('')
   const [showPublishModal, setShowPublishModal] = useState(false)
   const [subdomain, setSubdomain] = useState('')
-  // binaapp.my or mysyg.com — the subdomain is unique across both.
+  // One of SITE_DOMAINS — the subdomain is unique across all of them.
   const [siteDomain, setSiteDomain] = useState<SiteDomain>(DEFAULT_SITE_DOMAIN)
   const [subdomainError, setSubdomainError] = useState<string | null>(null)
   const [projectName, setProjectName] = useState('')
@@ -3974,16 +3974,20 @@ export default function CreatePage() {
                           placeholder="kedai-yassir"
                           style={{ flex: 1, background: 'transparent', border: 0, padding: '14px 14px', color: '#F5F5FA', fontFamily: "'Geist Mono', monospace", fontSize: 15, outline: 'none' }}
                         />
-                        <select
-                          aria-label="Domain"
-                          value={siteDomain}
-                          onChange={(e) => setSiteDomain(e.target.value as SiteDomain)}
-                          style={{ display: 'flex', alignItems: 'center', padding: '0 12px', border: 0, borderLeft: '1px solid rgba(255,255,255,.04)', background: 'transparent', color: '#B8B8C8', fontFamily: "'Geist Mono', monospace", fontSize: 14, outline: 'none', cursor: 'pointer' }}
-                        >
-                          {SITE_DOMAINS.map(d => (
-                            <option key={d} value={d} style={{ background: '#16161F', color: '#F5F5FA' }}>.{d}</option>
-                          ))}
-                        </select>
+                        {HAS_DOMAIN_CHOICE ? (
+                          <select
+                            aria-label="Domain"
+                            value={siteDomain}
+                            onChange={(e) => setSiteDomain(e.target.value as SiteDomain)}
+                            style={{ display: 'flex', alignItems: 'center', padding: '0 12px', border: 0, borderLeft: '1px solid rgba(255,255,255,.04)', background: 'transparent', color: '#B8B8C8', fontFamily: "'Geist Mono', monospace", fontSize: 14, outline: 'none', cursor: 'pointer' }}
+                          >
+                            {SITE_DOMAINS.map(d => (
+                              <option key={d} value={d} style={{ background: '#16161F', color: '#F5F5FA' }}>.{d}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span style={{ display: 'flex', alignItems: 'center', padding: '0 12px', borderLeft: '1px solid rgba(255,255,255,.04)', color: '#B8B8C8', fontFamily: "'Geist Mono', monospace", fontSize: 14 }}>.{DEFAULT_SITE_DOMAIN}</span>
+                        )}
                       </div>
                       {pubState === 'taken' && (
                         <div style={{ marginTop: 10, padding: 12, background: 'rgba(255,90,95,.06)', border: '1px solid rgba(255,90,95,.2)', borderRadius: 10, fontSize: 13, color: '#FF8A8E' }}>

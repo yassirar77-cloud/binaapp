@@ -264,6 +264,11 @@ async def add_security_headers(request: Request, call_next):
 from app.middleware.subdomain import subdomain_middleware as _subdomain_middleware
 app.middleware("http")(_subdomain_middleware)
 
+# mysyg.com surprise wishes: registered after (so it runs before) the
+# subdomain middleware, and answers every *.mysyg.com page request.
+from app.middleware.wish_pages import wish_middleware as _wish_middleware
+app.middleware("http")(_wish_middleware)
+
 # ============================================
 # REQUEST TIMING (performance visibility)
 # ============================================

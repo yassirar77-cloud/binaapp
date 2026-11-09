@@ -5,7 +5,7 @@ Combines all API endpoints
 
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import auth, websites, payments, templates, delivery, delivery_zones, menu_delivery, chat, subscription, scheduled_tasks, email_support, moderation, template_gallery, disputes, customers, penghantar_live, analytics, issue_reports, design_studio, site_qr, promo_kit, business_kit, counter_kit, hero_video, tiktok
+from app.api.v1.endpoints import auth, websites, payments, templates, delivery, delivery_zones, menu_delivery, chat, subscription, scheduled_tasks, email_support, moderation, template_gallery, disputes, customers, penghantar_live, analytics, issue_reports, design_studio, site_qr, promo_kit, business_kit, counter_kit, hero_video, tiktok, wishes
 from app.api.admin import repair as admin_repair
 from app.api.admin import make_good as admin_make_good
 from app.api.admin import unstick_generation as admin_unstick
@@ -79,3 +79,6 @@ api_router.include_router(hero_video.router, prefix="/websites", tags=["Hero Vid
 # Login Kit + Content Posting API). Paths: /api/v1/social/tiktok/*. Other
 # platforms (Facebook/Instagram) will mount beside it under /social/<platform>.
 api_router.include_router(tiktok.router, tags=["Social: TikTok"])
+
+# mysyg.com surprise wishes (no login; pay per wish via ToyyibPay)
+api_router.include_router(wishes.router, tags=["mysyg Wishes"])

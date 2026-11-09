@@ -18,7 +18,7 @@ export interface SiteRow {
   id: string
   business_name: string
   subdomain: string | null
-  /** binaapp.my or mysyg.com */
+  /** One of SITE_DOMAINS */
   site_domain?: string | null
   status: string
   replaceable_draft?: boolean
