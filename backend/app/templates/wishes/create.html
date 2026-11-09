@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="ms">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>mysyg — kejutan video untuk orang tersayang</title>
+<meta name="description" content="Muat naik gambar, tulis ucapan, dan kami jadikan video kejutan dengan muzik. Hantar satu pautan, dia tekan kotak hadiah dan terus terharu.">
+<meta property="og:title" content="mysyg — kejutan video untuk orang tersayang">
+<meta property="og:description" content="Gambar anda jadi video bermuzik, dalam satu pautan hadiah.">
+<meta name="theme-color" content="#2A1030">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Pinyon+Script&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --plum-night: #2A1030;
+    --plum: #4A1A3F;
+    --plum-soft: #8A5A7C;
+    --gold: #E3B65C;
+    --gold-deep: #B8862E;
+    --gold-soft: rgba(227, 182, 92, .38);
+    --rose: #F2C4CC;
+    --pearl: #FFF8F3;
+    --line: #EBDCE2;
+    --ink: #3A1534;
+    --error: #B3261E;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { background: var(--pearl); color: var(--ink); font-family: "Plus Jakarta Sans", system-ui, sans-serif; font-size: 16px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+  .script { font-family: "Pinyon Script", "Brush Script MT", cursive; font-weight: 400; }
+
+  header.hero {
+    background: radial-gradient(120% 90% at 50% 0%, var(--plum) 0%, var(--plum-night) 70%);
+    color: var(--pearl);
+    padding: 28px 20px 44px;
+  }
+  .hero-inner { position: relative; max-width: 560px; margin: 0 auto; }
+  .brand { margin: 0 0 22px; font-size: 34px; color: var(--gold); line-height: 1; }
+  .hero h1 { margin: 0; max-width: 15ch; font-size: clamp(28px, 7.4vw, 38px); line-height: 1.15; font-weight: 600; letter-spacing: -0.01em; }
+  .hero p { margin: 12px 0 0; color: var(--rose); font-size: 16px; max-width: 34ch; }
+  .mini-gift { position: absolute; top: 0; right: 0; width: 84px; height: 84px; }
+  .mini-gift .box, .mini-gift .lid {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    background:
+      repeating-linear-gradient(45deg, transparent 0 6px, var(--gold-soft) 6px 7px),
+      repeating-linear-gradient(-45deg, transparent 0 6px, var(--gold-soft) 6px 7px),
+      linear-gradient(160deg, #6B2457, #4A1A3F);
+    box-shadow: inset 0 0 0 1.5px rgba(227, 182, 92, .7);
+  }
+  .mini-gift .box { bottom: 0; width: 68px; height: 52px; border-radius: 3px 3px 6px 6px; }
+  .mini-gift .lid { bottom: 50px; width: 76px; height: 16px; border-radius: 3px; }
+  .mini-gift .band { position: absolute; left: 50%; top: 0; bottom: 0; width: 10px; transform: translateX(-50%); background: var(--gold); }
+
+  main { max-width: 560px; margin: 0 auto; padding: 8px 20px 140px; }
+  .step { padding: 28px 0 8px; border-bottom: 1px solid var(--line); }
+  .step:last-of-type { border-bottom: 0; }
+  .step h2 { display: flex; align-items: baseline; gap: 12px; margin: 0 0 6px; font-size: 20px; font-weight: 600; }
+  .step h2 .n { flex: 0 0 auto; width: 30px; height: 30px; border-radius: 50%; display: inline-grid; place-items: center; background: var(--plum); color: var(--gold); font-size: 15px; transform: translateY(-2px); }
+  .step > p.help { margin: 0 0 16px 42px; color: var(--plum-soft); font-size: 15px; }
+
+  label.field { display: block; margin: 0 0 16px; }
+  label.field > span { display: block; margin-bottom: 6px; font-size: 15px; font-weight: 500; }
+  input[type=text], input[type=email], input[type=tel], textarea {
+    width: 100%; padding: 13px 14px; border: 1px solid #D9C4CF; border-radius: 10px; background: #fff; color: var(--ink);
+    font: 400 16px "Plus Jakarta Sans", sans-serif;
+  }
+  textarea { min-height: 150px; resize: vertical; line-height: 1.6; }
+  input:focus-visible, textarea:focus-visible { outline: 2px solid var(--gold-deep); outline-offset: 1px; border-color: transparent; }
+  .count { display: block; margin-top: 4px; text-align: right; font-size: 13px; color: var(--plum-soft); }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 420px) { .row { grid-template-columns: 1fr; gap: 0; } }
+
+  /* Photos */
+  .drop { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 96px; border: 1.5px dashed #CDB1C0; border-radius: 14px; background: #fff; color: var(--plum); font-weight: 600; cursor: pointer; padding: 16px; text-align: center; }
+  .drop:focus-within { outline: 2px solid var(--gold-deep); outline-offset: 2px; }
+  .drop input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+  .thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; margin-top: 12px; }
+  .thumb { position: relative; aspect-ratio: 4 / 5; border-radius: 12px; overflow: hidden; border: 2px solid transparent; background: #eee; }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .thumb.main { border-color: var(--gold-deep); }
+  .thumb .tag { position: absolute; left: 6px; bottom: 6px; padding: 2px 8px; border-radius: 10px; background: var(--plum); color: var(--gold); font-size: 12px; font-weight: 600; }
+  .thumb button { position: absolute; border: 0; cursor: pointer; font: 600 12px "Plus Jakarta Sans", sans-serif; }
+  .thumb .rm { top: 6px; right: 6px; width: 28px; height: 28px; border-radius: 50%; background: rgba(42, 16, 48, .78); color: #fff; font-size: 16px; line-height: 1; }
+  .thumb .mk { left: 6px; bottom: 6px; padding: 4px 8px; border-radius: 10px; background: rgba(255, 248, 243, .92); color: var(--plum); }
+  .thumb button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+  /* Choice chips */
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 18px; padding: 0; border: 0; }
+  .chips legend { margin-bottom: 8px; padding: 0; font-size: 15px; font-weight: 500; }
+  .chip { position: relative; }
+  .chip input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+  .chip span { display: inline-block; padding: 9px 14px; border-radius: 22px; border: 1px solid #D9C4CF; background: #fff; font-size: 15px; }
+  .chip input:checked + span { background: var(--plum); border-color: var(--plum); color: var(--pearl); }
+  .chip input:focus-visible + span { outline: 2px solid var(--gold-deep); outline-offset: 2px; }
+
+  .link-field { display: flex; align-items: stretch; border: 1px solid #D9C4CF; border-radius: 10px; background: #fff; overflow: hidden; }
+  .link-field:focus-within { outline: 2px solid var(--gold-deep); outline-offset: 1px; border-color: transparent; }
+  .link-field span { display: flex; align-items: center; padding: 0 12px; color: var(--plum-soft); background: #FBF2F5; white-space: nowrap; }
+  .link-field span.pre { border-right: 1px solid var(--line); }
+  .link-field span.post { border-left: 1px solid var(--line); }
+  .link-field input { border: 0; border-radius: 0; min-width: 0; flex: 1; }
+  .link-field input:focus-visible { outline: none; }
+  .slug-note { margin: 6px 0 16px; font-size: 14px; min-height: 1.4em; }
+  .slug-note.ok { color: #2E7D4F; }
+  .slug-note.bad { color: var(--error); }
+
+  .consent { display: flex; gap: 10px; align-items: flex-start; margin: 4px 0 8px; font-size: 15px; }
+  .consent input { width: 20px; height: 20px; margin-top: 3px; accent-color: var(--plum); flex: 0 0 auto; }
+
+  .paybar { position: fixed; left: 0; right: 0; bottom: 0; background: rgba(255, 248, 243, .96); backdrop-filter: blur(8px); border-top: 1px solid var(--line); padding: 12px 20px calc(12px + env(safe-area-inset-bottom)); }
+  .paybar-inner { max-width: 560px; margin: 0 auto; display: flex; align-items: center; gap: 16px; }
+  .price { flex: 0 0 auto; line-height: 1.2; }
+  .price b { display: block; font-size: 22px; }
+  .price small { color: var(--plum-soft); font-size: 13px; }
+  .pay { flex: 1; min-height: 52px; border: 0; border-radius: 14px; background: var(--plum); color: var(--pearl); font: 600 17px "Plus Jakarta Sans", sans-serif; cursor: pointer; box-shadow: inset 0 0 0 1.5px var(--gold-soft); }
+  .pay:hover { background: #5A2050; }
+  .pay:disabled { opacity: .6; cursor: progress; }
+  .pay:focus-visible { outline: 2px solid var(--gold-deep); outline-offset: 2px; }
+  .form-error { margin: 16px 0 0; padding: 12px 14px; border-radius: 10px; background: #FCEBEA; color: var(--error); font-size: 15px; display: none; }
+  .form-error.shown { display: block; }
+  .fine { margin-top: 24px; font-size: 13px; color: var(--plum-soft); }
+</style>
+</head>
+<body>
+<header class="hero">
+  <div class="hero-inner">
+    <p class="brand script">mysyg</p>
+    <h1>Gambar dia, jadi video kejutan bermuzik.</h1>
+    <div class="mini-gift" aria-hidden="true">
+      <span class="lid"><span class="band"></span></span>
+      <span class="box"><span class="band"></span></span>
+    </div>
+    <p>Hantar satu pautan. Dia tekan kotak hadiah, video dan ucapan anda terus terbuka.</p>
+  </div>
+</header>
+
+<main>
+  <form id="form" novalidate>
+    <section class="step">
+      <h2><span class="n">1</span>Pilih gambar</h2>
+      <p class="help">Sehingga 5 gambar. Gambar utama akan dijadikan video, jadi pilih yang wajahnya jelas.</p>
+      <label class="drop" id="drop">
+        <input id="photoInput" type="file" accept="image/*" multiple>
+        <span id="dropText">Tambah gambar</span>
+      </label>
+      <div class="thumbs" id="thumbs"></div>
+    </section>
+
+    <section class="step">
+      <h2><span class="n">2</span>Tulis ucapan</h2>
+      <p class="help">Hanya penerima yang membuka pautan akan nampak ucapan ini.</p>
+      <fieldset class="chips" id="occasions"><legend>Sempena</legend></fieldset>
+      <div class="row">
+        <label class="field"><span>Nama penerima</span><input id="recipient" type="text" maxlength="40" placeholder="Aisyah" autocomplete="off"></label>
+        <label class="field"><span>Nama anda</span><input id="sender" type="text" maxlength="40" placeholder="Abang" autocomplete="off"></label>
+      </div>
+      <label class="field"><span>Ucapan</span>
+        <textarea id="message" maxlength="600" placeholder="Selamat hari jadi sayang. Terima kasih sebab sentiasa ada untuk abang..."></textarea>
+        <small class="count" id="count">0 / 600</small>
+      </label>
+      <fieldset class="chips" id="music"><legend>Muzik dalam video</legend></fieldset>
+    </section>
+
+    <section class="step">
+      <h2><span class="n">3</span>Pautan & bayaran</h2>
+      <p class="help">Ini pautan yang anda hantar kepadanya.</p>
+      <div class="link-field">
+        <span class="pre">https://</span>
+        <input id="slug" type="text" maxlength="30" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="aisyah" aria-label="Nama pautan">
+        <span class="post">.__WISH_DOMAIN__</span>
+      </div>
+      <p class="slug-note" id="slugNote" aria-live="polite"></p>
+      <div class="row">
+        <label class="field"><span>Emel (untuk resit)</span><input id="email" type="email" autocomplete="email" placeholder="anda@email.com"></label>
+        <label class="field"><span>No. telefon</span><input id="phone" type="tel" autocomplete="tel" placeholder="0123456789"></label>
+      </div>
+      <label class="consent"><input id="consent" type="checkbox"><span>Saya mempunyai kebenaran menggunakan gambar-gambar ini.</span></label>
+      <p class="form-error" id="formError" role="alert"></p>
+      <p class="fine">Bayaran melalui ToyyibPay (FPX). Video siap dalam beberapa minit selepas bayaran, dan anda akan dapat pautan untuk dihantar.</p>
+    </section>
+  </form>
+</main>
+
+<div class="paybar">
+  <div class="paybar-inner">
+    <div class="price"><b>RM__PRICE__</b><small>sekali bayar</small></div>
+    <button class="pay" id="pay" type="submit" form="form">Bayar & buat kejutan</button>
+  </div>
+</div>
+
+<script id="config" type="application/json">__CONFIG_JSON__</script>
+<script>
+(function () {
+  var cfg = JSON.parse(document.getElementById('config').textContent);
+  var $ = function (id) { return document.getElementById(id); };
+  var MAX = cfg.max_photos;
+  var files = []; // [{file, url}] — index 0 is the main photo
+
+  // ---------- choice chips ----------
+  function chips(container, name, options, selected) {
+    Object.keys(options).forEach(function (key) {
+      var label = document.createElement('label');
+      label.className = 'chip';
+      var input = document.createElement('input');
+      input.type = 'radio';
+      input.name = name;
+      input.value = key;
+      if (key === selected) input.checked = true;
+      var span = document.createElement('span');
+      span.textContent = options[key];
+      label.appendChild(input);
+      label.appendChild(span);
+      container.appendChild(label);
+    });
+  }
+  chips($('occasions'), 'occasion', cfg.occasions, cfg.default_occasion);
+  chips($('music'), 'music', cfg.music, cfg.default_music);
+
+  // ---------- photos ----------
+  function renderThumbs() {
+    var box = $('thumbs');
+    box.innerHTML = '';
+    files.forEach(function (item, i) {
+      var div = document.createElement('div');
+      div.className = 'thumb' + (i === 0 ? ' main' : '');
+      var img = document.createElement('img');
+      img.src = item.url;
+      img.alt = 'Gambar ' + (i + 1);
+      div.appendChild(img);
+      var rm = document.createElement('button');
+      rm.type = 'button';
+      rm.className = 'rm';
+      rm.setAttribute('aria-label', 'Buang gambar ' + (i + 1));
+      rm.textContent = '×';
+      rm.addEventListener('click', function () {
+        URL.revokeObjectURL(item.url);
+        files.splice(i, 1);
+        renderThumbs();
+      });
+      div.appendChild(rm);
+      if (i === 0) {
+        var tag = document.createElement('span');
+        tag.className = 'tag';
+        tag.textContent = 'Untuk video';
+        div.appendChild(tag);
+      } else {
+        var mk = document.createElement('button');
+        mk.type = 'button';
+        mk.className = 'mk';
+        mk.textContent = 'Jadikan utama';
+        mk.addEventListener('click', function () {
+          files.unshift(files.splice(i, 1)[0]);
+          renderThumbs();
+        });
+        div.appendChild(mk);
+      }
+      box.appendChild(div);
+    });
+    $('dropText').textContent = files.length ? (files.length >= MAX ? 'Maksimum ' + MAX + ' gambar' : 'Tambah lagi gambar') : 'Tambah gambar';
+  }
+
+  $('photoInput').addEventListener('change', function (e) {
+    var picked = Array.prototype.slice.call(e.target.files || []);
+    picked.slice(0, Math.max(0, MAX - files.length)).forEach(function (file) {
+      files.push({ file: file, url: URL.createObjectURL(file) });
+    });
+    e.target.value = '';
+    renderThumbs();
+  });
+
+  // Phone photos are large; shrink to 1600px JPEG before upload so it is
+  // quick on mobile data. If the browser can't decode it (e.g. HEIC on
+  // Android), the original goes up and the server converts it.
+  function shrink(file) {
+    return new Promise(function (resolve) {
+      if (!window.createImageBitmap || !/^image\/(jpe?g|png|webp)$/i.test(file.type)) return resolve(file);
+      createImageBitmap(file).then(function (bmp) {
+        var scale = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+        if (scale === 1 && file.size < 2.5 * 1024 * 1024) return resolve(file);
+        var c = document.createElement('canvas');
+        c.width = Math.round(bmp.width * scale);
+        c.height = Math.round(bmp.height * scale);
+        c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+        c.toBlob(function (blob) {
+          resolve(blob ? new File([blob], (file.name || 'photo').replace(/\.\w+$/, '') + '.jpg', { type: 'image/jpeg' }) : file);
+        }, 'image/jpeg', 0.88);
+      }).catch(function () { resolve(file); });
+    });
+  }
+
+  // ---------- message counter ----------
+  $('message').addEventListener('input', function () {
+    $('count').textContent = this.value.length + ' / 600';
+  });
+
+  // ---------- link name ----------
+  var slugTouched = false;
+  var slugOk = false;
+  var slugTimer = null;
+  function slugify(s) {
+    return (s || '').toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '')
+      .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30).replace(/-+$/, '');
+  }
+  function checkSlug() {
+    var slug = $('slug').value.trim().toLowerCase();
+    var note = $('slugNote');
+    slugOk = false;
+    if (!slug) { note.textContent = ''; note.className = 'slug-note'; return; }
+    note.textContent = 'Menyemak…';
+    note.className = 'slug-note';
+    fetch('/api/v1/wishes/check-slug?slug=' + encodeURIComponent(slug))
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        if ($('slug').value.trim().toLowerCase() !== slug) return;
+        slugOk = !!res.available;
+        note.textContent = res.available ? slug + '.' + cfg.domain + ' boleh digunakan' : res.problem;
+        note.className = 'slug-note ' + (res.available ? 'ok' : 'bad');
+      })
+      .catch(function () { note.textContent = ''; });
+  }
+  function queueSlugCheck() { clearTimeout(slugTimer); slugTimer = setTimeout(checkSlug, 450); }
+  $('recipient').addEventListener('input', function () {
+    if (slugTouched) return;
+    $('slug').value = slugify(this.value);
+    queueSlugCheck();
+  });
+  $('slug').addEventListener('input', function () {
+    slugTouched = true;
+    var clean = this.value.toLowerCase().replace(/[^a-z0-9-]/g, '');
+    if (clean !== this.value) this.value = clean;
+    queueSlugCheck();
+  });
+
+  // ---------- submit ----------
+  function fail(msg, focusId) {
+    var box = $('formError');
+    box.textContent = msg;
+    box.classList.add('shown');
+    if (focusId && $(focusId)) $(focusId).focus();
+    box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  function checked(name) {
+    var el = document.querySelector('input[name="' + name + '"]:checked');
+    return el ? el.value : '';
+  }
+
+  $('form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    $('formError').classList.remove('shown');
+    if (!files.length) return fail('Tambah sekurang-kurangnya satu gambar.', 'photoInput');
+    if (!$('recipient').value.trim()) return fail('Isi nama penerima.', 'recipient');
+    if (!$('sender').value.trim()) return fail('Isi nama anda.', 'sender');
+    if ($('message').value.trim().length < 5) return fail('Tulis ucapan anda.', 'message');
+    if (!$('slug').value.trim()) return fail('Isi nama pautan.', 'slug');
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test($('email').value.trim())) return fail('Isi emel yang sah untuk resit.', 'email');
+    if ($('phone').value.replace(/\D/g, '').length < 9) return fail('Isi nombor telefon yang sah.', 'phone');
+    if (!$('consent').checked) return fail('Tandakan kotak kebenaran gambar.', 'consent');
+
+    var btn = $('pay');
+    btn.disabled = true;
+    btn.textContent = 'Memuat naik gambar…';
+
+    Promise.all(files.map(function (f) { return shrink(f.file); })).then(function (blobs) {
+      var fd = new FormData();
+      blobs.forEach(function (b, i) { fd.append('photos', b, b.name || ('gambar-' + (i + 1) + '.jpg')); });
+      fd.append('slug', $('slug').value.trim().toLowerCase());
+      fd.append('occasion', checked('occasion'));
+      fd.append('music_style', checked('music'));
+      fd.append('recipient_name', $('recipient').value.trim());
+      fd.append('sender_name', $('sender').value.trim());
+      fd.append('message', $('message').value.trim());
+      fd.append('payer_email', $('email').value.trim());
+      fd.append('payer_phone', $('phone').value.trim());
+      fd.append('consent', 'true');
+      return fetch('/api/v1/wishes', { method: 'POST', body: fd });
+    }).then(function (r) {
+      return r.json().then(function (body) { return { ok: r.ok, body: body }; });
+    }).then(function (res) {
+      if (!res.ok) throw new Error(res.body && res.body.detail ? res.body.detail : 'Ada masalah. Sila cuba lagi.');
+      btn.textContent = res.body.payment_url ? 'Membuka pembayaran…' : 'Menyiapkan kejutan…';
+      window.location.href = res.body.payment_url || res.body.status_url;
+    }).catch(function (err) {
+      btn.disabled = false;
+      btn.textContent = 'Bayar & buat kejutan';
+      fail(err && err.message ? err.message : 'Ada masalah. Sila cuba lagi.');
+    });
+  });
+})();
+</script>
+</body>
+</html>

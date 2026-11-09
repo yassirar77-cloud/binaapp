@@ -24,7 +24,7 @@ import {
   LoadingSpinner,
   Modal,
 } from '@/components/ui'
-import { SITE_DOMAINS, hostOf, resolveSiteDomain, siteHost, siteUrl } from '@/lib/siteDomains'
+import { SITE_DOMAINS, HAS_DOMAIN_CHOICE, hostOf, resolveSiteDomain, siteHost, siteUrl } from '@/lib/siteDomains'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://binaapp-backend.onrender.com'
 
@@ -33,7 +33,7 @@ interface Website {
   business_name: string
   subdomain: string | null
   full_url: string | null
-  /** binaapp.my or mysyg.com (migration 061). */
+  /** One of SITE_DOMAINS (migration 061). */
   site_domain?: string | null
   status: string
   created_at: string
@@ -485,7 +485,7 @@ function ProjectCard({
   const liveUrl = website.full_url || (website.subdomain ? siteUrl(website.subdomain, website.site_domain) : null)
   const [switchingDomain, setSwitchingDomain] = useState(false)
 
-  // Move a live site between binaapp.my and mysyg.com. Same subdomain; the
+  // Move a live site between SITE_DOMAINS entries. Same subdomain; the
   // old address keeps working and redirects to the new one.
   const changeDomain = async (domain: string) => {
     if (domain === resolveSiteDomain(website.site_domain)) return
@@ -545,7 +545,7 @@ function ProjectCard({
         ) : (
           <p className="mt-1 text-xs text-ink-400">Belum diterbitkan</p>
         )}
-        {isLive && website.subdomain && (
+        {isLive && website.subdomain && HAS_DOMAIN_CHOICE && (
           <label className="mt-2 flex items-center gap-2 text-xs text-ink-500">
             Domain
             <select
