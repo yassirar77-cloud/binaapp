@@ -26,6 +26,7 @@ from app.services.ai_service import ai_service
 from app.services.storage_service import storage_service
 from app.services.templates import TemplateService
 from app.core.config import settings
+from app.services.site_domains import resolve_site_domain, site_url
 from app.middleware.subscription_guard import SubscriptionGuard
 from app.services.subscription_service import subscription_service, WEBSITE_QUOTA_STATUS_FILTER
 from app.utils.html_inject import insert_before_body
@@ -652,6 +653,8 @@ MAX_LISTED_DRAFTS = 5
 #: The list needs no page HTML: selecting it shipped every site's full page
 #: (agp's account: ~240 rows) and took 3-6 s on mobile.
 LIST_COLUMNS = "id, user_id, business_name, name, subdomain, status, created_at, updated_at, published_at"
+# Migration 061. Asked for separately so a schema without it still lists.
+LIST_COLUMNS_WITH_DOMAIN = LIST_COLUMNS + ", site_domain"
 
 
 def order_for_list(rows: List[Dict[str, Any]], replaceable_ids: Set[str]) -> List[Dict[str, Any]]:
@@ -672,7 +675,9 @@ async def list_websites(current_user: dict = Depends(get_current_user)):
     """
     try:
         user_id = current_user.get("sub")
-        websites = await supabase_service.get_user_websites(user_id, columns=LIST_COLUMNS)
+        websites = await supabase_service.get_user_websites(user_id, columns=LIST_COLUMNS_WITH_DOMAIN)
+        if websites is None:
+            websites = await supabase_service.get_user_websites(user_id, columns=LIST_COLUMNS)
 
         if not websites:
             return []
@@ -717,7 +722,8 @@ async def list_websites(current_user: dict = Depends(get_current_user)):
                     business_name=w.get("business_name") or w.get("name") or w.get("subdomain") or "Untitled",
                     # A draft's placeholder "draft-<id>" is not a real address.
                     subdomain=None if replaceable else w.get("subdomain"),
-                    full_url=f"https://{w['subdomain']}{settings.SUBDOMAIN_SUFFIX}" if (w.get("subdomain") and not replaceable) else None,
+                    full_url=site_url(w["subdomain"], w.get("site_domain")) if (w.get("subdomain") and not replaceable) else None,
+                    site_domain=resolve_site_domain(w.get("site_domain")),
                     status=website_status,
                     created_at=datetime.fromisoformat(w["created_at"]) if w.get("created_at") else datetime.utcnow(),
                     published_at=datetime.fromisoformat(w["published_at"]) if w.get("published_at") else None,
@@ -768,9 +774,10 @@ async def get_website(
             website_status = "draft"
 
         subdomain = website.get("subdomain")
-        full_url = f"https://{subdomain}{settings.SUBDOMAIN_SUFFIX}" if subdomain else None
+        full_url = site_url(subdomain, website.get("site_domain")) if subdomain else None
 
         return WebsiteResponse(
+            site_domain=resolve_site_domain(website.get("site_domain")),
             id=website["id"],
             user_id=website["user_id"],
             business_name=website.get("business_name"),
@@ -1001,7 +1008,7 @@ async def regenerate_website(
     )
 
     subdomain = website.get("subdomain")
-    full_url = f"https://{subdomain}{settings.SUBDOMAIN_SUFFIX}" if subdomain else None
+    full_url = site_url(subdomain, website.get("site_domain")) if subdomain else None
     return WebsiteResponse(
         id=website_id,
         user_id=user_id,
@@ -1152,7 +1159,7 @@ async def publish_website(
 
         logger.info(f"Website published: {website_id} -> {public_url}")
 
-        full_url = f"https://{website['subdomain']}{settings.SUBDOMAIN_SUFFIX}"
+        full_url = site_url(website["subdomain"], website.get("site_domain"))
 
         return PublishResponse(
             success=True,
@@ -1290,7 +1297,7 @@ async def fix_website_widget(
             "website_id": website_id,
             "subdomain": website.get('subdomain'),
             "changed": True,
-            "url": f"https://{website.get('subdomain')}.binaapp.my"
+            "url": site_url(website.get("subdomain"), website.get("site_domain"))
         }
 
     except HTTPException:
@@ -2532,3 +2539,89 @@ async def delete_website(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete website: {str(e)}"
         )
+
+
+@router.patch("/{website_id}/domain")
+async def update_website_domain(
+    website_id: str,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    """Move a site between its allowed domains (binaapp.my <-> mysyg.com).
+
+    Body: ``{"site_domain": "mysyg.com"}``. The subdomain is unchanged and
+    stays unique across every domain, so this is never a conflict: it writes
+    ``websites.site_domain`` (migration 061), rewrites the site's own absolute
+    URLs (canonical, og:url, JSON-LD) in the stored HTML and republishes it.
+    The old address keeps working — the subdomain middleware 302s it to the
+    new one. Credit-free; touches no billing/plan logic.
+    """
+    from app.services.site_domains import normalize_site_domain, site_domains
+
+    body = await request.json()
+    new_domain = normalize_site_domain(body.get("site_domain"))
+    if not new_domain:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"site_domain must be one of: {', '.join(site_domains())}",
+        )
+
+    website = await supabase_service.get_website(website_id)
+    if not website:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Website not found")
+    user_id = current_user.get("sub")
+    if website.get("user_id") != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to update this website",
+        )
+
+    subdomain = website.get("subdomain")
+    if not subdomain or "site_domain" not in website:
+        # No column yet means migration 061 is not applied: say so plainly
+        # instead of pretending the switch happened.
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE if subdomain else status.HTTP_400_BAD_REQUEST,
+            detail="Domain switching is not available yet" if subdomain else "Website has no subdomain",
+        )
+
+    old_domain = resolve_site_domain(website.get("site_domain"))
+    new_url = site_url(subdomain, new_domain)
+    if old_domain == new_domain:
+        return {"success": True, "changed": False, "site_domain": new_domain, "url": new_url}
+
+    update_data: Dict[str, Any] = {
+        "site_domain": new_domain,
+        "public_url": new_url,
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+    html = website.get("html_content") or ""
+    rewritten = html.replace(f"//{subdomain}.{old_domain}", f"//{subdomain}.{new_domain}") if html else html
+    if rewritten != html:
+        update_data["html_content"] = rewritten
+
+    updated = await supabase_service.update_website(website_id, update_data)
+    if not updated:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update domain",
+        )
+
+    if rewritten and website.get("status") == "published":
+        try:
+            await storage_service.publish_website(
+                subdomain=subdomain,
+                html_content=rewritten,
+                website_id=website_id,
+                user_id=user_id,
+            )
+        except Exception as e:
+            # The DB row (and so the redirect) already points at the new
+            # domain; the page's canonical tags catch up on the next publish.
+            logger.warning(f"[DOMAIN] republish after switch failed for {subdomain}: {e}")
+    else:
+        from app.middleware.subdomain import invalidate_site_cache
+        invalidate_site_cache(subdomain)
+
+    logger.info(f"[DOMAIN] {subdomain}: {old_domain} -> {new_domain}")
+    return {"success": True, "changed": True, "site_domain": new_domain, "url": new_url}

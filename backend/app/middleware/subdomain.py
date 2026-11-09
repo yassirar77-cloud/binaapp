@@ -13,6 +13,7 @@ from fastapi import Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 import asyncio
+import contextvars
 import hashlib
 import httpx
 from loguru import logger
@@ -23,6 +24,20 @@ from typing import Any, Dict, Optional, Tuple
 
 from app.core.config import settings
 from app.services.plan_features import can_publish_subdomain
+from app.services.site_domains import (
+    default_site_domain,
+    resolve_site_domain,
+    site_url,
+    split_host,
+)
+
+# The apex domain the site being served lives on (binaapp.my or mysyg.com),
+# set once per request after the website lookup. Every URL this module builds
+# for the page (QR, og:image, sitemap, canonical) reads it through
+# _build_published_url, so none of them need the domain threaded through.
+_current_site_domain: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "binaapp_site_domain", default=None
+)
 from app.utils.html_inject import insert_before_body
 
 
@@ -219,7 +234,7 @@ def _get_upgrade_required_html() -> str:
     return _UPGRADE_PAGE_TEMPLATE
 
 
-def _get_not_found_html(subdomain: str) -> str:
+def _get_not_found_html(subdomain: str, domain: Optional[str] = None) -> str:
     """Return a friendly 404 page for missing websites"""
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -245,7 +260,7 @@ def _get_not_found_html(subdomain: str) -> str:
 <body>
     <div class="container">
         <h1>Website Not Found</h1>
-        <p>The website <span class="subdomain">{subdomain}.binaapp.my</span> doesn't exist yet.</p>
+        <p>The website <span class="subdomain">{subdomain}.{domain or default_site_domain()}</span> doesn't exist yet.</p>
         <p>It may have been removed or the URL is incorrect.</p>
         <a href="https://binaapp.my">Create Your Own Website</a>
     </div>
@@ -279,29 +294,48 @@ RESERVED_SUBDOMAINS = frozenset([
 ])
 
 
-async def get_subdomain(request: Request) -> Optional[str]:
-    """Extract subdomain from request host, or None if not a subdomain request."""
+def get_subdomain_and_domain(request: Request) -> Optional[Tuple[str, str]]:
+    """``(subdomain, domain)`` for a request on any site domain
+    (binaapp.my, mysyg.com, ...), or None if not a site request."""
     try:
-        host = request.headers.get("host", "")
-
-        # Get the main domain from settings
-        main_domain = settings.MAIN_DOMAIN  # e.g., "binaapp.my"
-        suffix = f".{main_domain}"
-
-        # Check if it's a subdomain of our main domain
-        if suffix in host:
-            # Extract subdomain part
-            subdomain = host.split(suffix)[0]
-            # Remove port if present
-            subdomain = subdomain.replace(":443", "").replace(":80", "").strip().lower()
-
-            # Ignore reserved subdomains
-            if subdomain and subdomain not in RESERVED_SUBDOMAINS:
-                return subdomain
+        parts = split_host(request.headers.get("host", ""))
+        if parts and parts[0] not in RESERVED_SUBDOMAINS:
+            return parts
     except Exception as e:
         logger.error(f"Error extracting subdomain: {e}")
-
     return None
+
+
+async def get_subdomain(request: Request) -> Optional[str]:
+    """Extract subdomain from request host, or None if not a subdomain request."""
+    parts = get_subdomain_and_domain(request)
+    return parts[0] if parts else None
+
+
+async def _lookup_website_row(supabase, subdomain: str) -> list:
+    """websites row for ``subdomain`` incl. site_domain; retries without the
+    column when migration 061 has not been applied yet."""
+    try:
+        res = await run_in_threadpool(
+            supabase.table("websites")
+            .select("id, user_id, name, site_domain")
+            .eq("subdomain", subdomain)
+            .limit(1)
+            .execute
+        )
+        return res.data or []
+    except Exception as e:
+        if "site_domain" not in str(e):
+            raise
+        logger.warning(f"[Subdomain] site_domain column missing (apply migration 061): {e}")
+        res = await run_in_threadpool(
+            supabase.table("websites")
+            .select("id, user_id, name")
+            .eq("subdomain", subdomain)
+            .limit(1)
+            .execute
+        )
+        return res.data or []
 
 
 def _get_supabase_client():
@@ -378,10 +412,11 @@ async def _fetch_html_from_storage(subdomain: str) -> Optional[str]:
 def _build_published_url(subdomain: str) -> str:
     """The site's real published URL — what the QR code must encode.
 
-    Uses the subdomain host on the main domain. Never the generation-time
+    Uses the subdomain host on the site's chosen domain (binaapp.my or
+    mysyg.com — see _current_site_domain). Never the generation-time
     preview URL (preview.binaapp.my) that gets baked into stored HTML.
     """
-    return f"https://{subdomain}.{settings.MAIN_DOMAIN}"
+    return site_url(subdomain, _current_site_domain.get())
 
 
 # Paths a crawler asks for before it asks for anything else. Served from the
@@ -972,11 +1007,15 @@ async def subdomain_middleware(request: Request, call_next):
     """
 
     try:
-        subdomain = await get_subdomain(request)
+        host_parts = get_subdomain_and_domain(request)
 
-        if not subdomain:
+        if not host_parts:
             # Not a subdomain request, continue to normal API routing
             return await call_next(request)
+
+        subdomain, request_domain = host_parts
+        # Until the row says otherwise, the site lives where it was asked for.
+        _current_site_domain.set(request_domain)
 
         # /order/* on a subdomain must hop to the Next.js app on www. The order
         # flow is hosted on Vercel under www.{MAIN_DOMAIN}; this middleware only
@@ -1005,7 +1044,7 @@ async def subdomain_middleware(request: Request, call_next):
         # 404 it (below) so a suspended page never unfurls a branded preview.
         is_share_card = path == SHARE_CARD_PATH
 
-        logger.info(f"[Subdomain] Serving: {subdomain}.binaapp.my")
+        logger.info(f"[Subdomain] Serving: {subdomain}.{request_domain}")
 
         # STEP 1: Look up website (60s in-process cache; the lookup result is
         # cheap to cache because the id/owner mapping of a subdomain almost
@@ -1014,6 +1053,7 @@ async def subdomain_middleware(request: Request, call_next):
         website_id = None
         owner_id = None
         website_name = None
+        site_domain = None
         business_type = "food"
         language = "ms"
         should_try_recovery = False
@@ -1024,6 +1064,7 @@ async def subdomain_middleware(request: Request, call_next):
             website_id = cached_site["id"]
             owner_id = cached_site.get("user_id")
             website_name = cached_site.get("name")
+            site_domain = cached_site.get("site_domain")
         else:
             supabase = _get_supabase_client()
 
@@ -1034,26 +1075,26 @@ async def subdomain_middleware(request: Request, call_next):
                     # The Supabase client is sync — run it in the threadpool so
                     # the DB round trip doesn't block the event loop (this
                     # middleware runs on every public pageview).
-                    website_result = await run_in_threadpool(
-                        supabase.table("websites")
-                        .select("id, user_id, name")
-                        .eq("subdomain", subdomain)
-                        .limit(1)
-                        .execute
-                    )
+                    website_rows = await _lookup_website_row(supabase, subdomain)
 
-                    if website_result.data and len(website_result.data) > 0:
-                        website_data = website_result.data[0]
+                    if website_rows:
+                        website_data = website_rows[0]
                         website_id = str(website_data["id"])
                         owner_id = website_data.get("user_id")
                         website_name = website_data.get("name")
+                        site_domain = website_data.get("site_domain")
                         logger.info(f"[Subdomain] Found website_id {website_id} for {subdomain}")
                         # Positive results only — a missing site must stay
                         # uncached so a fresh publish is visible immediately.
                         _cache_set(
                             _website_lookup_cache,
                             subdomain,
-                            {"id": website_id, "user_id": owner_id, "name": website_name},
+                            {
+                                "id": website_id,
+                                "user_id": owner_id,
+                                "name": website_name,
+                                "site_domain": site_domain,
+                            },
                         )
                     else:
                         logger.warning(f"[Subdomain] Website '{subdomain}' NOT in database")
@@ -1066,6 +1107,21 @@ async def subdomain_middleware(request: Request, call_next):
                 logger.warning("[Subdomain] No Supabase client available, skipping DB lookup")
 
         if website_id:
+            # ONE HOME PER SITE: a site answers on every site domain (the
+            # subdomain is unique across all of them) but lives on the one
+            # its owner picked. kedai.binaapp.my -> kedai.mysyg.com when the
+            # merchant chose mysyg.com, and back again if they switch. 302,
+            # not 301: a cached permanent redirect would loop the day the
+            # merchant switches domains back.
+            chosen_domain = resolve_site_domain(site_domain)
+            if chosen_domain != request_domain:
+                target = f"https://{subdomain}.{chosen_domain}{path}"
+                if request.url.query:
+                    target = f"{target}?{request.url.query}"
+                logger.info(f"[Subdomain] {subdomain}.{request_domain} -> {target}")
+                return RedirectResponse(url=target, status_code=302)
+            _current_site_domain.set(chosen_domain)
+
             # SUBSCRIPTION LOCK CHECK — REAL-TIME on every request, never
             # cached. Lock state is a billing-integrity feature: a locked or
             # expired site must never stay visible because of a cache.
@@ -1122,7 +1178,7 @@ async def subdomain_middleware(request: Request, call_next):
         if not html_content:
             logger.warning(f"[Subdomain] Website not found in storage: {subdomain}")
             return HTMLResponse(
-                content=_get_not_found_html(subdomain),
+                content=_get_not_found_html(subdomain, request_domain),
                 status_code=404,
                 headers={"Content-Type": "text/html; charset=utf-8"}
             )
@@ -1138,7 +1194,7 @@ async def subdomain_middleware(request: Request, call_next):
                 if await storage_service.tombstone_exists(subdomain):
                     logger.info(f"[Subdomain] '{subdomain}' is tombstoned (deleted) — not auto-recovering")
                     return HTMLResponse(
-                        content=_get_not_found_html(subdomain),
+                        content=_get_not_found_html(subdomain, request_domain),
                         status_code=404,
                         headers={"Content-Type": "text/html; charset=utf-8"},
                     )
@@ -1208,8 +1264,7 @@ async def subdomain_middleware(request: Request, call_next):
 
         # Try to return an error page if this was a subdomain request
         try:
-            host = request.headers.get("host", "")
-            if f".{settings.MAIN_DOMAIN}" in host:
+            if get_subdomain_and_domain(request):
                 return HTMLResponse(
                     content=_get_error_html(),
                     status_code=500,

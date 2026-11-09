@@ -871,11 +871,20 @@ async def _promote_pending_draft_for_user(user_id: str, bill_code: Optional[str]
         # Only consider drafts not already claimed by another bill.
         base_params["promoted_bill_code"] = "is.null"
     async with httpx.AsyncClient() as client:
+        # site_domain (migration 061): binaapp.my or mysyg.com, chosen in the
+        # publish modal and saved on the draft by /api/draft/publish-intent.
         resp = await client.get(
             websites_url,
             headers=headers,
-            params={**base_params, "select": f"{_base_select},requested_subdomain"},
+            params={**base_params, "select": f"{_base_select},requested_subdomain,site_domain"},
         )
+        if resp.status_code == 400 and "site_domain" in resp.text:
+            logger.warning("⚠️ Promotion: site_domain column missing (migration 061) — default domain.")
+            resp = await client.get(
+                websites_url,
+                headers=headers,
+                params={**base_params, "select": f"{_base_select},requested_subdomain"},
+            )
         if resp.status_code == 400 and "requested_subdomain" in resp.text:
             logger.warning(
                 "⚠️ Promotion: requested_subdomain column missing (migration 044 "
@@ -1012,7 +1021,8 @@ async def _promote_pending_draft_for_user(user_id: str, bill_code: Optional[str]
     logger.info(f"✅ Promotion: uploaded {subdomain}/index.html to storage")
 
     # 5. Flip the draft row to published with the real subdomain + url.
-    published_url = f"https://{subdomain}.binaapp.my"
+    from app.services.site_domains import site_url
+    published_url = site_url(subdomain, draft.get("site_domain"))
     async with httpx.AsyncClient() as client:
         patch_resp = await client.patch(
             websites_url,

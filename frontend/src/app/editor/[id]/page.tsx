@@ -1,5 +1,6 @@
 'use client';
 
+import { siteHost } from '@/lib/siteDomains'
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import toast from 'react-hot-toast';
@@ -651,7 +652,7 @@ export default function EditorPage() {
             </h1>
             {website?.subdomain && (
               <p className="text-xs text-gray-500 truncate">
-                {website.subdomain}.binaapp.my
+                {siteHost(website.subdomain, (website as { site_domain?: string | null }).site_domain)}
               </p>
             )}
           </div>
