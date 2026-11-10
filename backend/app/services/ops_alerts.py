@@ -50,6 +50,7 @@ _recent: Dict[Tuple[str, str, str], float] = {}
 KIND_TITLES = {
     "gate_failed": "🚨 Build blocked by the visual gate",
     "location_conflict": "⚠️ Build refused before starting: location question",
+    "gate_warning": "⚠️ Rebuilt page shipped with design problems the gate could not fix",
 }
 
 
@@ -178,7 +179,8 @@ def summarize(jobs: Iterable[Dict[str, Any]], events: Iterable[Dict[str, Any]], 
     (ignored accounts already filtered out by the caller)."""
     s = {"builds": 0, "completed": 0, "failed": 0, "processing": 0, "gate_passed": 0, "gate_failed": 0,
          "gate_not_run": 0, "auto_fixed": 0, "photos_dropped": 0, "photo_free_hero": 0, "regenerated": 0,
-         "location_refusals": 0, "gate_alerts": 0, "since": since, "until": until}
+         "location_refusals": 0, "gate_alerts": 0, "gate_warnings": 0, "design_scores": [],
+         "since": since, "until": until}
     for job in jobs:
         s["builds"] += 1
         status = str(job.get("status") or "")
@@ -196,6 +198,9 @@ def summarize(jobs: Iterable[Dict[str, Any]], events: Iterable[Dict[str, Any]], 
             s["gate_passed"] += 1
         else:
             s["gate_failed"] += 1
+        score = ((gate.get("vision") or {}).get("design") or {}).get("score") if isinstance(gate.get("vision"), dict) else None
+        if isinstance(score, (int, float)):
+            s["design_scores"].append(float(score))
         fixes = [str(f) for f in (gate.get("fixes") or [])]
         if fixes:
             s["auto_fixed"] += 1
@@ -212,6 +217,8 @@ def summarize(jobs: Iterable[Dict[str, Any]], events: Iterable[Dict[str, Any]], 
             s["location_refusals"] += 1
         elif ev.get("kind") == "gate_failed":
             s["gate_alerts"] += 1
+        elif ev.get("kind") == "gate_warning":
+            s["gate_warnings"] += 1
     return s
 
 
@@ -227,7 +234,11 @@ def format_summary(s: Dict[str, Any]) -> str:
         f"Auto-fixed pages: {s['auto_fixed']} — photos dropped {s['photos_dropped']}, photo-free hero "
         f"{s['photo_free_hero']}, regenerated {s['regenerated']}",
         f"Refused before starting (location question): {s['location_refusals']}",
-        f"Gate-failure alerts sent: {s['gate_alerts']}",
+        f"Gate-failure alerts sent: {s['gate_alerts']}"
+        + (f"; rebuilt pages shipped with problems: {s['gate_warnings']}" if s.get("gate_warnings") else ""),
+        (f"Design score (reviewer, 1-10): average {sum(s['design_scores']) / len(s['design_scores']):.1f} over "
+         f"{len(s['design_scores'])} pages, lowest {min(s['design_scores']):.0f}") if s.get("design_scores")
+        else "Design score: no scored pages this week",
     ])
 
 

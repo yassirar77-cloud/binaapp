@@ -107,6 +107,57 @@ sandboxes with no network). Never ship a page that fails the gate.
 mobile screenshot uploaded (Cloudinary) and its URL on the job row, for
 the create page's preview step (stage 4) and the golden suite (stage 3).
 
+### Gate audit: what the gate did not measure (2026-11-10)
+
+`scripts/gate_calibration.py` plants **22 known design defects**, one at a
+time, on a good page (composed agp with a hero photo, card photos and the
+widgets) and runs the gate on each. Before the audit the gate caught **7 of
+22**. It now catches 22 of 22, repairs the 13 it has a fix for, and raises
+nothing on the clean page. The script runs in the golden CI workflow and in
+`tests/test_gate_calibration.py`: a check that stops firing fails the job,
+and `test_every_check_has_a_planted_defect` fails when a check is added
+without a planted defect.
+
+| check | tier | planted defect | fix |
+|---|---|---|---|
+| `hero_text_legible` | hard | white hero text on a pale photo, no scrim | darker scrim (composed) or a backing on the text |
+| `text_readable_size` | hard | a paragraph at 9px | 12.5px on that element |
+| `tap_targets` | hard | order buttons 13px tall (phone) | 40px minimum on that element |
+| `no_overlapping_text` | hard | two lines printed on each other | the later one back in flow |
+| `images_not_distorted` | hard | card photos squashed, not cropped | `object-fit:cover` |
+| `no_empty_sections` | hard | a heading with nothing under it | the section is hidden |
+| `no_junk_text` | hard | `RMundefined`, `{{placeholder}}` | none (regenerate) |
+| `hero_cta_unobstructed`, `contrast_aa` | hard | covered / faint on **desktop only** | as on the phone |
+| `no_duplicate_photos` | soft | one photo on three dishes | first card keeps it |
+| `links_work` | soft | "Lihat menu" → a section that is not there | reported |
+| `no_blank_bands` | soft | 1100px of nothing mid-page | reported |
+| `images_sharp` | soft | a 48px image across a card | reported |
+| `heading_structure` | soft | a second H1 | reported |
+| `primary_action_above_fold` | soft | headline and buttons below the first screen | reported |
+
+Hard = broken, and the gate can fix it (or nobody should ever see it).
+Soft = reported and fixed where possible, never a reason to fail a build.
+`VISUAL_GATE_SOFT_CHECKS=name,name` demotes any check to soft without a
+deploy: the valve for a check that starts failing good pages.
+
+**One reviewer opinion never fails a build.** Each high-severity issue from
+the page review gets a second look at its own slice
+(`CONFIRM_RUBRIC`) and counts only when that look confirms it; an issue
+with no slice named, or no second answer, is not confirmed. Measured checks
+are unaffected.
+
+**Design score.** The page review also returns `design.score` (1–10: visual
+hierarchy, spacing, consistency, completeness) and the weakest point. It is
+stored on the job, logged, averaged in the weekly summary, and never gates.
+
+**Pages rebuilt outside the create flow.** `/api/v1/websites/generate` and
+`/{id}/regenerate` (the make-good rebuild) shipped pages the gate never
+saw. They now run `gate_and_repair`: gate → auto-fix → re-gate, the better
+page is saved, and nothing is blocked (the merchant already has a page). A
+page that still fails is logged (`VISUAL_GATE_FAIL path=… shipped=yes`) and
+alerts the operator (`gate_warning`). Not yet covered: design-studio
+restyles, hero-video patches and editor saves.
+
 ## Stage 3 — Golden suite (`backend/tests/golden/`, `scripts/golden_run.py`)
 
 Five fixture merchants: ayam gepuk (agp), mamak, kek, salon, kedai
@@ -206,6 +257,10 @@ no restart, memory flat at 185–231 MB of 2 GB.
 | `VISUAL_GATE_VISION_TILES` | `10` | how many slices of the mobile screenshot the reviewer sees |
 | `VISUAL_GATE_TILE_HEIGHT` / `VISUAL_GATE_TILE_OVERLAP` | `1400` / `250` | slice height and the part each slice shares with the next |
 | `VISUAL_GATE_CARD_PHOTOS` | `16` | menu cards whose photo is judged on its own |
+| `VISUAL_GATE_SOFT_CHECKS` | unset | comma-separated check names demoted to soft (reported, never failing a build) |
+| `VISUAL_GATE_HERO_TEXT_RATIO` | `3.0` | minimum contrast of hero text against the photo behind it (25th percentile of the pixels) |
+| `VISUAL_GATE_VISION_CONFIRM_LIMIT` | `3` | how many high-severity reviewer issues get a second look; the rest are not counted |
+| `VISUAL_GATE_NETWORK_IDLE_MS` | `6000` | wait for the network to go quiet before measuring |
 | `VISUAL_GATE_IMAGE_WAIT_MS` | `15000` | how long one image may take to arrive before the screenshot |
 | `IMAGE_PHASE_TARGET_SECONDS` | `100` | the image phase's target: an image whose turn in the one-at-a-time Z.ai queue would end later goes to Stability at once (parallel, ~5–10 s). `0` = every image waits for Z.ai (the old behaviour; agp's 8 images took 352 s) |
 | `ZAI_IMAGE_EXPECTED_SECONDS` | `40` | first guess at one Z.ai image; the build's own measured mean replaces it |

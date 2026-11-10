@@ -14,6 +14,8 @@ on:
       - "backend/app/services/**"
       - "backend/app/main.py"
       - "backend/scripts/golden_run.py"
+      - "backend/scripts/gate_calibration.py"
+      - "backend/scripts/gate_selftest.py"
       - "backend/scripts/verify_site_menu.py"
       - "backend/tests/golden/**"
       - "backend/requirements.txt"
@@ -62,6 +64,13 @@ jobs:
           if [ "${{ github.event_name }}" = "pull_request" ]; then echo "mode=offline" >> "$GITHUB_OUTPUT";
           elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then echo "mode=${{ github.event.inputs.mode }}" >> "$GITHUB_OUTPUT";
           else echo "mode=live" >> "$GITHUB_OUTPUT"; fi
+
+      # The gate's own test: one planted defect per check must be caught
+      # (and repaired where the gate has a fix), and the clean page must
+      # raise nothing. A check that stops firing fails the job.
+      - name: Calibrate the visual gate (22 planted defects)
+        working-directory: backend
+        run: python scripts/gate_calibration.py
 
       - name: Build the golden sites
         working-directory: backend
