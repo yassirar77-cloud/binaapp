@@ -51,6 +51,7 @@ KIND_TITLES = {
     "gate_failed": "🚨 Build blocked by the visual gate",
     "location_conflict": "⚠️ Build refused before starting: location question",
     "gate_warning": "⚠️ Rebuilt page shipped with design problems the gate could not fix",
+    "gate_watch": "⚠️ A merchant's own change left the page with design problems",
 }
 
 
@@ -217,7 +218,7 @@ def summarize(jobs: Iterable[Dict[str, Any]], events: Iterable[Dict[str, Any]], 
             s["location_refusals"] += 1
         elif ev.get("kind") == "gate_failed":
             s["gate_alerts"] += 1
-        elif ev.get("kind") == "gate_warning":
+        elif ev.get("kind") in ("gate_warning", "gate_watch"):
             s["gate_warnings"] += 1
     return s
 
@@ -235,7 +236,7 @@ def format_summary(s: Dict[str, Any]) -> str:
         f"{s['photo_free_hero']}, regenerated {s['regenerated']}",
         f"Refused before starting (location question): {s['location_refusals']}",
         f"Gate-failure alerts sent: {s['gate_alerts']}"
-        + (f"; rebuilt pages shipped with problems: {s['gate_warnings']}" if s.get("gate_warnings") else ""),
+        + (f"; rebuilt or merchant-edited pages with problems: {s['gate_warnings']}" if s.get("gate_warnings") else ""),
         (f"Design score (reviewer, 1-10): average {sum(s['design_scores']) / len(s['design_scores']):.1f} over "
          f"{len(s['design_scores'])} pages, lowest {min(s['design_scores']):.0f}") if s.get("design_scores")
         else "Design score: no scored pages this week",

@@ -162,8 +162,16 @@ stored on the job, logged, averaged in the weekly summary, and never gates.
 saw. They now run `gate_and_repair`: gate → auto-fix → re-gate, the better
 page is saved, and nothing is blocked (the merchant already has a page). A
 page that still fails is logged (`VISUAL_GATE_FAIL path=… shipped=yes`) and
-alerts the operator (`gate_warning`). Not yet covered: design-studio
-restyles, hero-video patches and editor saves.
+alerts the operator (`gate_warning`).
+
+**The merchant's own changes.** An editor save (`PUT /websites/{id}`) and a
+design-studio theme change publish straight to the live site. Both now
+start `watch_page` in the background: the measured checks only (no
+reviewer), one browser at a time, at most one run per site per minute
+(`VISUAL_GATE_WATCH_INTERVAL_SECONDS`). The page is never changed and the
+save never waits; a hard failure is logged (`VISUAL_GATE_WATCH`) and alerts
+the operator (`gate_watch`). Not covered: hero-video patches (a
+deterministic swap of the hero media).
 
 ## Stage 3 — Golden suite (`backend/tests/golden/`, `scripts/golden_run.py`)
 

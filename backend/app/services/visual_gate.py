@@ -1877,6 +1877,78 @@ async def gate_and_repair(
         return html, GateReport(mode=mode, error=str(err))
 
 
+# ---------------------------------------------------------------------------
+# Watch: pages the merchant changes themselves (theme, editor)
+# ---------------------------------------------------------------------------
+
+#: One watch at a time (each launches Chromium), and at most one per site
+#: every WATCH_MIN_INTERVAL_SECONDS: an editor that saves on every change
+#: must not queue a browser per keystroke.
+WATCH_MIN_INTERVAL_SECONDS = float(os.getenv("VISUAL_GATE_WATCH_INTERVAL_SECONDS", "60"))
+_watch_lock: Optional[asyncio.Lock] = None
+_watch_last: Dict[str, float] = {}
+_watch_tasks: set = set()
+
+
+async def watch_page(html: str, *, path: str, website_id: str, business_name: str = "", user_id: str = "",
+                     expect_map: bool = False, expect_whatsapp: bool = False) -> Optional[GateReport]:
+    """Measure a page the merchant just saved (a theme change, an editor
+    save) and tell the operator when it is broken. Measured checks only: no
+    reviewer call. The page is NEVER changed and the save never waits: the
+    merchant chose it, and a rewrite behind their back could overwrite a
+    newer save. Returns the report, or None when skipped."""
+    global _watch_lock
+    if gate_mode() == "off" or not html or not website_id:
+        return None
+    import time as _time
+    now = _time.monotonic()
+    if now - _watch_last.get(website_id, -1e9) < WATCH_MIN_INTERVAL_SECONDS:
+        return None
+    _watch_last[website_id] = now
+    if len(_watch_last) > 2000:
+        for key in sorted(_watch_last, key=_watch_last.get)[:1000]:
+            _watch_last.pop(key, None)
+    if _watch_lock is None:
+        _watch_lock = asyncio.Lock()
+    try:
+        async with _watch_lock:
+            report = await run_gate(html, expect_map=expect_map, expect_whatsapp=expect_whatsapp, call_vision=None)
+        if not report.rendered:
+            logger.info(f"👁️ VISUAL_GATE_WATCH path={path} site={website_id[:8]} skipped: {report.error}")
+            return report
+        soft = [c.name for c in report.checks if not c.ok and not c.hard]
+        if report.passed:
+            logger.info(f"👁️ VISUAL_GATE_WATCH path={path} site={website_id[:8]} pass" + (f" (soft: {', '.join(soft)})" if soft else ""))
+            return report
+        logger.error(f"🚨 VISUAL_GATE_WATCH path={path} site={website_id[:8]} {report.summary()}")
+        try:
+            from app.services.ops_alerts import alert as _ops_alert
+            _ops_alert(
+                "gate_watch", business_name=business_name, user_id=user_id, website_id=website_id,
+                reason=f"{report.summary()} — " + "; ".join(f"{c.name}: {c.detail}" for c in report.failed)[:600],
+                details={"Changed by": path},
+            )
+        except Exception as alert_err:
+            logger.warning(f"📣 watch alert skipped: {alert_err}")
+        return report
+    except Exception as err:
+        logger.warning(f"👁️ VISUAL_GATE_WATCH path={path} site={website_id[:8]} error: {err}")
+        return None
+
+
+def watch_in_background(html: str, **kw: Any) -> bool:
+    """Start ``watch_page`` without waiting for it. False outside an event
+    loop (nothing started)."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return False
+    task = loop.create_task(watch_page(html, **kw))
+    _watch_tasks.add(task)
+    task.add_done_callback(_watch_tasks.discard)
+    return True
+
+
 async def gate_with_recovery(
     html: str,
     *,

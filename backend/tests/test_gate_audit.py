@@ -283,7 +283,7 @@ def test_weekly_summary_reports_the_design_score():
     jobs = [{"status": "completed", "validation": {"visual_gate": {"rendered": True, "passed": True, "fixes": [], "vision": {"design": {"score": s}}}}} for s in (8, 6, 4)]
     summary = oa.summarize(jobs, [{"kind": "gate_warning"}], since=datetime(2026, 11, 2, tzinfo=timezone.utc), until=datetime(2026, 11, 9, tzinfo=timezone.utc))
     text = oa.format_summary(summary)
-    assert "average 6.0 over 3 pages, lowest 4" in text and "rebuilt pages shipped with problems: 1" in text
+    assert "average 6.0 over 3 pages, lowest 4" in text and "rebuilt or merchant-edited pages with problems: 1" in text
     assert "no scored pages" in oa.format_summary(oa.summarize([], [], since=summary["since"], until=summary["until"]))
 
 
@@ -300,3 +300,45 @@ def test_fixes_target_only_the_element_that_failed():
     assert "body>p:nth-of-type(2){color:" in css and "body>p:nth-of-type(5){max-width:100%" in css
     assert "#home>div:nth-of-type(2)>div:nth-of-type(1){position:static" in css
     assert "\np{" not in css and "\ndiv{" not in css
+
+
+# ---------------------------------------------------------------------------
+# Watch: the merchant's own changes (editor save, theme change)
+# ---------------------------------------------------------------------------
+
+def test_watch_alerts_on_a_broken_save_and_never_changes_the_page(monkeypatch, _no_ops_alert_delivery):
+    monkeypatch.setenv("VISUAL_GATE_MODE", "enforce")
+    monkeypatch.setattr(vg, "_watch_last", {})
+    monkeypatch.setattr(vg, "_watch_lock", None)
+    calls = []
+
+    async def _render(html, **kw):
+        calls.append(html)
+        d = _design(junk=[{"text": "RMundefined", "found": "undefined", "path": "p"}]) if "RMundefined" in html else _design()
+        return _measured(design=d), _measured(innerWidth=1280, scrollWidth=1280, design=_design()), b"png", b"png", None
+    monkeypatch.setattr(vg, "render", _render)
+
+    async def run():
+        bad = await vg.watch_page("<p>RMundefined</p>", path="editor_save", website_id="site-1", business_name="Kedai Ali", user_id="u1")
+        again = await vg.watch_page("<p>RMundefined</p>", path="editor_save", website_id="site-1")  # within the minute
+        good = await vg.watch_page("<p>ok</p>", path="theme_change", website_id="site-2")
+        await asyncio.sleep(0)
+        return bad, again, good
+    bad, again, good = asyncio.run(run())
+    assert not bad.passed and again is None and good.passed and len(calls) == 2
+    kinds = [(k, row["business_name"], row["website_id"]) for k, _, row in _no_ops_alert_delivery]
+    assert kinds == [("gate_watch", "Kedai Ali", None)]  # "site-1" is not a uuid: kept out of the uuid column
+    assert "Changed by: editor_save" in _no_ops_alert_delivery[0][1] and "no_junk_text" in _no_ops_alert_delivery[0][1]
+
+
+def test_watch_is_off_with_the_gate_and_survives_a_browser_crash(monkeypatch):
+    monkeypatch.setattr(vg, "_watch_last", {})
+    monkeypatch.setenv("VISUAL_GATE_MODE", "off")
+    assert asyncio.run(vg.watch_page("<p>x</p>", path="editor_save", website_id="s")) is None
+    monkeypatch.setenv("VISUAL_GATE_MODE", "enforce")
+
+    async def _boom(html, **kw):
+        raise RuntimeError("chromium fell over")
+    monkeypatch.setattr(vg, "render", _boom)
+    assert asyncio.run(vg.watch_page("<p>x</p>", path="editor_save", website_id="s2")) is None
+    assert vg.watch_in_background("<p>x</p>", path="editor_save", website_id="s3") is False  # no running loop

@@ -2235,6 +2235,17 @@ async def update_website(
 
         logger.info(f"✅ Website updated: {website_id}")
 
+        # The merchant's own edit: measured in the background, never
+        # changed, the operator told when it is broken.
+        try:
+            from app.services.visual_gate import watch_in_background
+            watch_in_background(
+                html_content, path="editor_save", website_id=str(website_id), user_id=str(user_id or ""),
+                business_name=str(website.get("business_name") or website.get("name") or ""),
+            )
+        except Exception as _watch_err:
+            logger.warning(f"👁️ gate watch not started: {_watch_err}")
+
         return {
             "success": True,
             "message": "Website updated successfully",
