@@ -198,6 +198,20 @@ _MEASURE_JS = r"""
     }
     return parts.join('>');
   };
+  // A selector that matches this element and no other: what a fix rule is
+  // written for. (`path` is the readable one for the report; a fix on
+  // `p` recoloured every paragraph on the page.)
+  const uniq = (el) => {
+    const parts = [];
+    for (let e = el; e && e.nodeType === 1 && e !== document.documentElement; e = e.parentElement) {
+      if (e === document.body) { parts.unshift('body'); break; }
+      if (e.id && document.querySelectorAll('#' + CSS.escape(e.id)).length === 1) { parts.unshift('#' + CSS.escape(e.id)); break; }
+      let i = 1;
+      for (let sib = e.previousElementSibling; sib; sib = sib.previousElementSibling) if (sib.tagName === e.tagName) i++;
+      parts.unshift(e.tagName.toLowerCase() + ':nth-of-type(' + i + ')');
+    }
+    return parts.join('>');
+  };
   const visible = (el) => {
     const cs = getComputedStyle(el);
     if (cs.display === 'none' || cs.visibility === 'hidden' || parseFloat(cs.opacity) === 0) return false;
@@ -221,7 +235,7 @@ _MEASURE_JS = r"""
     for (const [x, y] of pts) {
       if (y < 0 || y > H || x < 0 || x > W) continue;
       const t = topAt(x, y);
-      if (t && !contains(t, el)) return { by: path(t), at: [Math.round(x), Math.round(y)], fixed: isFixed(t) };
+      if (t && !contains(t, el)) return { by: path(t), bySel: uniq(t), at: [Math.round(x), Math.round(y)], fixed: isFixed(t) };
     }
     return null;
   };
@@ -302,7 +316,7 @@ _MEASURE_JS = r"""
     // clipped: content wider than its box and the box hides overflow, or the box runs off the viewport
     const hidesX = cs.overflowX === 'hidden' || cs.overflowX === 'clip' || cs.textOverflow === 'clip' && cs.whiteSpace === 'nowrap';
     if ((node.scrollWidth > node.clientWidth + 2 && hidesX && cs.textOverflow !== 'ellipsis') || r.right > W + 2 || r.left < -2) {
-      if (out.clipped.length < 20) out.clipped.push({ text: t.slice(0, 40), path: path(node), scrollWidth: node.scrollWidth, clientWidth: node.clientWidth, right: Math.round(r.right) });
+      if (out.clipped.length < 20) out.clipped.push({ text: t.slice(0, 40), path: path(node), sel: uniq(node), scrollWidth: node.scrollWidth, clientWidth: node.clientWidth, right: Math.round(r.right) });
     }
     // contrast
     const fg = parseRGBA(cs.color);
@@ -313,7 +327,7 @@ _MEASURE_JS = r"""
     const px = parseFloat(cs.fontSize) || 16, bold = parseInt(cs.fontWeight, 10) >= 700;
     const need = (px >= 24 || (px >= 18.66 && bold)) ? 3.0 : 4.5;
     const rr = ratio(fgc, bg);
-    if (rr < need && out.lowContrast.length < 20) out.lowContrast.push({ text: t.slice(0, 40), path: path(node), ratio: Math.round(rr * 100) / 100, need, fg: cs.color, bg: `rgb(${Math.round(bg.r)}, ${Math.round(bg.g)}, ${Math.round(bg.b)})` });
+    if (rr < need && out.lowContrast.length < 120) out.lowContrast.push({ text: t.slice(0, 40), path: path(node), sel: uniq(node), ratio: Math.round(rr * 100) / 100, need, fg: cs.color, bg: `rgb(${Math.round(bg.r)}, ${Math.round(bg.g)}, ${Math.round(bg.b)})` });
   }
 
   // --- images ---
@@ -417,7 +431,7 @@ _DESIGN_JS = r"""
   for (const t of texts) {
     if (t.el.closest('.bmf-ai-label, .bs-ai-label, sup, sub')) continue;  // the "Gambar hiasan" tag is small on purpose
     if ((t.size < 11.5 && t.text.length >= 25) || t.size < 9) {
-      if (out.tinyText.length < 20) out.tinyText.push({ text: t.text.slice(0, 40), path: uniq(t.el), size: Math.round(t.size * 10) / 10 });
+      if (out.tinyText.length < 120) out.tinyText.push({ text: t.text.slice(0, 40), path: uniq(t.el), size: Math.round(t.size * 10) / 10 });
     }
   }
 
@@ -461,7 +475,7 @@ _DESIGN_JS = r"""
     if (!shown(el) || !buttonLike(el)) continue;
     const r = el.getBoundingClientRect();
     if (r.right < 2 || r.left > W - 2) continue;
-    if (Math.min(r.width, r.height) < 24 && out.smallTargets.length < 20) {
+    if (Math.min(r.width, r.height) < 24 && out.smallTargets.length < 120) {
       out.smallTargets.push({ text: ((el.innerText || el.getAttribute('aria-label') || '').trim()).slice(0, 30), path: uniq(el), size: [Math.round(r.width), Math.round(r.height)] });
     }
   }
@@ -1614,7 +1628,7 @@ def targeted_fix_css(report: GateReport, skip: Sequence[str] = ()) -> str:
     rules: List[str] = []
     failed = {c.name: c for c in report.checks if not c.ok and c.name not in skip}
     for item in (failed.get("no_clipped_text").items if "no_clipped_text" in failed else []):
-        sel = item.get("path") if isinstance(item, dict) else None
+        sel = (item.get("sel") or item.get("path")) if isinstance(item, dict) else None
         if _safe_selector(sel):
             rules.append(f"{sel}{{max-width:100%!important;width:auto!important;min-width:0!important;white-space:normal!important;overflow-wrap:anywhere}}")
     if "contrast_aa" in failed:
@@ -1625,7 +1639,7 @@ def targeted_fix_css(report: GateReport, skip: Sequence[str] = ()) -> str:
         for item in failed["contrast_aa"].items:
             if not isinstance(item, dict):
                 continue
-            sel, fg, bg = item.get("path"), _hex_of(item.get("fg")), _hex_of(item.get("bg"))
+            sel, fg, bg = item.get("sel") or item.get("path"), _hex_of(item.get("fg")), _hex_of(item.get("bg"))
             if not (_safe_selector(sel) and fg and bg):
                 continue
             fixed = adjust_for_contrast(fg, [bg], float(item.get("need") or 4.5)) if adjust_for_contrast else None
@@ -1635,8 +1649,8 @@ def targeted_fix_css(report: GateReport, skip: Sequence[str] = ()) -> str:
             rules.append(f"{sel}{{color:{fixed}!important}}")
     for item in (failed.get("hero_cta_unobstructed").items if "hero_cta_unobstructed" in failed else []):
         ob = item.get("obstructedBy") if isinstance(item, dict) else None
-        if isinstance(ob, dict) and not ob.get("fixed") and _safe_selector(ob.get("by")):
-            rules.append(f"{ob['by']}{{position:static!important;transform:none!important}}")
+        if isinstance(ob, dict) and not ob.get("fixed") and _safe_selector(ob.get("bySel") or ob.get("by")):
+            rules.append(f"{ob.get('bySel') or ob['by']}{{position:static!important;transform:none!important}}")
     def _paths(name: str) -> List[Dict[str, Any]]:
         return [i for i in (failed[name].items if name in failed else []) if isinstance(i, dict) and _safe_selector(i.get("path"))]
 

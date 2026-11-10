@@ -220,7 +220,9 @@ async def calibrate() -> Dict:
             rep2 = await run_gate(fixed, **kw)
             row["fixes"] = fixes
             row["repaired"] = bool(fixes) and defect.check not in [c.name for c in rep2.checks if not c.ok]
-            row["broke"] = [c.name for c in rep2.checks if not c.ok and c.name not in failing and c.name not in clean_failing]
+            before = {c.name: c.count for c in rep.checks if not c.ok}
+            row["broke"] = [c.name for c in rep2.checks if not c.ok and c.name not in clean_failing
+                            and (c.name not in failing or c.count > before.get(c.name, 0))]
         rows.append(row)
     return {"rendered": True, "clean_failing": clean_failing, "rows": rows,
             "caught": sum(1 for r in rows if r["caught"]), "total": len(rows),

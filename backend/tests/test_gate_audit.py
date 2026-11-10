@@ -285,3 +285,18 @@ def test_weekly_summary_reports_the_design_score():
     text = oa.format_summary(summary)
     assert "average 6.0 over 3 pages, lowest 4" in text and "rebuilt pages shipped with problems: 1" in text
     assert "no scored pages" in oa.format_summary(oa.summarize([], [], since=summary["since"], until=summary["until"]))
+
+
+def test_fixes_target_only_the_element_that_failed():
+    """Calibration found the contrast fix writing ``p{color:#757575}``: one
+    faint line turned every paragraph grey, white hero text included."""
+    low = [{"text": "Buka setiap hari", "path": "p", "sel": "body>p:nth-of-type(2)", "ratio": 1.74, "need": 4.5,
+            "fg": "rgb(196, 196, 196)", "bg": "rgb(255, 255, 255)"}]
+    clipped = [{"text": "Sambal", "path": "p", "sel": "body>p:nth-of-type(5)", "scrollWidth": 300, "clientWidth": 120, "right": 300}]
+    covered = [{"text": "Pesan", "obstructedBy": {"by": "div", "bySel": "#home>div:nth-of-type(2)>div:nth-of-type(1)", "fixed": False}}]
+    rep = GateReport(rendered=True, checks=evaluate_checks(
+        _measured(lowContrast=low, clipped=clipped, heroCtas=covered), _measured(innerWidth=1280, scrollWidth=1280), expect_map=False, expect_whatsapp=True))
+    css = vg.targeted_fix_css(rep)
+    assert "body>p:nth-of-type(2){color:" in css and "body>p:nth-of-type(5){max-width:100%" in css
+    assert "#home>div:nth-of-type(2)>div:nth-of-type(1){position:static" in css
+    assert "\np{" not in css and "\ndiv{" not in css
