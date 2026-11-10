@@ -135,6 +135,13 @@ without a planted defect.
 | `heading_structure` | soft | a second H1 | reported |
 | `primary_action_above_fold` | soft | headline and buttons below the first screen | reported |
 
+The calibration also checks the **repairs**: after `auto_fix` the planted
+defect's check must pass and no other check may get worse. Its first run
+found the contrast fix writing `p{color:#757575}` (one faint line turned
+every paragraph grey, white hero text included) and the tap-target fix
+covering 20 of 32 buttons. Every targeted rule now uses a selector that
+matches only the element that failed.
+
 Hard = broken, and the gate can fix it (or nobody should ever see it).
 Soft = reported and fixed where possible, never a reason to fail a build.
 `VISUAL_GATE_SOFT_CHECKS=name,name` demotes any check to soft without a
