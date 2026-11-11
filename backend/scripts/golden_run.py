@@ -320,6 +320,24 @@ def summary_markdown(results: List[Dict[str, Any]]) -> str:
     return "\n".join(rows) + f"\n\n**{ok}/{len(results)} golden sites pass.**\n"
 
 
+def live_missing(service) -> List[str]:
+    """What a live run cannot do with the keys it was given. A live run
+    that quietly falls back to the library plan, the fallback copy and
+    stock photos proves nothing about the real models, so it must not
+    report success: every entry here stops the run before it starts."""
+    from app.services import ai_service as svc
+    missing = []
+    if not (getattr(service, "deepseek_api_key", "") or getattr(service, "qwen_api_key", "")):
+        missing.append("text models (DEEPSEEK_API_KEY or QWEN_API_KEY): the design plan and the copy would be the offline fallbacks")
+    if not (getattr(service, "qwen_api_key", "") or getattr(service, "zai_api_key", "")):
+        missing.append("the vision reviewer (QWEN_API_KEY or ZAI_API_KEY): photos and layout would go unreviewed")
+    provider = svc.image_provider()
+    image_key = getattr(service, "zai_api_key", "") if provider == "zai" else getattr(service, "stability_api_key", "")
+    if not image_key:
+        missing.append(f"AI images (IMAGE_PROVIDER={provider} needs {'ZAI_API_KEY' if provider == 'zai' else 'STABILITY_API_KEY'}): every photo would be a stock photo")
+    return missing
+
+
 async def main_async(args: argparse.Namespace) -> int:
     os.environ.setdefault("BINAAPP_PAGE_MODE", "deterministic")
     os.environ.setdefault("IMAGE_CHECK_ENABLED", "false" if args.mode == "offline" else "true")
@@ -328,6 +346,17 @@ async def main_async(args: argparse.Namespace) -> int:
     os.environ.setdefault("VISUAL_GATE_MODE", "enforce")
     from app.services import ai_service as svc
     service = svc.AIService()
+    if args.mode == "live":
+        missing = live_missing(service)
+        if missing:
+            text = "Live golden run not started: it has no keys for " + "; ".join(missing) + "."
+            print(f"::error::{text}" if os.getenv("GITHUB_ACTIONS") else text, file=sys.stderr, flush=True)
+            step_summary = os.getenv("GITHUB_STEP_SUMMARY")
+            if step_summary:
+                with open(step_summary, "a", encoding="utf-8") as fh:
+                    fh.write("## Golden suite (live): NOT RUN\n\n" + "\n".join(f"- missing {m}" for m in missing)
+                             + "\n\nAdd the keys under Settings → Secrets and variables → Actions, or run with `mode=offline`.\n")
+            return 3
     fixtures = list_fixtures(Path(args.fixtures), args.only)
     if not fixtures:
         print("no fixtures found", file=sys.stderr)

@@ -79,9 +79,10 @@ Then `qwen3-vl-plus` answers three questions at once:
 1. **The page**, as overlapping slices of the mobile screenshot (1400 px
    tall, 250 px shared with the next, up to 10 slices — a 10,000 px page is
    covered to the end): overlapping, tilted, cut-off or unreadable elements.
-   A cut-off fails the gate only when the browser measured clipping or
-   overflow too. Back-to-back slices cut mamak's menu cards in two and the
-   model failed a good page for "cut off at the bottom edge".
+   A cut-off, an overlap or unreadable text fails the gate only when the
+   browser measured the same kind of problem too (see "The numbers overrule
+   the picture" below). Back-to-back slices cut mamak's menu cards in two
+   and the model failed a good page for "cut off at the bottom edge".
 2. **Each menu card's own photo** (one crop per card, after its name)
    against its own name. A mismatch drops that photo. On the full page the
    model blamed agp's burger hero on all seven cards ("same burger photo
@@ -153,6 +154,27 @@ the page review gets a second look at its own slice
 with no slice named, or no second answer, is not confirmed. Measured checks
 are unaffected.
 
+**The numbers overrule the picture.** Today's gate was re-run over the five
+real production pages of 2026-11-08 (real models, real AI photos). Four
+passed. On Ayam Gepuk Panglima the reviewer reported that the spice-level
+tags overlapped the cards below and that the form labels were too faint
+(“approx. 2.8:1”), and confirmed both on its second look. Neither was true:
+the tags sit clear of the cards and the labels are dark on cream; every
+measured check passed. A second opinion from the same model is not
+independent evidence. So for the three kinds of report the browser can
+measure, the measurement decides (`MEASURED_FOR_KIND`):
+
+| reviewer says | counts only when one of these measured checks failed too |
+|---|---|
+| cut-off | `no_clipped_text`, `no_horizontal_overflow` |
+| overlap | `no_overlapping_text`, `hero_cta_unobstructed`, `floating_button_unobstructed` |
+| unreadable / low contrast | `contrast_aa`, `hero_text_legible`, `text_readable_size` |
+
+A report the measurements do not back is kept in the report as low severity
+with a note, logged, and never fails the build. "Tilted" and "other" have no
+measurement and stay with the reviewer and its second look. After the
+change all five real pages pass.
+
 **Design score.** The page review also returns `design.score` (1–10: visual
 hierarchy, spacing, consistency, completeness) and the weakest point. It is
 stored on the job, logged, averaged in the weekly summary, and never gates.
@@ -183,8 +205,12 @@ screenshot against the stored baseline (pixel diff image kept as a CI
 artifact; the diff is for eyes, the gate and the structural checks are
 pass/fail, because copy varies between runs).
 
-Workflow `.github/workflows/golden.yml`: nightly (full, with model keys
-from secrets) and on every PR that touches `backend/app/services/**`,
+Workflow `.github/workflows/golden.yml`: nightly (live when the repository's
+Actions secrets hold the model keys: `QWEN_API_KEY`, `DEEPSEEK_API_KEY`, and
+`ZAI_API_KEY` or `STABILITY_API_KEY`; otherwise offline with a warning on
+the run, because until 2026-11-11 a "live" run with no keys built offline
+pages and reported success; a live run started by hand with no keys now
+refuses to start) and on every PR that touches `backend/app/services/**`,
 `backend/scripts/**`, `backend/tests/golden/**` (offline: no keys, library
 theme + fallback copy — still the exact composed layout, still the full
 gate). A failing golden job blocks merge once `golden` is added to the
@@ -227,6 +253,8 @@ branch protection's required checks (a repo setting, not code).
 | Burger-and-fries hero on agp (first live build, Standard) | hero prompt from the merchant's dishes, not the direction's example; S2 hero-vs-business check → photo-free hero; S3 `hero_prompt_on_subject` + the burger-hero browser test |
 | Seven good agp card photos dropped for the hero's burger | S2 judges each card's own crop against its own name |
 | mamak failed for menu cards "cut off" at slice edges | S2 overlapping slices; a cut-off needs the measurements to agree |
+| Reviewer failed a good agp page for an overlap and faint labels that were not there, twice | S2 measurements decide cut-off, overlap and readability; the reviewer only reports them |
+| "Live" nightly golden run had no model keys and passed on offline pages | S3 live run refuses to start without keys; the nightly says when it is offline |
 | Card photos blank in the gate screenshot | S2 waits for every image to load and decode; slow ≠ broken |
 | Place name used as the map address (6dd0e9a) | S1 spec uses the resolved address; S3 golden checks the full address |
 | Interrupted job left hanging (bff1081) | not a design bug; out of scope |

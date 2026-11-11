@@ -159,3 +159,48 @@ def test_golden_burger_hero_is_replaced_and_card_photos_are_kept(monkeypatch, sl
     # Both card photos were drawn when they were cropped (their colour, not
     # the grey placeholder box).
     assert asked["cards"][:2] == [(20, 160, 60), (30, 60, 200)]
+
+
+# ---------------------------------------------------------------------------
+# A live run without keys must say so, not pass as an offline run
+# ---------------------------------------------------------------------------
+
+class _Keys:
+    def __init__(self, **kw):
+        self.deepseek_api_key = kw.get("deepseek", "")
+        self.qwen_api_key = kw.get("qwen", "")
+        self.zai_api_key = kw.get("zai", "")
+        self.stability_api_key = kw.get("stability", "")
+
+
+def test_live_run_names_every_missing_key(monkeypatch):
+    from golden_run import live_missing
+    monkeypatch.setenv("IMAGE_PROVIDER", "stability")
+    missing = live_missing(_Keys())
+    assert len(missing) == 3 and "text models" in missing[0] and "vision reviewer" in missing[1] and "STABILITY_API_KEY" in missing[2]
+    assert live_missing(_Keys(qwen="k", stability="k")) == []
+    # Z.ai images need the Z.ai key, whatever else is set.
+    monkeypatch.setenv("IMAGE_PROVIDER", "zai")
+    assert [m for m in live_missing(_Keys(qwen="k", deepseek="k", stability="k")) if "ZAI_API_KEY" in m]
+    assert live_missing(_Keys(qwen="k", zai="k")) == []
+
+
+def test_live_run_without_keys_does_not_start(monkeypatch, tmp_path, capsys):
+    import argparse
+
+    import golden_run
+    from app.services import ai_service as svc
+    monkeypatch.setattr(svc, "AIService", lambda: _Keys())
+    monkeypatch.setenv("IMAGE_PROVIDER", "stability")
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    summary = tmp_path / "summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+
+    async def _never(*a, **kw):
+        raise AssertionError("a live run with no keys must not build anything")
+    monkeypatch.setattr(golden_run, "run_fixture", _never)
+    args = argparse.Namespace(mode="live", out=str(tmp_path / "out"), fixtures=str(golden_run.FIXTURES_DIR),
+                              baseline=str(golden_run.BASELINE_DIR), only=None, update_baseline=False)
+    assert asyncio.run(golden_run.main_async(args)) == 3
+    assert "Live golden run not started" in capsys.readouterr().err
+    assert "NOT RUN" in summary.read_text(encoding="utf-8")
