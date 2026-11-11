@@ -154,7 +154,9 @@ def test_run_gate_vision_verdicts(monkeypatch):
     monkeypatch.setattr(vg, "render", _render)
 
     async def _high(messages):
-        return json.dumps({"issues": [{"type": "overlap", "where": "hero", "detail": "strip over the button", "severity": "high"}], "photo_mismatches": [], "overall": "fail"})
+        if "A first reviewer reported" in messages[0]["content"][0]["text"]:
+            return json.dumps({"confirmed": True, "evidence": "the strip covers the button"})
+        return json.dumps({"issues": [{"slice": 1, "type": "overlap", "where": "hero", "detail": "strip over the button", "severity": "high"}], "photo_mismatches": [], "overall": "fail"})
     r = asyncio.run(run_gate("<html/>", expect_map=False, expect_whatsapp=False, call_vision=_high))
     assert not r.passed and [c.name for c in r.failed] == ["vision_review"]
 

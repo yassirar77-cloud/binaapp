@@ -535,6 +535,36 @@ async def generate_website_content(
         )
         logger.info("✅ Step 3/4: Chat widget injected successfully")
 
+        # Visual gate, repair-only: this path replaces a page the merchant
+        # already has (a regeneration, a make-good rebuild), so the gate
+        # fixes what it can and never blocks. Before the gate audit this
+        # path shipped pages nothing had looked at.
+        try:
+            from app.services.visual_gate import gate_and_repair
+            _items = [str(getattr(m, "name", None) or (m.get("name") if isinstance(m, dict) else "") or "")
+                      for m in (getattr(request, "menu_items", None) or [])]
+            _lang = request.language.value if hasattr(request, "language") and hasattr(request.language, "value") else str(getattr(request, "language", "ms") or "ms")
+            _vision = ai_service._call_gate_vision_model if (ai_service.qwen_api_key or ai_service.zai_api_key) else None
+            html_content, _gate = await gate_and_repair(
+                html_content,
+                path="make_good_regen" if free_regen_report_id else "websites_api",
+                expect_map=bool(getattr(request, "include_maps", True) and getattr(request, "location_address", None)),
+                expect_whatsapp=bool(getattr(request, "include_whatsapp", True) and request.whatsapp_number),
+                item_names=_items, language=_lang, call_vision=_vision, job_id=str(website_id),
+                business={"name": request.business_name, "type": getattr(request, "business_type", None) or "",
+                          "description": request.description, "items": _items},
+            )
+            if _gate.rendered and not _gate.passed:
+                from app.services.ops_alerts import alert as _ops_alert
+                _ops_alert(
+                    "gate_warning", business_name=str(request.business_name or ""), user_id=str(user_id or ""),
+                    website_id=str(website_id),
+                    reason=f"{_gate.summary()} — " + "; ".join(f"{c.name}: {c.detail}" for c in _gate.failed)[:600],
+                    details={"Fixes tried": ", ".join(_gate.fixes) or "none"},
+                )
+        except Exception as _gate_err:
+            logger.error(f"🚨 VISUAL_GATE_ERROR path=websites_api site={website_id}: {_gate_err}")
+
         # Step 4: Update database
         logger.info("⏱️  Step 4/4: Updating database...")
         # Bump generation_count atomically with the success update so a
@@ -2204,6 +2234,17 @@ async def update_website(
                 logger.warning(f"⚠️ Storage update failed (DB updated OK): {storage_err}")
 
         logger.info(f"✅ Website updated: {website_id}")
+
+        # The merchant's own edit: measured in the background, never
+        # changed, the operator told when it is broken.
+        try:
+            from app.services.visual_gate import watch_in_background
+            watch_in_background(
+                html_content, path="editor_save", website_id=str(website_id), user_id=str(user_id or ""),
+                business_name=str(website.get("business_name") or website.get("name") or ""),
+            )
+        except Exception as _watch_err:
+            logger.warning(f"👁️ gate watch not started: {_watch_err}")
 
         return {
             "success": True,

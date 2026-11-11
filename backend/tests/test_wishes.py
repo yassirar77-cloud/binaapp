@@ -282,7 +282,8 @@ async def _next(_req):
 def test_middleware_routes(table):
     table.add(slug="aisyah", status="ready", video_url="https://cdn/v.mp4",
               message="Sayang <b>awak</b>", recipient_name="Aisyah <3")
-    run = lambda host, path="/", method="GET": asyncio.run(P.wish_middleware(_req(host, path, method), _next))
+    def run(host, path="/", method="GET"):
+        return asyncio.run(P.wish_middleware(_req(host, path, method), _next))
 
     assert run("kedai.binaapp.my") == "NEXT"  # not ours
     assert run("buat.mysyg.com", "/api/v1/wishes", "POST") == "NEXT"  # API passes through

@@ -59,11 +59,16 @@ MAX_ATTEMPTS = 3  # original → auto-fixed → regenerated
 HARD_CHECKS = (
     "no_horizontal_overflow", "hero_cta_unobstructed", "floating_button_unobstructed", "no_clipped_text",
     "contrast_aa", "images_load", "cta_icon_and_label", "map_visible", "vision_review",
+    # gate audit (each proven by a planted defect in scripts/gate_calibration.py)
+    "hero_text_legible", "text_readable_size", "tap_targets", "no_overlapping_text", "images_not_distorted",
+    "no_empty_sections", "no_junk_text",
 )
 #: Fixed by the gate itself, never a reason to fail: a mismatched card
 #: photo is dropped, a mismatched hero photo becomes a solid hero, a slow
 #: image is reported.
-SOFT_CHECKS = ("photo_matches_name", "hero_matches_business", "images_drawn", "floating_whatsapp_present")
+SOFT_CHECKS = ("photo_matches_name", "hero_matches_business", "images_drawn", "floating_whatsapp_present",
+               "no_duplicate_photos", "links_work", "no_blank_bands", "images_sharp", "heading_structure",
+               "primary_action_above_fold")
 
 
 def gate_mode() -> str:
@@ -133,6 +138,8 @@ class GateReport:
 #: without it. A Cloudinary transform (c_fill, f_auto) is generated on its
 #: first request and can take several seconds.
 IMAGE_WAIT_MS = int(os.getenv("VISUAL_GATE_IMAGE_WAIT_MS", "15000"))
+#: How long to wait for the network to go quiet after the page is set.
+NETWORK_IDLE_MS = int(os.getenv("VISUAL_GATE_NETWORK_IDLE_MS", "6000"))
 
 _PREPARE_JS = """
 async (imgWaitMs) => {
@@ -191,6 +198,20 @@ _MEASURE_JS = r"""
     }
     return parts.join('>');
   };
+  // A selector that matches this element and no other: what a fix rule is
+  // written for. (`path` is the readable one for the report; a fix on
+  // `p` recoloured every paragraph on the page.)
+  const uniq = (el) => {
+    const parts = [];
+    for (let e = el; e && e.nodeType === 1 && e !== document.documentElement; e = e.parentElement) {
+      if (e === document.body) { parts.unshift('body'); break; }
+      if (e.id && document.querySelectorAll('#' + CSS.escape(e.id)).length === 1) { parts.unshift('#' + CSS.escape(e.id)); break; }
+      let i = 1;
+      for (let sib = e.previousElementSibling; sib; sib = sib.previousElementSibling) if (sib.tagName === e.tagName) i++;
+      parts.unshift(e.tagName.toLowerCase() + ':nth-of-type(' + i + ')');
+    }
+    return parts.join('>');
+  };
   const visible = (el) => {
     const cs = getComputedStyle(el);
     if (cs.display === 'none' || cs.visibility === 'hidden' || parseFloat(cs.opacity) === 0) return false;
@@ -214,7 +235,7 @@ _MEASURE_JS = r"""
     for (const [x, y] of pts) {
       if (y < 0 || y > H || x < 0 || x > W) continue;
       const t = topAt(x, y);
-      if (t && !contains(t, el)) return { by: path(t), at: [Math.round(x), Math.round(y)], fixed: isFixed(t) };
+      if (t && !contains(t, el)) return { by: path(t), bySel: uniq(t), at: [Math.round(x), Math.round(y)], fixed: isFixed(t) };
     }
     return null;
   };
@@ -295,7 +316,7 @@ _MEASURE_JS = r"""
     // clipped: content wider than its box and the box hides overflow, or the box runs off the viewport
     const hidesX = cs.overflowX === 'hidden' || cs.overflowX === 'clip' || cs.textOverflow === 'clip' && cs.whiteSpace === 'nowrap';
     if ((node.scrollWidth > node.clientWidth + 2 && hidesX && cs.textOverflow !== 'ellipsis') || r.right > W + 2 || r.left < -2) {
-      if (out.clipped.length < 20) out.clipped.push({ text: t.slice(0, 40), path: path(node), scrollWidth: node.scrollWidth, clientWidth: node.clientWidth, right: Math.round(r.right) });
+      if (out.clipped.length < 20) out.clipped.push({ text: t.slice(0, 40), path: path(node), sel: uniq(node), scrollWidth: node.scrollWidth, clientWidth: node.clientWidth, right: Math.round(r.right) });
     }
     // contrast
     const fg = parseRGBA(cs.color);
@@ -306,7 +327,7 @@ _MEASURE_JS = r"""
     const px = parseFloat(cs.fontSize) || 16, bold = parseInt(cs.fontWeight, 10) >= 700;
     const need = (px >= 24 || (px >= 18.66 && bold)) ? 3.0 : 4.5;
     const rr = ratio(fgc, bg);
-    if (rr < need && out.lowContrast.length < 20) out.lowContrast.push({ text: t.slice(0, 40), path: path(node), ratio: Math.round(rr * 100) / 100, need, fg: cs.color, bg: `rgb(${Math.round(bg.r)}, ${Math.round(bg.g)}, ${Math.round(bg.b)})` });
+    if (rr < need && out.lowContrast.length < 120) out.lowContrast.push({ text: t.slice(0, 40), path: path(node), sel: uniq(node), ratio: Math.round(rr * 100) / 100, need, fg: cs.color, bg: `rgb(${Math.round(bg.r)}, ${Math.round(bg.g)}, ${Math.round(bg.b)})` });
   }
 
   // --- images ---
@@ -351,6 +372,322 @@ _MEASURE_JS = r"""
   return out;
 }
 """
+
+
+#: Design measurements added by the gate audit (scripts/gate_calibration.py
+#: plants one defect per check and proves each is caught). Separate from
+#: _MEASURE_JS so the original checks stay as they were.
+_DESIGN_JS = r"""
+() => {
+  const W = window.innerWidth, H = window.innerHeight;
+  document.documentElement.style.scrollBehavior = 'auto';
+  window.scrollTo(0, 0);
+  const out = {};
+  // A selector that matches this element and no other.
+  const uniq = (el) => {
+    const parts = [];
+    for (let e = el; e && e.nodeType === 1 && e !== document.documentElement; e = e.parentElement) {
+      if (e === document.body) { parts.unshift('body'); break; }
+      if (e.id && document.querySelectorAll('#' + CSS.escape(e.id)).length === 1) { parts.unshift('#' + CSS.escape(e.id)); break; }
+      let i = 1;
+      for (let sib = e.previousElementSibling; sib; sib = sib.previousElementSibling) if (sib.tagName === e.tagName) i++;
+      parts.unshift(e.tagName.toLowerCase() + ':nth-of-type(' + i + ')');
+    }
+    return parts.join('>');
+  };
+  const shown = (el) => {
+    if (el.checkVisibility && !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false;
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  };
+  const ownText = (el) => Array.from(el.childNodes).filter(n => n.nodeType === 3).map(n => n.textContent).join('').replace(/\s+/g, ' ').trim();
+  const isFixed = (el) => { for (let e = el; e && e !== document.body; e = e.parentElement) { const p = getComputedStyle(e).position; if (p === 'fixed' || p === 'sticky') return true; } return false; };
+  const SKIP = ['SCRIPT', 'STYLE', 'NOSCRIPT', 'SVG', 'PATH', 'IFRAME', 'OPTION', 'SELECT', 'TEXTAREA', 'TEMPLATE'];
+  const sy = window.scrollY;
+
+  // ---- every element that prints text of its own, with its line boxes ----
+  const texts = [];
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
+  let node;
+  while ((node = walker.nextNode())) {
+    if (SKIP.includes(node.tagName) || node.closest('svg')) continue;
+    const t = ownText(node);
+    if (!t || !shown(node)) continue;
+    const r = node.getBoundingClientRect();
+    if (r.right < 2 || r.left > W - 2) continue;  // parked off-screen (closed drawers)
+    const lines = [];
+    for (const child of node.childNodes) {
+      if (child.nodeType !== 3 || !child.textContent.trim()) continue;
+      const range = document.createRange();
+      range.selectNodeContents(child);
+      for (const lr of range.getClientRects()) if (lr.width > 1 && lr.height > 1) lines.push([lr.left, lr.top + sy, lr.right, lr.bottom + sy]);
+    }
+    const cs = getComputedStyle(node);
+    texts.push({ el: node, text: t, lines, size: parseFloat(cs.fontSize) || 16, fixed: isFixed(node) });
+  }
+
+  // ---- text too small to read ----
+  out.tinyText = [];
+  for (const t of texts) {
+    if (t.el.closest('.bmf-ai-label, .bs-ai-label, sup, sub')) continue;  // the "Gambar hiasan" tag is small on purpose
+    if ((t.size < 11.5 && t.text.length >= 25) || t.size < 9) {
+      if (out.tinyText.length < 120) out.tinyText.push({ text: t.text.slice(0, 40), path: uniq(t.el), size: Math.round(t.size * 10) / 10 });
+    }
+  }
+
+  // ---- text printed on top of other text ----
+  out.overlaps = [];
+  const flow = texts.filter(t => !t.fixed && t.lines.length).sort((a, b) => a.lines[0][1] - b.lines[0][1]);
+  const bottom = (t) => Math.max(...t.lines.map(l => l[3]));
+  for (let i = 0; i < flow.length && out.overlaps.length < 12; i++) {
+    const a = flow[i], aBottom = bottom(a);
+    for (let j = i + 1; j < flow.length; j++) {
+      const b = flow[j];
+      if (b.lines[0][1] > aBottom) break;
+      if (a.el.contains(b.el) || b.el.contains(a.el)) continue;
+      let hit = false;
+      for (const la of a.lines) {
+        for (const lb of b.lines) {
+          const iw = Math.min(la[2], lb[2]) - Math.max(la[0], lb[0]);
+          const ih = Math.min(la[3], lb[3]) - Math.max(la[1], lb[1]);
+          if (iw <= 4 || ih <= 5) continue;
+          const small = Math.min((la[2] - la[0]) * (la[3] - la[1]), (lb[2] - lb[0]) * (lb[3] - lb[1]));
+          if (small > 0 && (iw * ih) / small >= 0.35) { hit = true; break; }
+        }
+        if (hit) break;
+      }
+      if (hit) { out.overlaps.push({ text: a.text.slice(0, 30), other: b.text.slice(0, 30), path: uniq(b.el), under: uniq(a.el) }); break; }
+    }
+  }
+
+  // ---- things you tap that are too small to tap ----
+  const rgba = (str) => { const m = (str || '').match(/rgba?\(([^)]+)\)/); if (!m) return null; const p = m[1].split(',').map(parseFloat); return { a: p.length > 3 ? p[3] : 1 }; };
+  const buttonLike = (el) => {
+    if (el.tagName === 'BUTTON' || el.getAttribute('role') === 'button') return true;
+    if (/\b(btn|button|cta|order)/i.test(el.getAttribute('class') || '')) return true;
+    const cs = getComputedStyle(el);
+    const bg = rgba(cs.backgroundColor);
+    const padded = (parseFloat(cs.paddingLeft) || 0) >= 6;
+    return (bg && bg.a > 0 && padded) || (parseFloat(cs.borderTopWidth) > 0 && padded) || cs.position === 'fixed';
+  };
+  out.smallTargets = [];
+  for (const el of document.querySelectorAll('a[href], button, [role="button"], input[type="submit"], input[type="button"]')) {
+    if (!shown(el) || !buttonLike(el)) continue;
+    const r = el.getBoundingClientRect();
+    if (r.right < 2 || r.left > W - 2) continue;
+    if (Math.min(r.width, r.height) < 24 && out.smallTargets.length < 120) {
+      out.smallTargets.push({ text: ((el.innerText || el.getAttribute('aria-label') || '').trim()).slice(0, 30), path: uniq(el), size: [Math.round(r.width), Math.round(r.height)] });
+    }
+  }
+
+  // ---- photos: squashed, blurry, repeated ----
+  const norm = (src) => (src || '').replace(/(\/upload\/)(?:[a-z]{1,3}_[^\/]+\/)+/, '$1').split('?')[0];
+  out.distorted = []; out.blurry = [];
+  const bySrc = {};
+  for (const img of document.images) {
+    if (!shown(img) || !img.complete || !img.naturalWidth) continue;
+    const r = img.getBoundingClientRect();
+    if (r.width < 80 || r.height < 50) continue;
+    const cs = getComputedStyle(img);
+    const drawn = r.width / r.height, natural = img.naturalWidth / img.naturalHeight;
+    if (cs.objectFit === 'fill' && Math.abs(drawn / natural - 1) > 0.18) {
+      out.distorted.push({ src: (img.currentSrc || img.src || '').slice(0, 120), path: uniq(img), drawn: Math.round(drawn * 100) / 100, natural: Math.round(natural * 100) / 100 });
+    }
+    if (r.width >= 160 && img.naturalWidth < r.width * 0.5 && !/\.svg(\?|$)/i.test(img.src)) {
+      out.blurry.push({ src: (img.currentSrc || img.src || '').slice(0, 120), path: uniq(img), natural: img.naturalWidth, shown: Math.round(r.width) });
+    }
+    if (r.width >= 140) {
+      const key = norm(img.currentSrc || img.src);
+      const card = img.closest('.bmf-card');
+      const name = card && card.querySelector('.bmf-name');
+      (bySrc[key] = bySrc[key] || []).push({ path: uniq(img), card: name ? (name.innerText || name.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 80) : null });
+    }
+  }
+  out.duplicates = Object.entries(bySrc).filter(([, v]) => v.length >= 2).map(([src, v]) => ({ src: src.slice(0, 120), count: v.length, cards: v.map(x => x.card).filter(Boolean), paths: v.map(x => x.path) }));
+
+  // ---- a section with a heading and nothing under it ----
+  out.emptySections = [];
+  for (const sec of document.querySelectorAll('section')) {
+    if (!shown(sec)) continue;
+    const heads = Array.from(sec.querySelectorAll('h1, h2, h3, h4'));
+    if (!heads.length) continue;
+    if (sec.querySelector('img, iframe, video, canvas, form, input, table, picture, [style*="background-image"]')) continue;
+    let rest = (sec.innerText || '').replace(/\s+/g, ' ').trim();
+    for (const h of heads) rest = rest.replace((h.innerText || '').replace(/\s+/g, ' ').trim(), '');
+    if (rest.trim().length < 3) out.emptySections.push({ heading: (heads[0].innerText || '').trim().slice(0, 40), path: uniq(sec) });
+  }
+
+  // ---- text nobody wrote ----
+  const JUNK = [/\bundefined\b/, /\bNaN\b/, /\[object Object\]/, /\{\{[^}]{0,40}\}\}/, /Lorem ipsum/i, /\[ISI\b/, /\bRM\s?(?:null|None|nan)\b/i, /\$\{[^}]{0,40}\}/, /\bTODO\b/, /%[sd]\b/];
+  out.junk = [];
+  for (const t of texts) {
+    const m = JUNK.map(re => t.text.match(re)).find(Boolean);
+    if (m && out.junk.length < 12) out.junk.push({ text: t.text.slice(0, 60), found: m[0], path: uniq(t.el) });
+  }
+
+  // ---- links that go nowhere ----
+  out.deadLinks = [];
+  for (const a of document.querySelectorAll('a[href]')) {
+    if (!shown(a)) continue;
+    const href = a.getAttribute('href') || '';
+    let why = null;
+    if (href.length > 1 && href[0] === '#' && href !== '#top') {
+      let id = href.slice(1);
+      try { id = decodeURIComponent(id); } catch (e) {}
+      if (!document.getElementById(id) && !document.getElementsByName(id).length) why = 'no section with this id';
+    } else if (/wa\.me\//.test(href)) {
+      const digits = (href.split('wa.me/')[1] || '').split('?')[0].replace(/\D/g, '');
+      if (digits.length < 9) why = 'WhatsApp number too short';
+    } else if (/^tel:/.test(href)) {
+      if (href.replace(/\D/g, '').length < 7) why = 'phone number too short';
+    }
+    if (why && out.deadLinks.length < 12) out.deadLinks.push({ text: (a.innerText || a.getAttribute('aria-label') || '').trim().slice(0, 30), href: href.slice(0, 80), why, path: uniq(a) });
+  }
+
+  // ---- headings and the first screen ----
+  const h1s = Array.from(document.querySelectorAll('h1')).filter(shown);
+  out.h1Count = h1s.length;
+  out.h1Top = h1s.length ? Math.round(h1s[0].getBoundingClientRect().top + sy) : null;
+  const hero = document.querySelector('#home, section.bs-hero, header + section, main > section:first-of-type, body > section:first-of-type');
+  const cta = hero ? Array.from(hero.querySelectorAll('a[href*="wa.me"], a[href^="tel:"], a.bs-btn, a[class*="btn"], button')).find(shown) : null;
+  out.ctaTop = cta ? Math.round(cta.getBoundingClientRect().top + sy) : null;
+  out.viewportHeight = H;
+  return out;
+}
+"""
+
+#: Hero text drawn over a photo: mark it, make it invisible, and let the
+#: caller sample the pixels behind it. Returns the marked elements.
+_HERO_TEXT_JS = r"""
+() => {
+  const H = window.innerHeight, W = window.innerWidth;
+  window.scrollTo(0, 0);
+  const hero = document.querySelector('#home, section.bs-hero, header + section, main > section:first-of-type, body > section:first-of-type');
+  if (!hero) return [];
+  const rgba = (str) => { const m = (str || '').match(/rgba?\(([^)]+)\)/); if (!m) return null; const p = m[1].split(',').map(parseFloat); return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 }; };
+  const overPhoto = (el) => {
+    // Opaque colour of its own before the hero is reached = not on the photo.
+    for (let e = el; e; e = e.parentElement) {
+      const cs = getComputedStyle(e);
+      const c = rgba(cs.backgroundColor);
+      if (c && c.a >= 0.9) return false;
+      if (cs.backgroundImage && /url\(/.test(cs.backgroundImage)) return true;
+      if (e === hero) break;
+    }
+    const hr = hero.getBoundingClientRect();
+    return Array.from(hero.querySelectorAll('img, video')).some(m => { const r = m.getBoundingClientRect(); return r.width >= hr.width * 0.5 && r.height >= Math.min(hr.height, H) * 0.4; });
+  };
+  const out = [];
+  const walker = document.createTreeWalker(hero, NodeFilter.SHOW_ELEMENT);
+  let node, n = 0;
+  while ((node = walker.nextNode())) {
+    if (node.closest('svg') || ['SCRIPT', 'STYLE'].includes(node.tagName)) continue;
+    const own = Array.from(node.childNodes).filter(c => c.nodeType === 3).map(c => c.textContent).join('').replace(/\s+/g, ' ').trim();
+    if (!own) continue;
+    if (node.checkVisibility && !node.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) continue;
+    if (node.closest('.bs-ai-label, .bmf-ai-label')) continue;
+    if (!overPhoto(node)) continue;
+    const boxes = [];
+    for (const child of node.childNodes) {
+      if (child.nodeType !== 3 || !child.textContent.trim()) continue;
+      const range = document.createRange(); range.selectNodeContents(child);
+      for (const r of range.getClientRects()) {
+        if (r.width < 4 || r.height < 4 || r.bottom <= 0 || r.top >= H || r.right <= 0 || r.left >= W) continue;
+        boxes.push([Math.max(0, Math.floor(r.left)), Math.max(0, Math.floor(r.top)), Math.min(W, Math.ceil(r.right)), Math.min(H, Math.ceil(r.bottom))]);
+      }
+    }
+    if (!boxes.length) continue;
+    const cs = getComputedStyle(node);
+    const c = rgba(cs.color) || { r: 0, g: 0, b: 0, a: 1 };
+    node.setAttribute('data-bvg-ht', String(n++));
+    let sel = '';
+    { const parts = []; for (let e = node; e && e.nodeType === 1 && e !== document.documentElement; e = e.parentElement) { if (e === document.body) { parts.unshift('body'); break; } if (e.id && document.querySelectorAll('#' + CSS.escape(e.id)).length === 1) { parts.unshift('#' + CSS.escape(e.id)); break; } let i = 1; for (let sib = e.previousElementSibling; sib; sib = sib.previousElementSibling) if (sib.tagName === e.tagName) i++; parts.unshift(e.tagName.toLowerCase() + ':nth-of-type(' + i + ')'); } sel = parts.join('>'); }
+    out.push({ text: own.slice(0, 40), path: sel, color: [c.r, c.g, c.b], size: parseFloat(cs.fontSize) || 16, bold: parseInt(cs.fontWeight, 10) >= 700, boxes });
+    if (out.length >= 12) break;
+  }
+  if (out.length) {
+    const st = document.createElement('style');
+    st.id = 'bvg-hide-hero-text';
+    st.textContent = '[data-bvg-ht]{color:transparent!important;-webkit-text-fill-color:transparent!important;text-shadow:none!important}';
+    document.head.appendChild(st);
+  }
+  return out;
+}
+"""
+
+_HERO_TEXT_RESTORE_JS = "() => { const s = document.getElementById('bvg-hide-hero-text'); if (s) s.remove(); document.querySelectorAll('[data-bvg-ht]').forEach(e => e.removeAttribute('data-bvg-ht')); }"
+
+
+def _lum(rgb: Sequence[float]) -> float:
+    def f(v: float) -> float:
+        v = v / 255.0
+        return v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4
+    return 0.2126 * f(rgb[0]) + 0.7152 * f(rgb[1]) + 0.0722 * f(rgb[2])
+
+
+def _ratio(a: float, b: float) -> float:
+    hi, lo = max(a, b), min(a, b)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def hero_text_contrast(viewport_png: bytes, marked: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """For each hero text element drawn over a photo: the contrast between
+    its colour and the pixels behind it (text hidden in ``viewport_png``).
+    ``ratio`` is the 25th percentile over the sampled pixels: three
+    quarters of the text sits on at least that much contrast."""
+    try:
+        from PIL import Image
+        im = Image.open(io.BytesIO(viewport_png)).convert("RGB")
+    except Exception:
+        return []
+    out: List[Dict[str, Any]] = []
+    for el in marked:
+        fg = _lum(el.get("color") or (0, 0, 0))
+        ratios: List[float] = []
+        for box in el.get("boxes") or []:
+            x0, y0, x1, y1 = (int(v) for v in box)
+            x1, y1 = min(x1, im.size[0]), min(y1, im.size[1])
+            if x1 - x0 < 2 or y1 - y0 < 2:
+                continue
+            region = im.crop((x0, y0, x1, y1))
+            region.thumbnail((48, 24))
+            ratios.extend(_ratio(fg, _lum(px)) for px in region.getdata())
+        if not ratios:
+            continue
+        ratios.sort()
+        out.append({"text": el.get("text"), "path": el.get("path"), "ratio": round(ratios[len(ratios) // 4], 2),
+                    "light_text": fg > 0.4, "size": el.get("size")})
+    return out
+
+
+def blank_bands(png: Optional[bytes], *, min_height: int = 600) -> List[Dict[str, int]]:
+    """Runs of at least ``min_height`` rows of the full-page screenshot in
+    which every row is one flat colour: a hole in the page."""
+    if not png:
+        return []
+    try:
+        from PIL import Image
+        im = Image.open(io.BytesIO(png)).convert("RGB")
+    except Exception:
+        return []
+    w, h = im.size
+    small = im.resize((max(8, w // 6), h))  # width only: a row stays a row
+    sw = small.size[0]
+    data = small.tobytes()
+    out: List[Dict[str, int]] = []
+    start = None
+    for y in range(h):
+        row = data[y * sw * 3:(y + 1) * sw * 3]
+        flat = all(max(row[c::3]) - min(row[c::3]) <= 10 for c in range(3))
+        if flat and start is None:
+            start = y
+        elif not flat and start is not None:
+            if y - start >= min_height:
+                out.append({"top": start, "height": y - start})
+            start = None
+    if start is not None and h - start >= min_height:
+        out.append({"top": start, "height": h - start})
+    return out
 
 
 #: Flags that keep Chromium inside a small instance's memory (the Render
@@ -508,7 +845,7 @@ async def render(html: str, *, timeout: float = RENDER_TIMEOUT_SECONDS,
                         page = await browser.new_page(viewport={"width": w, "height": h}, device_scale_factor=1)
                         await page.set_content(html, wait_until="domcontentloaded", timeout=int(timeout * 1000))
                         try:
-                            await page.wait_for_load_state("networkidle", timeout=6000)
+                            await page.wait_for_load_state("networkidle", timeout=NETWORK_IDLE_MS)
                         except Exception:
                             pass
                         try:
@@ -522,8 +859,24 @@ async def render(html: str, *, timeout: float = RENDER_TIMEOUT_SECONDS,
                         except Exception as err:
                             logger.warning(f"📐 measurement failed ({name}): {err}")
                             measured = {"error": str(err)}
+                        if "error" not in measured:
+                            try:
+                                measured["design"] = await page.evaluate(_DESIGN_JS)
+                            except Exception as err:
+                                logger.warning(f"📐 design measurement failed ({name}): {err}")
+                            try:
+                                # Hero text over a photo: hide it, sample
+                                # the pixels behind it, put it back.
+                                marked = await page.evaluate(_HERO_TEXT_JS)
+                                if marked:
+                                    shot = await page.screenshot(full_page=False, type="png")
+                                    measured["heroText"] = hero_text_contrast(shot, marked)
+                                await page.evaluate(_HERO_TEXT_RESTORE_JS)
+                            except Exception as err:
+                                logger.warning(f"📐 hero text measurement failed ({name}): {err}")
                         png = await page.screenshot(full_page=(name == "mobile" or desktop_full_page), type="png")
                         if name == "mobile":
+                            measured["blankBands"] = blank_bands(png)
                             # After the full-page shot: the crops scroll.
                             measured["_crops"] = await _photo_crops(page)
                             mobile, mpng = measured, png
@@ -553,7 +906,9 @@ def evaluate_checks(mobile: Dict[str, Any], desktop: Dict[str, Any], *, expect_m
     checks.append(Check("no_horizontal_overflow", not over, "; ".join(over), len(over), over))
     # 2. hero CTAs
     bad = [c for c in (mobile.get("heroCtas") or []) if c.get("obstructedBy")]
-    checks.append(Check("hero_cta_unobstructed", not bad, "; ".join(f"{c.get('text')!r} covered by {c['obstructedBy'].get('by')}" for c in bad), len(bad), bad))
+    bad += [dict(c, viewport="desktop") for c in (desktop.get("heroCtas") or []) if c.get("obstructedBy")]
+    checks.append(Check("hero_cta_unobstructed", not bad, "; ".join(
+        f"{c.get('text')!r} covered by {c['obstructedBy'].get('by')}" + (" (desktop)" if c.get("viewport") else "") for c in bad), len(bad), bad))
     # 3. floating button
     fl = [f for f in (mobile.get("floating") or []) if f.get("obstructedBy")]
     checks.append(Check("floating_button_unobstructed", not fl, "; ".join(f"{f.get('id')} covered by {f['obstructedBy'].get('by')}" for f in fl), len(fl), fl))
@@ -564,6 +919,8 @@ def evaluate_checks(mobile: Dict[str, Any], desktop: Dict[str, Any], *, expect_m
     checks.append(Check("no_clipped_text", not clipped, "; ".join(f"{c.get('text')!r} ({c.get('path')})" for c in clipped[:5]), len(clipped), clipped))
     # 5. contrast
     low = list(mobile.get("lowContrast") or [])
+    _seen_low = {c.get("path") for c in low}
+    low += [dict(c, viewport="desktop") for c in (desktop.get("lowContrast") or []) if c.get("path") not in _seen_low]
     checks.append(Check("contrast_aa", not low, "; ".join(f"{c.get('text')!r} {c.get('ratio')}:1 ({c.get('fg')} on {c.get('bg')})" for c in low[:5]), len(low), low))
     # 6. images: a failed download is broken (the fix drops it); one still
     # arriving after the wait is slow, which is reported but never a
@@ -596,7 +953,96 @@ def evaluate_checks(mobile: Dict[str, Any], desktop: Dict[str, Any], *, expect_m
             elif any(not b.get("inViewport") for b in btns):
                 problems.append("a direction button sits outside the viewport")
             checks.append(Check("map_visible", not problems, "; ".join(problems), len(problems), problems))
+    checks.extend(design_checks(mobile, desktop))
     return checks
+
+
+#: Hero text over a photo fails below this contrast (25th percentile of
+#: the pixels behind it). 3:1 is WCAG's floor for large text; small hero
+#: text over a photo is held to the same floor, not 4.5, because a photo
+#: is never one colour.
+HERO_TEXT_MIN_RATIO = float(os.getenv("VISUAL_GATE_HERO_TEXT_RATIO", "3.0"))
+
+
+def design_checks(mobile: Dict[str, Any], desktop: Dict[str, Any]) -> List[Check]:
+    """The checks the gate audit added. Each is proven by one planted
+    defect in scripts/gate_calibration.py. Skipped when the design
+    measurement did not run (older callers, fake measurements in tests).
+
+    Hard = the page is broken and the gate has a fix for it (or it is junk
+    nobody should see). Soft = worth knowing and fixing where possible,
+    never a reason to fail a merchant's build."""
+    md, dd = mobile.get("design"), desktop.get("design") or {}
+    if not isinstance(md, dict):
+        return []
+    out: List[Check] = []
+
+    def both(key: str) -> List[Dict[str, Any]]:
+        items = list(md.get(key) or [])
+        seen = {i.get("path") for i in items}
+        return items + [dict(i, viewport="desktop") for i in (dd.get(key) or []) if i.get("path") not in seen]
+
+    def vp(i: Dict[str, Any]) -> str:
+        return " (desktop)" if i.get("viewport") else ""
+
+    faint = [dict(i, viewport=name) for name, m in (("mobile", mobile), ("desktop", desktop))
+             for i in (m.get("heroText") or []) if float(i.get("ratio") or 99) < HERO_TEXT_MIN_RATIO]
+    out.append(Check("hero_text_legible", not faint, "; ".join(
+        f"{i.get('text')!r} {i.get('ratio')}:1 over the hero photo ({i['viewport']})" for i in faint[:4]), len(faint), faint))
+
+    tiny = both("tinyText")
+    out.append(Check("text_readable_size", not tiny, "; ".join(f"{i.get('text')!r} at {i.get('size')}px{vp(i)}" for i in tiny[:4]), len(tiny), tiny))
+
+    small = list(md.get("smallTargets") or [])  # touch: the phone only
+    out.append(Check("tap_targets", not small, "; ".join(
+        f"{i.get('text') or i.get('path')!r} is {i['size'][0]}x{i['size'][1]}px" for i in small[:4]), len(small), small))
+
+    over = both("overlaps")
+    out.append(Check("no_overlapping_text", not over, "; ".join(f"{i.get('other')!r} printed over {i.get('text')!r}{vp(i)}" for i in over[:4]), len(over), over))
+
+    squashed = both("distorted")
+    out.append(Check("images_not_distorted", not squashed, "; ".join(
+        f"{str(i.get('src'))[:60]} drawn {i.get('drawn')} but is {i.get('natural')}{vp(i)}" for i in squashed[:3]), len(squashed), squashed))
+
+    empty = list(md.get("emptySections") or [])
+    out.append(Check("no_empty_sections", not empty, "; ".join(f"section {i.get('heading')!r} has nothing under its heading" for i in empty[:4]), len(empty), empty))
+
+    junk = list(md.get("junk") or [])
+    out.append(Check("no_junk_text", not junk, "; ".join(f"{i.get('found')!r} in {i.get('text')!r}" for i in junk[:4]), len(junk), junk))
+
+    # ---- soft ----
+    dup = [d for d in (md.get("duplicates") or []) if len(d.get("cards") or []) >= 2]
+    if dup:
+        out.append(Check("no_duplicate_photos", False, "; ".join(
+            f"one photo on {d['count']} cards: {', '.join(d['cards'][:4])}" for d in dup[:3]), sum(d["count"] - 1 for d in dup), dup, hard=False))
+    dead = list(md.get("deadLinks") or [])
+    if dead:
+        out.append(Check("links_work", False, "; ".join(f"{i.get('text')!r} -> {i.get('href')} ({i.get('why')})" for i in dead[:4]), len(dead), dead, hard=False))
+    bands = list(mobile.get("blankBands") or [])
+    if bands:
+        out.append(Check("no_blank_bands", False, "; ".join(f"{b['height']}px of nothing at {b['top']}px" for b in bands[:3]), len(bands), bands, hard=False))
+    blurry = list(md.get("blurry") or [])
+    if blurry:
+        out.append(Check("images_sharp", False, "; ".join(
+            f"{str(i.get('src'))[:60]} is {i.get('natural')}px wide, shown at {i.get('shown')}px" for i in blurry[:3]), len(blurry), blurry, hard=False))
+    if md.get("h1Count") is not None and md.get("h1Count") != 1:
+        out.append(Check("heading_structure", False, f"{md.get('h1Count')} H1 headings on the page (one expected)", 1, hard=False))
+    fold = int(md.get("viewportHeight") or 0)
+    late = []
+    if fold and md.get("h1Top") is not None and md["h1Top"] >= fold:
+        late.append(f"headline starts at {md['h1Top']}px")
+    if fold and md.get("ctaTop") is not None and md["ctaTop"] >= fold:
+        late.append(f"first button at {md['ctaTop']}px")
+    if late:
+        out.append(Check("primary_action_above_fold", False, "; ".join(late) + f" (first screen ends at {fold}px)", len(late), late, hard=False))
+    return out
+
+
+def soft_overrides() -> set:
+    """Checks demoted to soft without a deploy (VISUAL_GATE_SOFT_CHECKS,
+    comma-separated): the valve for a check that starts failing good
+    pages in production."""
+    return {x.strip() for x in os.getenv("VISUAL_GATE_SOFT_CHECKS", "").split(",") if x.strip()}
 
 
 # ---------------------------------------------------------------------------
@@ -614,13 +1060,28 @@ VISION_RUBRIC = (
     f"{VISION_TILE_OVERLAP}px: content touching the top or bottom edge of a slice continues in the next slice. "
     "That is how the screenshots were cut, NOT a cut-off on the page — never report it. Answer ONLY with JSON of this "
     "exact shape:\n"
-    '{"issues":[{"type":"overlap|tilted|cutoff|unreadable|other","where":"short location, e.g. hero buttons","detail":"what is wrong","severity":"high|low"}],"overall":"pass|fail"}\n'
+    '{"issues":[{"slice":<number of the slice it is in>,"type":"overlap|tilted|cutoff|unreadable|other","where":"short location, e.g. hero buttons","detail":"what is wrong","severity":"high|low"}],'
+    '"design":{"score":<1-10>,"weakest":"the one thing that most hurts how this page looks, or empty"},"overall":"pass|fail"}\n'
     "Rules: report an issue ONLY when you can see it in the pixels: elements overlapping each other, text or buttons "
     "cut off by the LEFT or RIGHT edge of the phone or by their own box, rotated/tilted content, text too small or too "
     "low-contrast to read. Do not judge the photos (they are checked separately) and do not report an image that "
     "looks blank. Design taste is NOT an issue. 'overall' is 'fail' only when there is at least one high-severity "
-    "issue. An empty list is the normal answer."
+    "issue. An empty list is the normal answer. Separately, 'design.score' is your overall impression of the page as "
+    "a customer would see it, 1 (looks broken or amateur) to 10 (looks professionally designed): judge visual "
+    "hierarchy, spacing and alignment, how consistent the sections are, and whether the page feels complete. The "
+    "score never changes 'issues' or 'overall'."
 )
+
+CONFIRM_RUBRIC = (
+    "A first reviewer reported a problem in this screenshot of a small-business website on a 390px-wide phone. The "
+    "image is ONE slice cut out of a long page: content touching its top or bottom edge continues above or below and "
+    "is NOT cut off. Look at the image yourself and decide whether the reported problem is clearly visible. Answer "
+    'ONLY with JSON: {"confirmed":true|false,"evidence":"what you see at that place"}. Say true only when you can see '
+    "the problem itself; when in doubt, say false."
+)
+
+#: How many high-severity page-review issues get a second look.
+VISION_CONFIRM_LIMIT = int(os.getenv("VISUAL_GATE_VISION_CONFIRM_LIMIT", "3"))
 
 CARD_PHOTO_RUBRIC = (
     "Each image below is the photo on ONE card (a menu item, a product or a service) of a small-business website, "
@@ -682,14 +1143,31 @@ def _tiles(png: bytes, *, height: int = VISION_TILE_HEIGHT, overlap: int = VISIO
     return out or [png]
 
 
-def build_vision_messages(mobile_png: bytes, *, item_names: Sequence[str] = (), language: str = "ms") -> List[Dict[str, Any]]:
-    tiles = _tiles(mobile_png)
+def build_vision_messages(mobile_png: bytes, *, item_names: Sequence[str] = (), language: str = "ms",
+                          tiles: Optional[Sequence[bytes]] = None) -> List[Dict[str, Any]]:
+    tiles = list(tiles) if tiles is not None else _tiles(mobile_png)
     content: List[Dict[str, Any]] = [{"type": "text", "text": VISION_RUBRIC
         + f"\nPage language: {'Bahasa Malaysia' if language != 'en' else 'English'}. {len(tiles)} slice(s) follow, top of page first."}]
     for i, tile in enumerate(tiles, 1):
         content.append({"type": "text", "text": f"Slice {i} of {len(tiles)}:"})
         content.append({"type": "image_url", "image_url": {"url": _data_url(tile)}})
     return [{"role": "user", "content": content}]
+
+
+def build_confirm_messages(tile: bytes, issue: Dict[str, Any]) -> List[Dict[str, Any]]:
+    told = f"Reported problem: {issue.get('type')} at {issue.get('where')}: {issue.get('detail')}"
+    return [{"role": "user", "content": [
+        {"type": "text", "text": CONFIRM_RUBRIC + "\n\n" + told},
+        {"type": "image_url", "image_url": {"url": _data_url(tile)}},
+    ]}]
+
+
+def parse_confirm(raw: Optional[str]) -> Optional[bool]:
+    data = _json_object(raw)
+    if data is None or "confirmed" not in data:
+        return None
+    val = data.get("confirmed")
+    return val if isinstance(val, bool) else str(val).strip().lower() in ("true", "yes", "1")
 
 
 def _data_url(img: bytes) -> str:
@@ -834,17 +1312,30 @@ def parse_vision(raw: Optional[str]) -> Optional[Dict[str, Any]]:
     issues = []
     for i in data.get("issues") or []:
         if isinstance(i, dict):
-            issues.append({
+            issue = {
                 "type": str(i.get("type") or "other")[:20], "where": str(i.get("where") or "")[:80],
                 "detail": str(i.get("detail") or "")[:200], "severity": "high" if str(i.get("severity") or "").lower() == "high" else "low",
-            })
+            }
+            try:
+                issue["slice"] = int(str(i.get("slice")).strip())
+            except (TypeError, ValueError):
+                pass
+            issues.append(issue)
     mism = []
     for m in data.get("photo_mismatches") or []:
         if isinstance(m, dict) and str(m.get("item") or "").strip():
             mism.append({"item": str(m["item"])[:120], "reason": str(m.get("reason") or "")[:200]})
         elif isinstance(m, str) and m.strip():
             mism.append({"item": m[:120], "reason": ""})
-    return {"issues": issues, "photo_mismatches": mism, "overall": "fail" if str(data.get("overall") or "").lower() == "fail" else "pass", "model": VISION_MODEL}
+    out = {"issues": issues, "photo_mismatches": mism, "overall": "fail" if str(data.get("overall") or "").lower() == "fail" else "pass", "model": VISION_MODEL}
+    design = data.get("design")
+    if isinstance(design, dict):
+        try:
+            score = max(1, min(10, int(round(float(design.get("score"))))))
+            out["design"] = {"score": score, "weakest": str(design.get("weakest") or "")[:160]}
+        except (TypeError, ValueError):
+            pass
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -904,7 +1395,8 @@ async def run_gate(
     if call_vision is not None and mpng:
         cards = [c for c in (crops.get("cards") or []) if c.get("png")]
         hero_png = crops.get("hero")
-        asks = [_ask(call_vision, build_vision_messages(mpng, item_names=item_names, language=language), "page review")]
+        tiles = _tiles(mpng)
+        asks = [_ask(call_vision, build_vision_messages(mpng, item_names=item_names, language=language, tiles=tiles), "page review")]
         asks.append(_ask(call_vision, build_card_photo_messages(cards, business), "card photo check") if cards else asyncio.sleep(0, result=None))
         asks.append(_ask(call_vision, build_hero_messages(hero_png, business), "hero check") if (hero_png and business) else asyncio.sleep(0, result=None))
         raw_page, raw_cards, raw_hero = await asyncio.gather(*asks)
@@ -920,12 +1412,33 @@ async def run_gate(
                 if issue["severity"] == "high" and _is_cutoff(issue) and not measured_clip:
                     issue["severity"] = "low"
                     issue["note"] = "cut-off not confirmed by the browser's measurements"
+            # One opinion never fails a build: each high-severity issue gets
+            # a second look at its own slice, and counts only if that look
+            # confirms it. (No slice named, no second answer, or more than
+            # VISION_CONFIRM_LIMIT issues: not confirmed.)
+            candidates = [i for i in parsed["issues"] if i["severity"] == "high"]
+            looks = []
+            for issue in candidates[:VISION_CONFIRM_LIMIT]:
+                idx = int(issue.get("slice") or 0) - 1
+                looks.append(_ask(call_vision, build_confirm_messages(tiles[idx], issue), "second look")
+                             if 0 <= idx < len(tiles) else asyncio.sleep(0, result=None))
+            answers = await asyncio.gather(*looks) if looks else []
+            for n, issue in enumerate(candidates):
+                confirmed = parse_confirm(answers[n]) if n < len(answers) else None
+                issue["confirmed"] = bool(confirmed)
+                if not confirmed:
+                    issue["severity"] = "low"
+                    issue["note"] = ("second look did not confirm it" if confirmed is False
+                                     else "no second look (slice not named or reviewer unavailable)")
             high = [i for i in parsed["issues"] if i["severity"] == "high"]
             unconfirmed = [i for i in parsed["issues"] if i.get("note")]
             detail = "; ".join(f"{i['type']} at {i['where']}: {i['detail']}" for i in high[:5])
             report.checks.append(Check("vision_review", not high, detail, len(high), high))
             if unconfirmed:
-                logger.info(f"👁️ {len(unconfirmed)} cut-off report(s) ignored: the measurements show nothing clipped")
+                logger.info(f"👁️ {len(unconfirmed)} reviewer report(s) not counted: "
+                            + "; ".join(f"{i['type']} at {i['where']} ({i['note']})" for i in unconfirmed[:4]))
+            if parsed.get("design"):
+                logger.info(f"👁️ Design score {parsed['design']['score']}/10" + (f" — weakest: {parsed['design']['weakest']}" if parsed['design']['weakest'] else ""))
             # A page-level photo verdict (older prompt) still counts when
             # no card was cropped; the per-card check supersedes it.
             if parsed["photo_mismatches"] and not cards:
@@ -957,6 +1470,10 @@ async def run_gate(
                     "" if hero["matches"] else f"hero shows {hero['shows'] or 'something else'}: {hero['reason']}",
                     0 if hero["matches"] else 1, [hero], hard=False,
                 ))
+    _demoted = soft_overrides()
+    for c in report.checks:
+        if c.name in _demoted and c.hard:
+            c.hard = False
     logger.info(f"👁️ Visual gate attempt {attempt}: {report.summary()}")
     for c in report.checks:
         if not c.ok:
@@ -1100,18 +1617,18 @@ def _hex_of(css_colour: str) -> Optional[str]:
 
 
 def _safe_selector(sel: str) -> bool:
-    return bool(sel) and len(sel) < 300 and "{" not in sel and "}" not in sel and "<" not in sel
+    return bool(sel) and len(sel) < 700 and "{" not in sel and "}" not in sel and "<" not in sel
 
 
-def targeted_fix_css(report: GateReport) -> str:
+def targeted_fix_css(report: GateReport, skip: Sequence[str] = ()) -> str:
     """Rules aimed at the exact elements the measurement flagged: a clipped
     block becomes fluid, low-contrast text takes a readable shade of its
     own colour, an in-flow element covering a hero CTA loses its absolute
     position (the floating button is handled by hero padding instead)."""
     rules: List[str] = []
-    failed = {c.name: c for c in report.checks if not c.ok}
+    failed = {c.name: c for c in report.checks if not c.ok and c.name not in skip}
     for item in (failed.get("no_clipped_text").items if "no_clipped_text" in failed else []):
-        sel = item.get("path") if isinstance(item, dict) else None
+        sel = (item.get("sel") or item.get("path")) if isinstance(item, dict) else None
         if _safe_selector(sel):
             rules.append(f"{sel}{{max-width:100%!important;width:auto!important;min-width:0!important;white-space:normal!important;overflow-wrap:anywhere}}")
     if "contrast_aa" in failed:
@@ -1122,7 +1639,7 @@ def targeted_fix_css(report: GateReport) -> str:
         for item in failed["contrast_aa"].items:
             if not isinstance(item, dict):
                 continue
-            sel, fg, bg = item.get("path"), _hex_of(item.get("fg")), _hex_of(item.get("bg"))
+            sel, fg, bg = item.get("sel") or item.get("path"), _hex_of(item.get("fg")), _hex_of(item.get("bg"))
             if not (_safe_selector(sel) and fg and bg):
                 continue
             fixed = adjust_for_contrast(fg, [bg], float(item.get("need") or 4.5)) if adjust_for_contrast else None
@@ -1132,11 +1649,69 @@ def targeted_fix_css(report: GateReport) -> str:
             rules.append(f"{sel}{{color:{fixed}!important}}")
     for item in (failed.get("hero_cta_unobstructed").items if "hero_cta_unobstructed" in failed else []):
         ob = item.get("obstructedBy") if isinstance(item, dict) else None
-        if isinstance(ob, dict) and not ob.get("fixed") and _safe_selector(ob.get("by")):
-            rules.append(f"{ob['by']}{{position:static!important;transform:none!important}}")
+        if isinstance(ob, dict) and not ob.get("fixed") and _safe_selector(ob.get("bySel") or ob.get("by")):
+            rules.append(f"{ob.get('bySel') or ob['by']}{{position:static!important;transform:none!important}}")
+    def _paths(name: str) -> List[Dict[str, Any]]:
+        return [i for i in (failed[name].items if name in failed else []) if isinstance(i, dict) and _safe_selector(i.get("path"))]
+
+    for item in _paths("text_readable_size"):
+        rules.append(f"{item['path']}{{font-size:12.5px!important;line-height:1.45!important}}")
+    for item in _paths("tap_targets"):
+        rules.append(
+            f"{item['path']}{{min-height:40px!important;min-width:40px!important;display:inline-flex!important;"
+            "align-items:center!important;justify-content:center!important;padding:.5rem .85rem!important;"
+            "font-size:max(.82rem,13px)!important;line-height:1.2!important;box-sizing:border-box!important}"
+        )
+    for item in _paths("no_overlapping_text"):
+        rules.append(f"{item['path']}{{position:static!important;margin-top:.4em!important;transform:none!important;float:none!important}}")
+    for item in _paths("images_not_distorted"):
+        rules.append(f"{item['path']}{{object-fit:cover!important}}")
+    for item in _paths("no_empty_sections"):
+        rules.append(f"{item['path']}{{display:none!important}}")
+    for item in _paths("hero_text_legible"):
+        # A hero that is not the composer's (no scrim to darken): the text
+        # gets its own backing, light or dark to suit its colour.
+        if item.get("light_text", True):
+            rules.append(f"{item['path']}{{background:rgba(0,0,0,.68)!important;color:#fff!important;-webkit-box-decoration-break:clone;"
+                         "box-decoration-break:clone;padding:.1em .35em!important;border-radius:.2em}}")
+        else:
+            rules.append(f"{item['path']}{{background:rgba(255,255,255,.86)!important;color:#111!important;-webkit-box-decoration-break:clone;"
+                         "box-decoration-break:clone;padding:.1em .35em!important;border-radius:.2em}}")
     if not rules:
         return ""
     return '<style id="binaapp-visual-gate-targeted">\n' + "\n".join(rules) + "\n</style>\n"
+
+
+_SCRIM_CSS = """
+<style id="binaapp-visual-gate-scrim">
+.bs-hero:not(.bs-hero-solid) .bs-hero-scrim{background:linear-gradient(180deg,rgba(0,0,0,.58) 0%,rgba(0,0,0,.66) 45%,rgba(0,0,0,.86) 100%)!important}
+</style>
+"""
+
+
+def darken_hero_scrim(html: str) -> Tuple[str, int]:
+    """The composed hero's scrim, made dark enough for white text over any
+    photo (and added when the hero has a photo but no scrim)."""
+    if "bs-hero-media" not in html or "binaapp-visual-gate-scrim" in html:
+        return html, 0
+    out = html
+    m = re.search(r'<section[^>]*class="[^"]*\bbs-hero\b[^"]*"[^>]*>.*?</section>', out, re.S)
+    if m and "bs-hero-scrim" not in m.group(0):
+        hero = re.sub(r'(<div class="bs-hero-media">.*?</div>)', r'\1<div class="bs-hero-scrim"></div>', m.group(0), count=1, flags=re.S)
+        out = out[:m.start()] + hero + out[m.end():]
+    out = out.replace("</head>", _SCRIM_CSS + "</head>", 1) if "</head>" in out else _SCRIM_CSS + out
+    return out, 1
+
+
+def drop_repeated_card_photos(html: str, duplicates: Sequence[Dict[str, Any]]) -> Tuple[str, int]:
+    """One photo on several menu cards: the first card keeps it, the rest
+    become text cards (a photo that claims to be three dishes is none)."""
+    names: List[str] = []
+    for d in duplicates or []:
+        names.extend((d.get("cards") or [])[1:])
+    if not names:
+        return html, 0
+    return drop_item_photos(html, names)
 
 
 def auto_fix(html: str, report: GateReport) -> Tuple[str, List[str]]:
@@ -1167,6 +1742,16 @@ def auto_fix(html: str, report: GateReport) -> Tuple[str, List[str]]:
         out, n = use_photo_free_hero(out)
         if n:
             fixes.append("photo_free_hero")
+    _composed_hero_scrimmed = False
+    if "hero_text_legible" in failed and "photo_free_hero" not in fixes:
+        out, n = darken_hero_scrim(out)
+        if n:
+            fixes.append("darker_hero_scrim")
+            _composed_hero_scrimmed = True
+    if "no_duplicate_photos" in failed:
+        out, n = drop_repeated_card_photos(out, failed["no_duplicate_photos"].items)
+        if n:
+            fixes.append(f"dropped_repeated_photos({n})")
     if "cta_icon_and_label" in failed:
         out, n = _add_cta_icons(out)
         if n:
@@ -1193,7 +1778,10 @@ def auto_fix(html: str, report: GateReport) -> Tuple[str, List[str]]:
     if layout_keys & set(failed) and "binaapp-visual-gate-fixes" not in out:
         out = out.replace("</head>", _FIX_CSS + "</head>", 1) if "</head>" in out else _FIX_CSS + out
         fixes.append("layout_fix_css")
-    targeted = targeted_fix_css(report)
+    # The hero's own fix (darker scrim, or no photo at all) replaces the
+    # per-element backing.
+    _hero_handled = _composed_hero_scrimmed or "photo_free_hero" in fixes
+    targeted = targeted_fix_css(report, skip=("hero_text_legible",) if _hero_handled else ())
     if targeted:
         # Later rules win: appended at the end of <head>, after the page's
         # own styles and the generic fix sheet.
@@ -1242,6 +1830,123 @@ class VisualGateFailed(Exception):
     def __init__(self, report: GateReport):
         super().__init__(self.MESSAGE)
         self.report = report
+
+
+async def gate_and_repair(
+    html: str,
+    *,
+    path: str,
+    expect_map: bool,
+    expect_whatsapp: bool,
+    item_names: Sequence[str] = (),
+    language: str = "ms",
+    call_vision: Optional[Callable[[List[Dict[str, Any]]], Awaitable[Optional[str]]]] = None,
+    business: Optional[Dict[str, Any]] = None,
+    job_id: str = "",
+) -> Tuple[str, GateReport]:
+    """The gate for pages written outside the create flow (a regeneration,
+    a make-good rebuild): gate → auto-fix → re-gate, and the better page is
+    returned. Never blocks and never raises: these paths replace a page the
+    merchant already has, so a page that still fails is shipped, logged
+    (``VISUAL_GATE_FAIL path=...``) and left to the caller to alert on."""
+    mode = gate_mode()
+    if mode == "off":
+        return html, GateReport(mode=mode, error="gate off")
+    kw = dict(expect_map=expect_map, expect_whatsapp=expect_whatsapp, item_names=item_names, language=language,
+              call_vision=call_vision, business=business)
+    try:
+        report = await run_gate(html, attempt=1, **kw)
+        if not report.rendered:
+            logger.warning(f"🧠 VISUAL_GATE_SKIPPED path={path} job={job_id[:8]} {report.error}")
+            return html, report
+        if all(c.ok for c in report.checks):
+            return html, report
+        fixed, fixes = auto_fix(html, report)
+        if fixes:
+            report2 = await run_gate(fixed, attempt=2, **kw)
+            report2.fixes = fixes
+            if report2.rendered and len(report2.failed) <= len(report.failed):
+                html, report = fixed, report2
+        if not report.passed:
+            logger.error(f"🚨 VISUAL_GATE_FAIL path={path} job={job_id[:8]} shipped=yes {report.summary()} fixes={report.fixes}")
+        else:
+            logger.info(f"👁️ Visual gate ({path}): {report.summary()} fixes={report.fixes}")
+        return html, report
+    except Exception as err:  # the gate must never take a rebuild down
+        logger.error(f"🚨 VISUAL_GATE_ERROR path={path} job={job_id[:8]}: {err}")
+        return html, GateReport(mode=mode, error=str(err))
+
+
+# ---------------------------------------------------------------------------
+# Watch: pages the merchant changes themselves (theme, editor)
+# ---------------------------------------------------------------------------
+
+#: One watch at a time (each launches Chromium), and at most one per site
+#: every WATCH_MIN_INTERVAL_SECONDS: an editor that saves on every change
+#: must not queue a browser per keystroke.
+WATCH_MIN_INTERVAL_SECONDS = float(os.getenv("VISUAL_GATE_WATCH_INTERVAL_SECONDS", "60"))
+_watch_lock: Optional[asyncio.Lock] = None
+_watch_last: Dict[str, float] = {}
+_watch_tasks: set = set()
+
+
+async def watch_page(html: str, *, path: str, website_id: str, business_name: str = "", user_id: str = "",
+                     expect_map: bool = False, expect_whatsapp: bool = False) -> Optional[GateReport]:
+    """Measure a page the merchant just saved (a theme change, an editor
+    save) and tell the operator when it is broken. Measured checks only: no
+    reviewer call. The page is NEVER changed and the save never waits: the
+    merchant chose it, and a rewrite behind their back could overwrite a
+    newer save. Returns the report, or None when skipped."""
+    global _watch_lock
+    if gate_mode() == "off" or not html or not website_id:
+        return None
+    import time as _time
+    now = _time.monotonic()
+    if now - _watch_last.get(website_id, -1e9) < WATCH_MIN_INTERVAL_SECONDS:
+        return None
+    _watch_last[website_id] = now
+    if len(_watch_last) > 2000:
+        for key in sorted(_watch_last, key=_watch_last.get)[:1000]:
+            _watch_last.pop(key, None)
+    if _watch_lock is None:
+        _watch_lock = asyncio.Lock()
+    try:
+        async with _watch_lock:
+            report = await run_gate(html, expect_map=expect_map, expect_whatsapp=expect_whatsapp, call_vision=None)
+        if not report.rendered:
+            logger.info(f"👁️ VISUAL_GATE_WATCH path={path} site={website_id[:8]} skipped: {report.error}")
+            return report
+        soft = [c.name for c in report.checks if not c.ok and not c.hard]
+        if report.passed:
+            logger.info(f"👁️ VISUAL_GATE_WATCH path={path} site={website_id[:8]} pass" + (f" (soft: {', '.join(soft)})" if soft else ""))
+            return report
+        logger.error(f"🚨 VISUAL_GATE_WATCH path={path} site={website_id[:8]} {report.summary()}")
+        try:
+            from app.services.ops_alerts import alert as _ops_alert
+            _ops_alert(
+                "gate_watch", business_name=business_name, user_id=user_id, website_id=website_id,
+                reason=f"{report.summary()} — " + "; ".join(f"{c.name}: {c.detail}" for c in report.failed)[:600],
+                details={"Changed by": path},
+            )
+        except Exception as alert_err:
+            logger.warning(f"📣 watch alert skipped: {alert_err}")
+        return report
+    except Exception as err:
+        logger.warning(f"👁️ VISUAL_GATE_WATCH path={path} site={website_id[:8]} error: {err}")
+        return None
+
+
+def watch_in_background(html: str, **kw: Any) -> bool:
+    """Start ``watch_page`` without waiting for it. False outside an event
+    loop (nothing started)."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return False
+    task = loop.create_task(watch_page(html, **kw))
+    _watch_tasks.add(task)
+    task.add_done_callback(_watch_tasks.discard)
+    return True
 
 
 async def gate_with_recovery(

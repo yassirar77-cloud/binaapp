@@ -48,11 +48,13 @@ def _vision(page=None, cards=None, hero=None, seen=None):
             return json.dumps(cards if cards is not None else {"mismatches": []})
         if "hero (top banner)" in text:
             return json.dumps(hero if hero is not None else {"matches": True, "shows": "the dishes", "reason": "fits"})
+        if "A first reviewer reported" in text:
+            return json.dumps({"confirmed": True, "evidence": "seen"})
         return json.dumps(page if page is not None else {"issues": [], "overall": "pass"})
     return _call
 
 
-CUTOFF = {"issues": [{"type": "cutoff", "where": "Milo Ais menu item", "detail": "card cut off at the bottom edge of the screen", "severity": "high"}],
+CUTOFF = {"issues": [{"slice": 1, "type": "cutoff", "where": "Milo Ais menu item", "detail": "card cut off at the bottom edge of the screen", "severity": "high"}],
           "overall": "fail"}
 
 
@@ -78,7 +80,7 @@ def test_vision_cutoff_with_measured_clipping_fails(monkeypatch):
 def test_cutoff_said_in_other_words_is_still_a_cutoff(monkeypatch):
     monkeypatch.setattr(vg, "render", _render_with(_measured()))
     page = {"issues": [{"type": "other", "where": "menu", "detail": "price is cut off", "severity": "high"},
-                       {"type": "overlap", "where": "hero", "detail": "badge over the button", "severity": "high"}], "overall": "fail"}
+                       {"slice": 1, "type": "overlap", "where": "hero", "detail": "badge over the button", "severity": "high"}], "overall": "fail"}
     r = asyncio.run(run_gate("<html/>", expect_map=False, expect_whatsapp=False, call_vision=_vision(page=page)))
     assert [c.name for c in r.failed] == ["vision_review"] and r.failed[0].count == 1 and "overlap" in r.failed[0].detail
 

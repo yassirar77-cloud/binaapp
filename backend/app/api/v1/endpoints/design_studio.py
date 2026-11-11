@@ -342,6 +342,17 @@ async def update_website_theme(
     else:
         message = "Tema laman web dikemas kini."
 
+    # A recolour is where contrast breaks: measured in the background,
+    # never changed, the operator told when it is broken.
+    try:
+        from app.services.visual_gate import watch_in_background
+        watch_in_background(
+            result.html, path="theme_change", website_id=str(website_id), user_id=str(website.get("user_id") or ""),
+            business_name=str(website.get("business_name") or website.get("name") or ""),
+        )
+    except Exception as _watch_err:
+        logger.warning(f"👁️ gate watch not started: {_watch_err}")
+
     response = {
         "success": True,
         "changed": True,
