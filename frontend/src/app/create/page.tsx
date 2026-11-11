@@ -47,6 +47,7 @@ import {
 import { User } from '@supabase/supabase-js'
 import { checkImageSafety } from '@/utils/imageModeration'
 import toast from 'react-hot-toast'
+import { burstFrom } from '@/lib/confetti'
 import { SITE_DOMAINS, DEFAULT_SITE_DOMAIN, HAS_DOMAIN_CHOICE, siteHost, siteUrl, type SiteDomain } from '@/lib/siteDomains'
 import './create.css'
 
@@ -61,6 +62,16 @@ const CREATE_STEPS = [
   { id: 'hero', label: 'Hero image' },
 ] as const
 type CreateStepId = typeof CREATE_STEPS[number]['id']
+
+// Tap-to-start sentences for the shop story — a blank box is the hardest part.
+const STORY_STARTERS = [
+  { id: 'lokasi', emoji: '📍', ms: { label: 'Lokasi', text: 'Kedai kami terletak di ' }, en: { label: 'Location', text: 'We are located at ' } },
+  { id: 'waktu', emoji: '⏰', ms: { label: 'Waktu buka', text: 'Kami buka setiap hari dari ' }, en: { label: 'Opening hours', text: 'We are open daily from ' } },
+  { id: 'laris', emoji: '⭐', ms: { label: 'Paling laris', text: 'Yang paling laris di kedai kami ialah ' }, en: { label: 'Best seller', text: 'Our best seller is ' } },
+  { id: 'sejarah', emoji: '📖', ms: { label: 'Sejarah', text: 'Kami mula berniaga sejak ' }, en: { label: 'Our story', text: 'We started in ' } },
+  { id: 'pelanggan', emoji: '👥', ms: { label: 'Pelanggan', text: 'Pelanggan kami kebanyakannya ' }, en: { label: 'Customers', text: 'Our customers are mostly ' } },
+  { id: 'vibe', emoji: '✨', ms: { label: 'Suasana', text: 'Suasana kedai kami ' }, en: { label: 'Vibe', text: 'The vibe of our shop is ' } },
+] as const
 
 const EXAMPLE_DESCRIPTIONS = [
   {
@@ -2187,6 +2198,31 @@ export default function CreatePage() {
     : description.length < 10 ? { text: 'Tulis sedikit cerita kedai anda', focusId: 'cr-description', ready: false }
     : { text: 'Sedia — tekan Generate', ready: true }
   const formVisible = !generatedHtml && styleVariations.length === 0
+  const doneCount = Object.values(stepDone).filter(Boolean).length
+  // Small celebrations: confetti when a step is first completed, and a cheer
+  // the moment the form becomes ready to generate. Skipped during the first
+  // moments after load so restored drafts don't set everything off at once.
+  const doneKey = CREATE_STEPS.map(s => (stepDone[s.id] ? '1' : '0')).join('')
+  const prevDoneKey = useRef(doneKey)
+  const prevReady = useRef(generateHint.ready)
+  const mountedAt = useRef(Date.now())
+  useEffect(() => {
+    const before = prevDoneKey.current
+    const wasReady = prevReady.current
+    prevDoneKey.current = doneKey
+    prevReady.current = generateHint.ready
+    if (!formVisible || Date.now() - mountedAt.current < 2000) return
+    const newlyDone = CREATE_STEPS.filter((s, i) => doneKey[i] === '1' && before[i] === '0')
+    if (newlyDone.length) {
+      const chip = document.querySelector(`[data-step-chip="${newlyDone[0].id}"] .n`)
+      if (!burstFrom(chip)) burstFrom(document.querySelector('.cr-ring'))
+    }
+    if (generateHint.ready && !wasReady) {
+      burstFrom(document.querySelector('.cr-mobilebar .cr-gen-btn'), 22)
+      toast('Mantap! Dah boleh tekan Generate.', { icon: '🎉', id: 'cr-ready' })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doneKey, generateHint.ready, formVisible])
   useEffect(() => {
     if (!formVisible || typeof IntersectionObserver === 'undefined') return
     const sections = Array.from(document.querySelectorAll<HTMLElement>('.cr-sec'))
@@ -2378,11 +2414,12 @@ export default function CreatePage() {
                   <button
                     key={s.id}
                     type="button"
+                    data-step-chip={s.id}
                     className={'cr-step-chip' + (activeStep === s.id ? ' active' : '') + (done ? ' done' : '')}
                     aria-current={activeStep === s.id ? 'step' : undefined}
                     onClick={() => scrollToStep(s.id)}
                   >
-                    <span className="n">{done ? <Check size={11} strokeWidth={3} /> : i + 1}</span>
+                    <span key={done ? 'done' : 'todo'} className="n">{done ? <Check size={11} strokeWidth={3} /> : i + 1}</span>
                     {s.label}
                   </button>
                 )
@@ -2411,13 +2448,13 @@ export default function CreatePage() {
                 : len < 1200 ? 'great'
                 : len < DESC_WARN ? 'plenty'
                 : 'nearmax';
-              const helpers: Record<DescStatus, { c: string; t: string }> = {
-                empty:    { c: '#5A5A6E', t: 'AI akan tanya soalan dengan deskripsi anda.' },
-                tooshort: { c: '#FFB020', t: `Tambah ${DESC_MIN - len} aksara lagi untuk hasil terbaik.` },
-                ok:       { c: '#22C08F', t: 'Bagus — AI dah ada cukup info.' },
-                great:    { c: '#C7FF3D', t: 'Premium quality output dijangka. AI ready.' },
-                plenty:   { c: '#C7FF3D', t: `Sangat detailed. ${DESC_MAX - len} aksara baki.` },
-                nearmax:  { c: '#FFB020', t: len >= DESC_MAX
+              const helpers: Record<DescStatus, { e: string; c: string; t: string }> = {
+                empty:    { e: '💤', c: '#5A5A6E', t: 'Mula menaip — AI sedang tunggu cerita anda.' },
+                tooshort: { e: '✍️', c: '#FFB020', t: `Tambah ${DESC_MIN - len} aksara lagi untuk hasil terbaik.` },
+                ok:       { e: '🙂', c: '#22C08F', t: 'Bagus! AI dah mula faham kedai anda.' },
+                great:    { e: '🤩', c: '#C7FF3D', t: 'Mantap! Website anda akan jadi lebih padu.' },
+                plenty:   { e: '🔥', c: '#C7FF3D', t: `Sangat detailed. ${DESC_MAX - len} aksara baki.` },
+                nearmax:  { e: '⚠️', c: '#FFB020', t: len >= DESC_MAX
                               ? `Had ${DESC_MAX} aksara dicapai — teks selepas ini tidak akan dihantar.`
                               : `Hampir penuh: tinggal ${DESC_MAX - len} aksara sebelum had ${DESC_MAX}.` },
               };
@@ -2461,7 +2498,9 @@ export default function CreatePage() {
                       onPaste={handleBusinessNamePaste}
                     />
                     <div style={{ fontSize: 11, color: '#5A5A6E', marginTop: 6, lineHeight: 1.4 }}>
-                      Nama ini jadi tajuk website, nama dalam Google, dan nama di footer. Tanpa nama, website tak boleh dijana.
+                      {businessName.trim()
+                        ? <span className="cr-greet">👋 Sedap nama tu! <b style={{ color: '#C7FF3D', fontWeight: 600 }}>{businessName.trim()}</b> akan jadi tajuk website anda.</span>
+                        : 'Nama ini jadi tajuk website, nama dalam Google, dan nama di footer. Tanpa nama, website tak boleh dijana.'}
                     </div>
                   </div>
                   <div className="cr-card cr-card-hairline" style={{ padding: 4, position: 'relative', overflow: 'hidden' }}>
@@ -2507,9 +2546,38 @@ export default function CreatePage() {
                         <div className="num" style={{ fontSize: 11, color: helper.c, minWidth: 60 }}>{len} / {DESC_MAX}</div>
                       </div>
                       <div style={{ fontSize: 12, color: helper.c, display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <Sparkles size={11} /> {helper.t}
+                        <span key={status} className="cr-mood" aria-hidden="true">{helper.e}</span> {helper.t}
                       </div>
                     </div>
+                  </div>
+                  <div className="cr-starters" data-testid="story-starters">
+                    <span className="cr-starters-label">{language === 'ms' ? 'Tak tahu nak tulis apa? Tekan:' : 'Not sure what to write? Tap:'}</span>
+                    {STORY_STARTERS.map((st) => {
+                      const t = st[language === 'ms' ? 'ms' : 'en']
+                      const used = description.includes(t.text.trim())
+                      return (
+                        <button
+                          key={st.id}
+                          type="button"
+                          className={'cr-starter' + (used ? ' used' : '')}
+                          disabled={used || len + t.text.length > DESC_MAX}
+                          onClick={() => {
+                            const base = description.trimEnd()
+                            const next = (base ? base + (/[.!?]$/.test(base) ? ' ' : '. ') : '') + t.text
+                            setDescription(next.slice(0, DESC_MAX))
+                            setTimeout(() => {
+                              const el = document.getElementById('cr-description') as HTMLTextAreaElement | null
+                              if (!el) return
+                              el.focus()
+                              el.setSelectionRange(el.value.length, el.value.length)
+                              el.scrollTop = el.scrollHeight
+                            }, 0)
+                          }}
+                        >
+                          <span aria-hidden="true">{used ? '✓' : st.emoji}</span> {t.label}
+                        </button>
+                      )
+                    })}
                   </div>
                 </section>
               );
@@ -2565,7 +2633,7 @@ export default function CreatePage() {
                     {type.recommended && (
                       <div className="pill pill-volt" style={{ position: 'absolute', top: 8, right: 8, padding: '2px 6px', fontSize: 9 }}>RECOMMENDED</div>
                     )}
-                    <div style={{ fontSize: 22, marginBottom: 10, filter: 'grayscale(.2)' }}>{type.icon}</div>
+                    <div className="cr-biz-ico" style={{ fontSize: 22, marginBottom: 10, filter: 'grayscale(.2)' }}>{type.icon}</div>
                     <div style={{ fontSize: 13, fontWeight: 600, color: '#F5F5FA', marginBottom: 3, lineHeight: 1.2 }}>{type.label}</div>
                     <div style={{ fontSize: 11, color: '#86869A', lineHeight: 1.35 }}>{type.sub}</div>
                   </div>
@@ -3698,11 +3766,24 @@ export default function CreatePage() {
                 if (id) setTimeout(() => document.getElementById(id)?.focus({ preventScroll: true }), 350)
               }}
             >
-              <span className={'cr-mobilebar-dot' + (generateHint.ready ? ' ready' : '')} />
+              <span className={'cr-ring' + (generateHint.ready ? ' ready' : '')} aria-hidden="true">
+                <svg width="38" height="38" viewBox="0 0 38 38">
+                  <circle cx="19" cy="19" r="16" fill="none" stroke="rgba(255,255,255,.08)" strokeWidth="3" />
+                  <circle
+                    cx="19" cy="19" r="16" fill="none" strokeWidth="3" strokeLinecap="round"
+                    stroke={generateHint.ready ? '#C7FF3D' : '#FFB020'}
+                    strokeDasharray={2 * Math.PI * 16}
+                    strokeDashoffset={2 * Math.PI * 16 * (1 - doneCount / CREATE_STEPS.length)}
+                    transform="rotate(-90 19 19)"
+                    style={{ transition: 'stroke-dashoffset 500ms cubic-bezier(.25,1,.5,1), stroke 300ms' }}
+                  />
+                </svg>
+                <span key={doneCount} className="cr-ring-num">{doneCount}</span>
+              </span>
               <span style={{ minWidth: 0 }}>
                 <span className="cr-mobilebar-text">{generateHint.text}</span>
                 <span className="cr-mobilebar-sub">
-                  {Object.values(stepDone).filter(Boolean).length} / {CREATE_STEPS.length} langkah diisi
+                  {doneCount === CREATE_STEPS.length ? 'Semua langkah lengkap 🎉' : `${doneCount} / ${CREATE_STEPS.length} langkah diisi`}
                 </span>
               </span>
             </button>
@@ -3710,7 +3791,7 @@ export default function CreatePage() {
               type="button"
               onClick={handleGenerate}
               disabled={loading || description.length < 10 || !businessName.trim() || isAtLimit}
-              className="cr-gen-btn"
+              className={'cr-gen-btn' + (generateHint.ready && !loading ? ' cr-ready-nudge' : '')}
               style={{ width: 'auto', height: 46, padding: '0 18px', fontSize: 15, marginTop: 0, flexShrink: 0 }}
             >
               <Sparkles size={15} /> {loading ? 'Generating…' : 'Generate'}
