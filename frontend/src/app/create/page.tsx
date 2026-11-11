@@ -47,8 +47,31 @@ import {
 import { User } from '@supabase/supabase-js'
 import { checkImageSafety } from '@/utils/imageModeration'
 import toast from 'react-hot-toast'
+import { burstFrom } from '@/lib/confetti'
 import { SITE_DOMAINS, DEFAULT_SITE_DOMAIN, HAS_DOMAIN_CHOICE, siteHost, siteUrl, type SiteDomain } from '@/lib/siteDomains'
 import './create.css'
+
+// Form sections in on-screen order — essentials first, optional ones last.
+const CREATE_STEPS = [
+  { id: 'cerita', label: 'Cerita kedai' },
+  { id: 'jenis', label: 'Jenis kedai' },
+  { id: 'menu', label: 'Menu' },
+  { id: 'features', label: 'Features' },
+  { id: 'bayaran', label: 'Bayaran' },
+  { id: 'rupa', label: 'Bahasa & tema' },
+  { id: 'hero', label: 'Hero image' },
+] as const
+type CreateStepId = typeof CREATE_STEPS[number]['id']
+
+// Tap-to-start sentences for the shop story — a blank box is the hardest part.
+const STORY_STARTERS = [
+  { id: 'lokasi', emoji: '📍', ms: { label: 'Lokasi', text: 'Kedai kami terletak di ' }, en: { label: 'Location', text: 'We are located at ' } },
+  { id: 'waktu', emoji: '⏰', ms: { label: 'Waktu buka', text: 'Kami buka setiap hari dari ' }, en: { label: 'Opening hours', text: 'We are open daily from ' } },
+  { id: 'laris', emoji: '⭐', ms: { label: 'Paling laris', text: 'Yang paling laris di kedai kami ialah ' }, en: { label: 'Best seller', text: 'Our best seller is ' } },
+  { id: 'sejarah', emoji: '📖', ms: { label: 'Sejarah', text: 'Kami mula berniaga sejak ' }, en: { label: 'Our story', text: 'We started in ' } },
+  { id: 'pelanggan', emoji: '👥', ms: { label: 'Pelanggan', text: 'Pelanggan kami kebanyakannya ' }, en: { label: 'Customers', text: 'Our customers are mostly ' } },
+  { id: 'vibe', emoji: '✨', ms: { label: 'Suasana', text: 'Suasana kedai kami ' }, en: { label: 'Vibe', text: 'The vibe of our shop is ' } },
+] as const
 
 const EXAMPLE_DESCRIPTIONS = [
   {
@@ -155,6 +178,7 @@ export default function CreatePage() {
   // <title>, og:title, the JSON-LD node and the footer at once. Generation
   // is now blocked without a name, so this field is where it comes from.
   const [businessName, setBusinessName] = useState('')
+  const [activeStep, setActiveStep] = useState<CreateStepId>('cerita')
   // The number every WhatsApp CTA points at. Also never collected, which is
   // why generated sites shipped a pulsing green button wired to the
   // pipeline's own example number, +60123456789. No number now means no
@@ -639,7 +663,7 @@ export default function CreatePage() {
     if (heroPreview) URL.revokeObjectURL(heroPreview)
     setHeroPreview('')
     setHeroPosterWarning(null)
-    toast.success('Gambar dipindahkan ke langkah 06 sebagai papan menu')
+    toast.success('Gambar dipindahkan ke langkah 03 sebagai papan menu')
     void readMenuFromImage(idx, url)
   }
 
@@ -766,7 +790,7 @@ export default function CreatePage() {
       if (first && !/\d/.test(first) && !first.includes('|')) setBusinessName(first.replace(/:$/, '').slice(0, 80))
     }
     if (parsed.length > 0) {
-      toast.success(`Senarai menu dikesan — ${parsed.length} item ditambah ke langkah 06`)
+      toast.success(`Senarai menu dikesan — ${parsed.length} item ditambah ke langkah 03`)
       document.getElementById('v3-menu-upload-0')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     } else {
       toast.error('Senarai dikesan tetapi tiada item dapat dibaca. Satu item setiap baris, contoh: Nasi Lemak 5.50')
@@ -2150,6 +2174,74 @@ export default function CreatePage() {
     setLanguage(example.lang as 'ms' | 'en')
   }
 
+  // ── Step bar + mobile generate bar ──
+  // Essentials first (name/story, type, menu, features, payment); the two
+  // optional sections (look, hero image) last. `done` is only a hint for the
+  // chips — handleGenerate and the backend remain the authority.
+  const stepDone: Record<CreateStepId, boolean> = {
+    cerita: !!businessName.trim() && description.length >= 10,
+    jenis: businessType !== 'auto',
+    menu: uploadedImages.gallery.some(g => (g.name || '').trim()),
+    features: Object.values(selectedFeatures).some(Boolean),
+    bayaran: paymentMethods.cod || paymentMethods.qr,
+    rupa: false,
+    hero: !!uploadedImages.hero,
+  }
+  const scrollToStep = (id: CreateStepId) => {
+    setActiveStep(id)
+    document.getElementById(`cr-step-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+  // What still blocks Generate, in the order the merchant should fix it.
+  const generateHint: { text: string; focusId?: string; ready: boolean } =
+    isAtLimit ? { text: 'Had website dicapai — upgrade untuk bina lagi.', ready: false }
+    : !businessName.trim() ? { text: 'Isi nama kedai dulu', focusId: 'cr-business-name', ready: false }
+    : description.length < 10 ? { text: 'Tulis sedikit cerita kedai anda', focusId: 'cr-description', ready: false }
+    : { text: 'Sedia — tekan Generate', ready: true }
+  const formVisible = !generatedHtml && styleVariations.length === 0
+  const doneCount = Object.values(stepDone).filter(Boolean).length
+  // Small celebrations: confetti when a step is first completed, and a cheer
+  // the moment the form becomes ready to generate. Skipped during the first
+  // moments after load so restored drafts don't set everything off at once.
+  const doneKey = CREATE_STEPS.map(s => (stepDone[s.id] ? '1' : '0')).join('')
+  const prevDoneKey = useRef(doneKey)
+  const prevReady = useRef(generateHint.ready)
+  const mountedAt = useRef(Date.now())
+  useEffect(() => {
+    const before = prevDoneKey.current
+    const wasReady = prevReady.current
+    prevDoneKey.current = doneKey
+    prevReady.current = generateHint.ready
+    if (!formVisible || Date.now() - mountedAt.current < 2000) return
+    const newlyDone = CREATE_STEPS.filter((s, i) => doneKey[i] === '1' && before[i] === '0')
+    if (newlyDone.length) {
+      const chip = document.querySelector(`[data-step-chip="${newlyDone[0].id}"] .n`)
+      if (!burstFrom(chip)) burstFrom(document.querySelector('.cr-ring'))
+    }
+    if (generateHint.ready && !wasReady) {
+      burstFrom(document.querySelector('.cr-mobilebar .cr-gen-btn'), 22)
+      toast('Mantap! Dah boleh tekan Generate.', { icon: '🎉', id: 'cr-ready' })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doneKey, generateHint.ready, formVisible])
+  useEffect(() => {
+    if (!formVisible || typeof IntersectionObserver === 'undefined') return
+    const sections = Array.from(document.querySelectorAll<HTMLElement>('.cr-sec'))
+    if (!sections.length) return
+    const io = new IntersectionObserver((entries) => {
+      const top = entries.filter(e => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0]
+      if (top) setActiveStep(top.target.id.replace('cr-step-', '') as CreateStepId)
+    }, { rootMargin: '-130px 0px -55% 0px' })
+    sections.forEach(el => io.observe(el))
+    return () => io.disconnect()
+  }, [formVisible])
+  // Keep the active chip in view inside the horizontally scrolling bar.
+  useEffect(() => {
+    const chip = document.querySelector<HTMLElement>('.cr-step-chip.active')
+    const bar = chip?.parentElement
+    if (!chip || !bar) return
+    bar.scrollTo({ left: chip.offsetLeft - bar.clientWidth / 2 + chip.clientWidth / 2, behavior: 'smooth' })
+  }, [activeStep])
+
   return (
     <div className="bg-create grain font-geist" style={{ minHeight: '100vh', color: '#F5F5FA' }}>
       {/* ── Nav ── */}
@@ -2181,7 +2273,7 @@ export default function CreatePage() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <button
                     onClick={handleLogout}
-                    style={{ padding: '8px 10px', fontSize: 12, background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 8, color: '#B8B8C8', cursor: 'pointer' }}
+                    style={{ padding: '8px 10px', fontSize: 12, background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 8, color: '#B8B8C8', cursor: 'pointer', whiteSpace: 'nowrap' }}
                   >
                     Log Keluar
                   </button>
@@ -2189,7 +2281,7 @@ export default function CreatePage() {
                     <div style={{ width: 26, height: 26, borderRadius: '50%', background: 'linear-gradient(135deg, #C7FF3D, #4F3DFF)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#05050C' }}>
                       {(user.email?.[0] || 'U').toUpperCase()}
                     </div>
-                    <span style={{ fontSize: 13, color: '#B8B8C8' }}>{user.user_metadata?.full_name || user.email?.split('@')[0] || 'User'}</span>
+                    <span className="cr-nav-username" style={{ fontSize: 13, color: '#B8B8C8' }}>{user.user_metadata?.full_name || user.email?.split('@')[0] || 'User'}</span>
                   </Link>
                 </div>
               ) : (
@@ -2205,7 +2297,7 @@ export default function CreatePage() {
         </div>
       </nav>
 
-      <main className="shell-create" style={{ paddingTop: 32, paddingBottom: 80, position: 'relative', zIndex: 2 }}>
+      <main className="shell-create cr-main" style={{ paddingTop: 32, paddingBottom: 80, position: 'relative', zIndex: 2 }}>
         {/* ── Limit Reached Banner (top-level, always visible) ── */}
         {isAtLimit && (
           <div className="banner-accent float-in" style={{ background: 'linear-gradient(90deg, rgba(255,176,32,.06), transparent)', border: '1px solid rgba(255,176,32,.22)' }}>
@@ -2224,18 +2316,18 @@ export default function CreatePage() {
         )}
 
         {/* ── Hero Card ── */}
-        <section className="cr-card cr-card-hairline" style={{ padding: 32, position: 'relative', overflow: 'hidden', marginBottom: 32 }}>
+        <section className="cr-card cr-card-hairline cr-hero" style={{ padding: 32, position: 'relative', overflow: 'hidden', marginBottom: 32 }}>
           <div className="dotgrid" style={{ position: 'absolute', inset: 0, opacity: .4, maskImage: 'radial-gradient(ellipse at top right, black 20%, transparent 70%)', WebkitMaskImage: 'radial-gradient(ellipse at top right, black 20%, transparent 70%)' }} />
           <div style={{ position: 'absolute', top: -100, right: -80, width: 320, height: 320, borderRadius: '50%', background: 'radial-gradient(circle, rgba(79,61,255,.22), transparent 60%)', pointerEvents: 'none' }} />
           <div style={{ position: 'relative' }}>
             <div className="pill pill-volt ai-pulse" style={{ marginBottom: 20 }}>
               <span className="led" /> AI ready · powered by claude
             </div>
-            <h1 style={{ fontSize: 56, fontWeight: 700, letterSpacing: '-0.045em', lineHeight: 1, margin: 0, color: '#F5F5FA' }}>
+            <h1 className="cr-hero-title" style={{ fontSize: 56, fontWeight: 700, letterSpacing: '-0.045em', lineHeight: 1, margin: 0, color: '#F5F5FA' }}>
               Bina, jual,<br />
               <span style={{ background: 'linear-gradient(120deg, #C7FF3D 30%, #6B5CFF 70%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>bebas.</span>
             </h1>
-            <p style={{ color: '#B8B8C8', fontSize: 18, lineHeight: 1.5, margin: '20px 0 28px', maxWidth: 540 }}>
+            <p className="cr-hero-lede" style={{ color: '#B8B8C8', fontSize: 18, lineHeight: 1.5, margin: '20px 0 28px', maxWidth: 540 }}>
               Cerita pasal kedai anda. AI bina website siap dalam 60 saat — terima pesanan, jual menu, semua dalam satu tempat.
             </p>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
@@ -2313,11 +2405,727 @@ export default function CreatePage() {
               </div>
             )}
 
-            {/* ── 02 Bahasa & Tema ── */}
-            <section style={{ marginBottom: 32 }}>
+            {/* Step bar — jumps between sections; essentials come first, the
+                two optional sections last. */}
+            <div className="cr-steps" role="navigation" aria-label="Langkah borang">
+              {CREATE_STEPS.map((s, i) => {
+                const done = stepDone[s.id]
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    data-step-chip={s.id}
+                    className={'cr-step-chip' + (activeStep === s.id ? ' active' : '') + (done ? ' done' : '')}
+                    aria-current={activeStep === s.id ? 'step' : undefined}
+                    onClick={() => scrollToStep(s.id)}
+                  >
+                    <span key={done ? 'done' : 'todo'} className="n">{done ? <Check size={11} strokeWidth={3} /> : i + 1}</span>
+                    {s.label}
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* ── 01 Cerita pasal kedai anda ── */}
+            {(() => {
+              const DESC_MIN = 200;
+              // Matches WebsiteGenerationRequest.description (max_length=5000).
+              // Was 1000, which silently truncated mid-sentence and ate
+              // merchants' contact details before they reached generation.
+              const DESC_MAX = 5000;
+              const len = description.length;
+              const pct = Math.min(100, (len / DESC_MIN) * 100);
+              // Thresholds rescaled for DESC_MAX=5000 (they were tuned for 1000).
+              // 'nearmax' exists so the cap announces itself BEFORE the input
+              // starts dropping characters — the old behaviour cut mid-sentence
+              // with no warning and silently ate merchants' contact details.
+              const DESC_WARN = DESC_MAX - 500;
+              type DescStatus = 'empty' | 'tooshort' | 'ok' | 'great' | 'plenty' | 'nearmax';
+              const status: DescStatus =
+                len === 0 ? 'empty'
+                : len < DESC_MIN ? 'tooshort'
+                : len < 600 ? 'ok'
+                : len < 1200 ? 'great'
+                : len < DESC_WARN ? 'plenty'
+                : 'nearmax';
+              const helpers: Record<DescStatus, { e: string; c: string; t: string }> = {
+                empty:    { e: '💤', c: '#5A5A6E', t: 'Mula menaip — AI sedang tunggu cerita anda.' },
+                tooshort: { e: '✍️', c: '#FFB020', t: `Tambah ${DESC_MIN - len} aksara lagi untuk hasil terbaik.` },
+                ok:       { e: '🙂', c: '#22C08F', t: 'Bagus! AI dah mula faham kedai anda.' },
+                great:    { e: '🤩', c: '#C7FF3D', t: 'Mantap! Website anda akan jadi lebih padu.' },
+                plenty:   { e: '🔥', c: '#C7FF3D', t: `Sangat detailed. ${DESC_MAX - len} aksara baki.` },
+                nearmax:  { e: '⚠️', c: '#FFB020', t: len >= DESC_MAX
+                              ? `Had ${DESC_MAX} aksara dicapai — teks selepas ini tidak akan dihantar.`
+                              : `Hampir penuh: tinggal ${DESC_MAX - len} aksara sebelum had ${DESC_MAX}.` },
+              };
+              const helper = helpers[status];
+              return (
+                <section id="cr-step-cerita" className="cr-sec" style={{ marginBottom: 32 }}>
+                  <div style={{ marginBottom: 20 }}>
+                    <div className="section-num" style={{ marginBottom: 10 }}>
+                      <span className="dot" />01 — CERITA PASAL KEDAI ANDA
+                    </div>
+                    <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.025em', margin: 0, color: '#F5F5FA', lineHeight: 1.1 }}>Cerita pasal kedai anda</h2>
+                    <p style={{ color: '#86869A', fontSize: 14, margin: '8px 0 0', maxWidth: 540, lineHeight: 1.5 }}>Lebih detail = website lebih baik. Cakap pasal vibe, pelanggan, signature menu, sejarah — semua membantu AI.</p>
+                  </div>
+                  <div className="cr-card cr-card-hairline" style={{ padding: '16px 18px', marginBottom: 12 }}>
+                    <label
+                      htmlFor="cr-business-name"
+                      style={{ display: 'block', fontSize: 12, color: '#86869A', marginBottom: 6 }}
+                    >
+                      Nama kedai <span style={{ color: '#FFB020' }}>*wajib</span>
+                    </label>
+                    <input
+                      id="cr-business-name"
+                      type="text"
+                      required
+                      maxLength={80}
+                      // Chrome classifies a "business name" input as an
+                      // organisation field and, on the first interaction, fills
+                      // the WHOLE saved-address group around it — the address
+                      // input further down included. That is the only mechanism
+                      // that fills a controlled input and fires onChange without
+                      // typing, and it is the best explanation for a blank
+                      // address field publishing a merchant's own home address
+                      // (bji). "off" alone is ignored for address groups; a
+                      // non-standard token is not.
+                      autoComplete="binaapp-no-autofill"
+                      name="binaapp_business_name"
+                      placeholder="cth: Nasi Kandar Daging Crystal"
+                      className="cr-input"
+                      value={businessName}
+                      onChange={(e) => setBusinessName(e.target.value.slice(0, 80))}
+                      onPaste={handleBusinessNamePaste}
+                    />
+                    <div style={{ fontSize: 11, color: '#5A5A6E', marginTop: 6, lineHeight: 1.4 }}>
+                      {businessName.trim()
+                        ? <span className="cr-greet">👋 Sedap nama tu! <b style={{ color: '#C7FF3D', fontWeight: 600 }}>{businessName.trim()}</b> akan jadi tajuk website anda.</span>
+                        : 'Nama ini jadi tajuk website, nama dalam Google, dan nama di footer. Tanpa nama, website tak boleh dijana.'}
+                    </div>
+                  </div>
+                  <div className="cr-card cr-card-hairline" style={{ padding: 4, position: 'relative', overflow: 'hidden' }}>
+                    <div className="cr-story-pill" style={{ position: 'absolute', top: 16, right: 16, display: 'flex', alignItems: 'center', gap: 8, zIndex: 2 }}>
+                      <span className="pill pill-indigo" style={{ padding: '4px 10px' }}>
+                        <span style={{ display: 'inline-flex', width: 10, height: 10 }}>
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#C7FF3D" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M5.6 18.4l2.8-2.8M15.6 8.4l2.8-2.8"/></svg>
+                        </span>
+                        AI listening
+                      </span>
+                    </div>
+                    <textarea
+                      id="cr-description"
+                      className="cr-story-input"
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value.slice(0, DESC_MAX))}
+                      placeholder={
+                        language === 'ms'
+                          ? 'Contoh: Kedai mamak family-run di Shah Alam since 1998. Kami famous dengan nasi kandar daging crystal kuah pedas — customer datang dari KL khas untuk makan. Vibe authentic, tak fancy. Open 24 jam, weekends penuh dengan family ramai-ramai.'
+                          : 'Example: I have a coffee shop in Kuala Lumpur serving specialty coffee, cakes, and light meals. Prices from RM8. Located at TTDI. Contact via WhatsApp 012-3456789. Open daily 8am-6pm.'
+                      }
+                      style={{
+                        width: '100%',
+                        background: 'transparent',
+                        border: 'none',
+                        minHeight: 180,
+                        fontSize: 15,
+                        padding: '20px 22px 64px',
+                        boxShadow: 'none',
+                        outline: 'none',
+                        resize: 'vertical',
+                        color: '#F5F5FA',
+                        lineHeight: 1.55,
+                        fontFamily: "'Geist', 'Inter', -apple-system, sans-serif",
+                        letterSpacing: '-0.005em',
+                      }}
+                    />
+                    <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '12px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderTop: '1px solid rgba(255,255,255,.04)', background: 'linear-gradient(180deg, transparent, rgba(0,0,0,.2))', flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 200, maxWidth: 480 }}>
+                        <div style={{ flex: 1, height: 4, background: 'rgba(255,255,255,.06)', borderRadius: 999, overflow: 'hidden' }}>
+                          <div style={{ height: '100%', width: `${pct}%`, background: helper.c, transition: 'all 300ms', boxShadow: `0 0 8px ${helper.c}` }} />
+                        </div>
+                        <div className="num" style={{ fontSize: 11, color: helper.c, minWidth: 60 }}>{len} / {DESC_MAX}</div>
+                      </div>
+                      <div style={{ fontSize: 12, color: helper.c, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span key={status} className="cr-mood" aria-hidden="true">{helper.e}</span> {helper.t}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="cr-starters" data-testid="story-starters">
+                    <span className="cr-starters-label">{language === 'ms' ? 'Tak tahu nak tulis apa? Tekan:' : 'Not sure what to write? Tap:'}</span>
+                    {STORY_STARTERS.map((st) => {
+                      const t = st[language === 'ms' ? 'ms' : 'en']
+                      const used = description.includes(t.text.trim())
+                      return (
+                        <button
+                          key={st.id}
+                          type="button"
+                          className={'cr-starter' + (used ? ' used' : '')}
+                          disabled={used || len + t.text.length > DESC_MAX}
+                          onClick={() => {
+                            const base = description.trimEnd()
+                            const next = (base ? base + (/[.!?]$/.test(base) ? ' ' : '. ') : '') + t.text
+                            setDescription(next.slice(0, DESC_MAX))
+                            setTimeout(() => {
+                              const el = document.getElementById('cr-description') as HTMLTextAreaElement | null
+                              if (!el) return
+                              el.focus()
+                              el.setSelectionRange(el.value.length, el.value.length)
+                              el.scrollTop = el.scrollHeight
+                            }, 0)
+                          }}
+                        >
+                          <span aria-hidden="true">{used ? '✓' : st.emoji}</span> {t.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </section>
+              );
+            })()}
+
+            {/* ── 02 Apa jenis kedai anda? ── */}
+            <section id="cr-step-jenis" className="cr-sec" style={{ marginBottom: 32 }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 24, marginBottom: 20, flexWrap: 'wrap' }}>
+                <div>
+                  <div className="section-num" style={{ marginBottom: 10 }}>
+                    <span className="dot" />02 — APA JENIS KEDAI ANDA?
+                  </div>
+                  <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.025em', margin: 0, color: '#F5F5FA', lineHeight: 1.1 }}>Apa jenis kedai anda?</h2>
+                  <p style={{ color: '#86869A', fontSize: 14, margin: '8px 0 0', maxWidth: 540, lineHeight: 1.5 }}>AI guna pilihan ni untuk pilih layout, content &amp; menu structure yang sesuai.</p>
+                </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+                  <div
+                    role="switch"
+                    aria-checked={multiStyle}
+                    tabIndex={0}
+                    onClick={() => setMultiStyle(!multiStyle)}
+                    onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setMultiStyle(!multiStyle); } }}
+                    className={'toggle ' + (multiStyle ? 'on' : '')}
+                  />
+                  <span style={{ fontSize: 13, color: '#B8B8C8' }}>
+                    Multi-style preview
+                    <span className="pill pill-indigo" style={{ marginLeft: 6, padding: '2px 7px' }}>
+                      <span style={{ display: 'inline-flex', width: 10, height: 10 }}>
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#C7FF3D" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M5.6 18.4l2.8-2.8M15.6 8.4l2.8-2.8"/></svg>
+                      </span>
+                      AI
+                    </span>
+                  </span>
+                </div>
+              </div>
+              <div className="biz-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0,1fr))', gap: 12 }}>
+                {([
+                  { id: 'auto' as const, icon: '✨', label: 'Auto Detect', sub: 'AI pilih sesuai dengan deskripsi anda', recommended: true },
+                  { id: 'food' as const, icon: '🍜', label: 'Restoran', sub: 'Mamak, kafe, kedai makan', recommended: false },
+                  { id: 'clothing' as const, icon: '👗', label: 'Pakaian', sub: 'Butik, fashion, lifestyle', recommended: false },
+                  { id: 'salon' as const, icon: '💇', label: 'Salon', sub: 'Hair, beauty, spa', recommended: false },
+                  { id: 'services' as const, icon: '🔧', label: 'Servis', sub: 'Bengkel, plumbing, repair', recommended: false },
+                  { id: 'bakery' as const, icon: '🥐', label: 'Bakeri', sub: 'Roti, kek, pastri', recommended: false },
+                  { id: 'general' as const, icon: '✦', label: 'Lain-lain', sub: 'Custom — beritahu AI', recommended: false }
+                ]).map(type => (
+                  <div
+                    key={type.id}
+                    onClick={() => setBusinessType(type.id)}
+                    className={'opt ' + (businessType === type.id ? 'selected' : '')}
+                    style={{ padding: 14, minHeight: 110, minWidth: 0 }}
+                    data-biz-card
+                  >
+                    {type.recommended && (
+                      <div className="pill pill-volt" style={{ position: 'absolute', top: 8, right: 8, padding: '2px 6px', fontSize: 9 }}>RECOMMENDED</div>
+                    )}
+                    <div className="cr-biz-ico" style={{ fontSize: 22, marginBottom: 10, filter: 'grayscale(.2)' }}>{type.icon}</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#F5F5FA', marginBottom: 3, lineHeight: 1.2 }}>{type.label}</div>
+                    <div style={{ fontSize: 11, color: '#86869A', lineHeight: 1.35 }}>{type.sub}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ fontSize: 12, color: '#5A5A6E', marginTop: 12 }}>
+                {businessType === 'auto' && 'Sistem akan mengesan jenis perniagaan anda secara automatik dari deskripsi'}
+                {businessType === 'food' && 'Butang: "Pesan Delivery" | Kategori: Nasi, Lauk, Minuman'}
+                {businessType === 'clothing' && 'Butang: "Beli Sekarang" | Pilihan saiz & warna | Penghantaran'}
+                {businessType === 'salon' && 'Butang: "Tempah Sekarang" | Tarikh temujanji & pilih staff'}
+                {businessType === 'services' && 'Butang: "Tempah Servis" | Tarikh & lokasi servis'}
+                {businessType === 'bakery' && 'Butang: "Tempah Kek" | Pilihan saiz & mesej atas kek'}
+                {businessType === 'general' && 'Butang: "Beli Sekarang" | Pilihan penghantaran'}
+              </div>
+              {multiStyle && (
+                <label className="cr-check" style={{ marginTop: 14, padding: '10px 12px', background: 'rgba(255,255,255,.02)', border: '1px solid rgba(255,255,255,.04)', borderRadius: 10 }}>
+                  <input
+                    type="checkbox"
+                    checked={generatePreviews}
+                    onChange={(e) => setGeneratePreviews(e.target.checked)}
+                  />
+                  <span className="cr-check-box" />
+                  <div>
+                    <span style={{ fontSize: 13, fontWeight: 500, color: '#B8B8C8' }}>Generate Preview Thumbnails</span>
+                    <p style={{ fontSize: 12, color: '#5A5A6E', marginTop: 2 }}>Takes 10-15 seconds longer but shows better previews</p>
+                  </div>
+                </label>
+              )}
+            </section>
+
+            {/* ── 03 Menu items ── */}
+            <section id="cr-step-menu" className="cr-sec" style={{ marginBottom: 32 }}>
               <div style={{ marginBottom: 20 }}>
                 <div className="section-num" style={{ marginBottom: 10 }}>
-                  <span className="dot" />02 — BAHASA &amp; TEMA
+                  <span className="dot" />03 — MENU ITEMS
+                </div>
+                <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.025em', margin: 0, color: '#F5F5FA', lineHeight: 1.1 }}>Menu items</h2>
+                <p style={{ color: '#86869A', fontSize: 14, margin: '8px 0 0', maxWidth: 540, lineHeight: 1.5 }}>Tambah signature items anda. AI akan suggest description + format harga.</p>
+              </div>
+              <div className="cr-card cr-card-hairline" style={{ padding: 20 }}>
+                <div style={{ marginBottom: 16 }}>
+                  <div className="eyebrow" style={{ marginBottom: 10 }}>Image source</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
+                    {(() => {
+                      const uploadedCount = (uploadedImages.hero ? 1 : 0) + uploadedImages.gallery.filter(g => g.url).length
+                      const sources = [
+                        { id: 'ai' as const,     l: 'AI Gambar — Percuma', s: 'Auto-match ikut menu anda', icon: <Sparkles size={16} />, badge: 'PERCUMA' },
+                        { id: 'upload' as const, l: 'Upload sendiri', s: 'Drag drop images', icon: <Upload size={16} />, badge: uploadedCount > 0 ? `${uploadedCount} uploaded` : '' },
+                        { id: 'none' as const,   l: 'Tiada gambar',   s: 'Text-only menu', icon: <FileText size={16} />, badge: '' },
+                      ]
+                      return sources.map(s => (
+                        <div
+                          key={s.id}
+                          className={'opt ' + (imageChoice === s.id ? 'selected' : '')}
+                          onClick={() => setImageChoice(s.id)}
+                          style={{ padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}
+                        >
+                          <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#B8B8C8', flexShrink: 0 }}>
+                            {s.icon}
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                              {s.l}
+                              {s.badge && <span className="pill pill-volt" style={{ padding: '1px 6px', fontSize: 9 }}>{s.badge}</span>}
+                            </div>
+                            <div style={{ fontSize: 11, color: '#86869A', marginTop: 1 }}>{s.s}</div>
+                          </div>
+                        </div>
+                      ))
+                    })()}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {(uploadedImages.gallery.length > 0 ? uploadedImages.gallery : [{ url: '', name: '', price: '' }]).map((it, i) => {
+                    const showImg = menuPreviews[i] || it.url
+                    const canRemove = uploadedImages.gallery.length > 0
+                    return (
+                      <div key={i} className="float-in menu-row" style={{ display: 'grid', gridTemplateColumns: '48px minmax(0,1fr) 128px 100px 32px', gap: 8, alignItems: 'center', padding: '8px 10px 8px 8px', background: '#0F0F1A', border: '1px solid rgba(255,255,255,.06)', borderRadius: 12 }}>
+                        <div
+                          onClick={() => document.getElementById(`v3-menu-upload-${i}`)?.click()}
+                          style={{ width: 40, height: 40, borderRadius: 8, background: showImg ? '#000' : 'rgba(255,255,255,.04)', border: showImg ? '1px solid rgba(255,255,255,.08)' : '1px dashed rgba(255,255,255,.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#5A5A6E', cursor: 'pointer', overflow: 'hidden', position: 'relative' }}
+                        >
+                          {showImg ? (
+                            <>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={showImg} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              {uploadingMenuIdx === i && (
+                                <div style={{ position: 'absolute', inset: 0, background: 'rgba(5,5,12,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                  <div style={{ width: 12, height: 12, border: '1.5px solid rgba(255,255,255,.25)', borderTopColor: '#C7FF3D', borderRadius: '50%', animation: 'spin .8s linear infinite' }} />
+                                </div>
+                              )}
+                              {it.url && uploadingMenuIdx !== i && (
+                                <>
+                                  <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 12, background: 'linear-gradient(180deg, transparent, rgba(5,5,12,.8))', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', color: '#C7FF3D', fontSize: 9, fontWeight: 700, lineHeight: 1, paddingBottom: 1, pointerEvents: 'none' }}>✓</div>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); clearMenuImage(i); }}
+                                    type="button"
+                                    aria-label="Buang gambar"
+                                    style={{ position: 'absolute', top: 0, right: 0, width: 16, height: 16, borderRadius: '0 8px 0 4px', background: 'rgba(5,5,12,.8)', border: 0, color: '#F5F5FA', fontSize: 9, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                  >✕</button>
+                                </>
+                              )}
+                            </>
+                          ) : (
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></svg>
+                          )}
+                          <input id={`v3-menu-upload-${i}`} type="file" accept="image/png,image/jpeg,image/jpg,image/webp" onChange={handleMenuInputChange(i)} style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }} />
+                        </div>
+                        <input
+                          className="cr-input"
+                          placeholder="Nasi Kandar Daging Crystal"
+                          value={it.name}
+                          onChange={(e) => updateMenuField(i, { name: e.target.value })}
+                          style={{ background: 'transparent', border: '1px solid rgba(255,255,255,.04)', height: 40, padding: '0 12px', minWidth: 0, width: '100%' }}
+                        />
+                        <input
+                          className="cr-input menu-row-category"
+                          list="v3-menu-categories"
+                          placeholder="Kategori (cth: Set Ayam)"
+                          aria-label="Kategori / seksyen menu"
+                          value={it.category || ''}
+                          onChange={(e) => updateMenuField(i, { category: e.target.value.slice(0, 60) })}
+                          style={{ background: 'transparent', border: '1px solid rgba(255,255,255,.04)', height: 40, padding: '0 10px', minWidth: 0, width: '100%', fontSize: 12 }}
+                        />
+                        <div className="menu-row-price" style={{ position: 'relative', minWidth: 0 }}>
+                          <span className="num" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: '#5A5A6E', pointerEvents: 'none' }}>RM</span>
+                          <input
+                            className="cr-input"
+                            placeholder="12.50"
+                            inputMode="decimal"
+                            pattern="[0-9]*[.,]?[0-9]{0,2}"
+                            value={it.price}
+                            // Round 2: a price is digits and at most two decimals. Letters
+                            // never enter the field, so "RM25.oo" cannot be typed.
+                            onChange={(e) => {
+                              const cleaned = e.target.value.replace(/,/g, '.').replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1').replace(/^(\d*\.\d{0,2}).*$/, '$1')
+                              updateMenuField(i, { price: cleaned })
+                            }}
+                            style={{ background: 'transparent', border: '1px solid rgba(255,255,255,.04)', height: 40, padding: '0 10px 0 32px', fontFamily: "'Geist Mono', monospace", width: '100%', minWidth: 0 }}
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removeMenuItemRow(i)}
+                          aria-label="Buang item"
+                          className="cr-btn-icon menu-row-trash"
+                          style={{ width: 32, height: 40, opacity: canRemove ? 1 : 0.35, cursor: canRemove ? 'pointer' : 'not-allowed' }}
+                          disabled={!canRemove}
+                          title={canRemove ? 'Buang item ini' : 'Tambah item lain dahulu'}
+                        >
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M5 6l1 14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-14"/></svg>
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+                {(() => {
+                  const named = uploadedImages.gallery.filter(g => (g.name || '').trim()).length
+                  const photoIdx = uploadedImages.gallery.findIndex(g => g.url && !(g.name || '').trim())
+                  if (named > 0 || photoIdx < 0) return null
+                  return (
+                    <div className="banner-accent float-in" style={{ marginTop: 10, marginBottom: 0, background: 'linear-gradient(90deg, rgba(199,255,61,.06), transparent)', border: '1px solid rgba(199,255,61,.22)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                      <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: '#C7FF3D' }} />
+                      <span style={{ fontSize: 13, color: '#DDFF7A', flex: 1, minWidth: 220 }}>Gambar ini papan menu? Baca item dan harga terus dari gambar — anda semak sebelum jana.</span>
+                      <button
+                        type="button"
+                        className="cr-btn"
+                        disabled={readingMenuIdx !== null}
+                        onClick={() => readMenuFromImage(photoIdx)}
+                        style={{ background: '#C7FF3D', color: '#05050C', height: 34, padding: '0 12px', fontSize: 12 }}
+                      >{readingMenuIdx !== null ? 'Membaca…' : 'Baca menu dari gambar'}</button>
+                    </div>
+                  )
+                })()}
+                <datalist id="v3-menu-categories">
+                  {categoriesOf(uploadedImages.gallery).map(c => <option key={c} value={c} />)}
+                </datalist>
+                {menuPasteOpen && (
+                  <div className="float-in" style={{ marginTop: 10, padding: 12, background: '#0F0F1A', border: '1px solid rgba(199,255,61,.2)', borderRadius: 12 }}>
+                    <div style={{ fontSize: 12, color: '#B8B8C8', marginBottom: 8 }}>
+                      Tampal senarai menu anda — satu item setiap baris atau asingkan dengan &quot;|&quot;. Tulis nama seksyen diikuti &quot;:&quot; untuk mengumpulkan, contoh:
+                      <code style={{ display: 'block', marginTop: 6, fontSize: 11, color: '#86869A', whiteSpace: 'pre-wrap' }}>{'Set Ayam: Set A – Ayam Gepuk 12.50 | Set B – Ayam Gepuk Tauhu Tempe 13.50\nMinuman: Teh O Ice 3.00 | Limau Ice 3.50'}</code>
+                    </div>
+                    <textarea
+                      className="cr-input"
+                      value={menuPasteText}
+                      onChange={(e) => setMenuPasteText(e.target.value)}
+                      rows={6}
+                      placeholder="Set Ayam: Set A – Ayam Gepuk 12.50 | Set B – Ayam Gepuk Tauhu Tempe 13.50"
+                      style={{ width: '100%', minHeight: 120, padding: 10, fontSize: 13, fontFamily: "'Geist Mono', monospace", resize: 'vertical' }}
+                    />
+                    <div style={{ display: 'flex', gap: 8, marginTop: 8, justifyContent: 'flex-end' }}>
+                      <button type="button" className="cr-btn cr-btn-ghost" onClick={() => { setMenuPasteOpen(false); setMenuPasteText('') }}>Batal</button>
+                      <button type="button" className="cr-btn" onClick={importMenuPaste} style={{ background: '#C7FF3D', color: '#05050C' }}>Tambah item dari senarai</button>
+                    </div>
+                  </div>
+                )}
+                {!menuPasteOpen && (
+                  <button
+                    type="button"
+                    onClick={() => setMenuPasteOpen(true)}
+                    style={{ marginTop: 10, width: '100%', padding: 10, background: 'transparent', border: '1px dashed rgba(255,255,255,.12)', borderRadius: 12, color: '#B8B8C8', fontSize: 12, cursor: 'pointer', fontFamily: "'Geist', 'Inter', -apple-system, sans-serif" }}
+                  >
+                    Tampal senarai menu (banyak item sekali gus)
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={addMenuItemRow}
+                  style={{ marginTop: 10, width: '100%', padding: 12, background: 'transparent', border: '1.5px dashed rgba(199,255,61,.25)', borderRadius: 12, color: '#C7FF3D', fontSize: 13, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontWeight: 500, fontFamily: "'Geist', 'Inter', -apple-system, sans-serif", transition: 'all 180ms' }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(199,255,61,.04)'; e.currentTarget.style.borderColor = 'rgba(199,255,61,.4)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'rgba(199,255,61,.25)'; }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
+                  Add item
+                </button>
+
+                {(() => {
+                  const filled = uploadedImages.gallery.filter(g => g.name || g.price || g.url).length
+                  return filled > 0 ? (
+                    <div className="num" style={{ marginTop: 10, fontSize: 11, color: '#5A5A6E', textAlign: 'center' }}>
+                      {filled} item{filled === 1 ? '' : 's'} added
+                    </div>
+                  ) : null
+                })()}
+
+                {imageChoice === 'upload' && uploadedImages.gallery.filter(g => g.url).length === 0 && !uploadedImages.hero && (
+                  <div className="banner-accent float-in" style={{ marginTop: 14, marginBottom: 0, background: 'linear-gradient(90deg, rgba(255,176,32,.06), transparent)', border: '1px solid rgba(255,176,32,.22)' }}>
+                    <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: '#FFB020' }} />
+                    <span style={{ fontSize: 13, color: '#FFB020' }}>Anda belum muat naik gambar. Drop hero image di atas atau pilih pilihan lain.</span>
+                  </div>
+                )}
+              </div>
+            </section>
+
+            {/* ── 04 Features yang anda nak ── */}
+            <section id="cr-step-features" className="cr-sec" style={{ marginBottom: 32 }}>
+              <div style={{ marginBottom: 20 }}>
+                <div className="section-num" style={{ marginBottom: 10 }}>
+                  <span className="dot" />04 — FEATURES YANG ANDA NAK
+                </div>
+                <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.025em', margin: 0, color: '#F5F5FA', lineHeight: 1.1 }}>Features yang anda nak</h2>
+                <p style={{ color: '#86869A', fontSize: 14, margin: '8px 0 0', maxWidth: 540, lineHeight: 1.5 }}>Pilih mana yang relevant. Boleh tukar/tambah selepas generate.</p>
+              </div>
+              <div className="features-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0,1fr))', gap: 12 }}>
+                {(() => {
+                  const WhatsAppIcon = ({ size = 16 }: { size?: number }) => (
+                    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 11.5a8.4 8.4 0 0 1-1.2 4.4L21 21l-5.2-1.4a8.5 8.5 0 1 1 5.2-8.1Z" />
+                      <path d="M8.5 9.5c.2 1 .8 2.2 1.7 3.1.9 1 2 1.5 3 1.7l1.2-1.1 2 .9c-.1.6-.5 1.2-1.1 1.5-1.4.7-3.7.2-5.6-1.7-1.8-1.8-2.4-4.2-1.7-5.6.3-.6.8-1 1.4-1.1l1 2-1 1.3Z" />
+                    </svg>
+                  )
+                  const features = [
+                    { key: 'whatsapp' as const,        label: 'WhatsApp Order',  sub: 'Pesanan terus ke WhatsApp', Icon: WhatsAppIcon, color: '#25D366' },
+                    { key: 'googleMap' as const,       label: 'Google Maps',     sub: 'Lokasi & arah ke kedai',     Icon: MapPin,       color: '#4F3DFF' },
+                    { key: 'deliverySystem' as const,  label: 'Delivery',        sub: 'Penghantaran sendiri',       Icon: Truck,        color: '#FFB020' },
+                    { key: 'contactForm' as const,     label: 'Borang Tempahan', sub: 'Booking / reservation',      Icon: FileText,     color: '#3FB8FF' },
+                    { key: 'socialMedia' as const,     label: 'Social Media',    sub: 'IG, FB, TikTok feed',        Icon: Share2,       color: '#FF5A5F' },
+                    { key: 'priceList' as const,       label: 'Senarai Harga',   sub: 'Menu / katalog harga',       Icon: ListChecks,   color: '#C7FF3D' },
+                  ]
+                  return features.map(f => {
+                    const on = selectedFeatures[f.key]
+                    return (
+                      <div
+                        key={f.key}
+                        role="checkbox"
+                        aria-checked={on}
+                        tabIndex={0}
+                        className={'opt ' + (on ? 'selected' : '')}
+                        onClick={() => setSelectedFeatures({ ...selectedFeatures, [f.key]: !on })}
+                        onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setSelectedFeatures({ ...selectedFeatures, [f.key]: !on }); } }}
+                        style={{ padding: 14, display: 'flex', gap: 10, alignItems: 'flex-start', minWidth: 0 }}
+                      >
+                        <div style={{ width: 34, height: 34, borderRadius: 9, background: on ? 'rgba(79,61,255,.18)' : 'rgba(255,255,255,.04)', border: `1px solid ${on ? 'rgba(107,92,255,.4)' : 'rgba(255,255,255,.08)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: on ? '#BAB0FF' : f.color, flexShrink: 0 }}>
+                          <f.Icon size={16} />
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2, lineHeight: 1.25, wordBreak: 'break-word', color: '#F5F5FA' }}>{f.label}</div>
+                          <div style={{ fontSize: 11, color: '#86869A', lineHeight: 1.35 }}>{f.sub}</div>
+                        </div>
+                        <div style={{ width: 16, height: 16, borderRadius: 4, border: `1.5px solid ${on ? '#6B5CFF' : 'rgba(255,255,255,.15)'}`, background: on ? '#4F3DFF' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2, color: '#fff' }}>
+                          {on && <Check size={10} strokeWidth={3} />}
+                        </div>
+                      </div>
+                    )
+                  })
+                })()}
+              </div>
+            </section>
+
+            {/* WhatsApp expand */}
+            {selectedFeatures.whatsapp && (
+              <div className="cr-sub-card float-in">
+                <div style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA', marginBottom: 10 }}>💬 WhatsApp</div>
+                <div>
+                  <label style={{ display: 'block', fontSize: 12, color: '#86869A', marginBottom: 6 }}>Nombor WhatsApp</label>
+                  <input
+                    type="tel"
+                    inputMode="tel"
+                    autoComplete="binaapp-no-autofill"
+                    name="binaapp_whatsapp"
+                    placeholder="cth: 012-345 6789"
+                    className="cr-input"
+                    value={whatsappNumber}
+                    onChange={(e) => setWhatsappNumber(e.target.value)}
+                  />
+                  <div style={{ fontSize: 11, color: '#5A5A6E', marginTop: 6, lineHeight: 1.4 }}>
+                    Tanpa nombor, butang WhatsApp tidak akan dipaparkan langsung — lebih baik tiada butang daripada butang yang pergi ke nombor orang lain.
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Google Map expand */}
+            {selectedFeatures.googleMap && (
+              <div className="cr-sub-card float-in">
+                <div style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA', marginBottom: 10 }}>📍 Google Map</div>
+                <div>
+                  <label style={{ display: 'block', fontSize: 12, color: '#86869A', marginBottom: 6 }}>Alamat Penuh</label>
+                  <input
+                    type="text"
+                    autoComplete="binaapp-no-autofill"
+                    name="binaapp_business_address"
+                    placeholder="cth: 123, Jalan Sultan, Shah Alam, Selangor"
+                    className="cr-input"
+                    value={fullAddress}
+                    onChange={(e) => setFullAddress(e.target.value)}
+                  />
+                  {addressLocalityConflict && (
+                    <div role="alert" style={{ fontSize: 12, color: '#FFB020', marginTop: 8, lineHeight: 1.45 }}>
+                      ⚠️ Alamat ini sebut <b>{addressLocalityConflict.address}</b>, tetapi cerita kedai anda sebut <b>{addressLocalityConflict.story}</b>. Pastikan alamat ini betul — ia akan dipaparkan pada peta, footer dan Google.
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Social Media expand */}
+            {selectedFeatures.socialMedia && (
+              <div className="cr-sub-card float-in">
+                <div style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA', marginBottom: 10 }}>📱 Social Media</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <input type="text" placeholder="Instagram: @username" className="cr-input" value={instagram} onChange={(e) => setInstagram(e.target.value)} />
+                  <input type="text" placeholder="Facebook: page name or URL" className="cr-input" value={facebook} onChange={(e) => setFacebook(e.target.value)} />
+                  <input type="text" placeholder="TikTok: @username" className="cr-input" value={tiktok} onChange={(e) => setTiktok(e.target.value)} />
+                </div>
+              </div>
+            )}
+
+            {/* Delivery Settings expand */}
+            {selectedFeatures.deliverySystem && (
+              <div className="cr-sub-card float-in">
+                <div style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA', marginBottom: 10 }}>🛵 Tetapan Delivery</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 12, color: '#86869A', marginBottom: 6 }}>Caj Delivery (RM)</label>
+                    <input type="number" placeholder="5.00" step="0.50" className="cr-input" value={fulfillment.deliveryFee} onChange={(e) => setFulfillment({...fulfillment, deliveryFee: e.target.value})} />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 12, color: '#86869A', marginBottom: 6 }}>Min. Order (RM)</label>
+                    <input type="number" placeholder="20.00" step="1" className="cr-input" value={fulfillment.minOrder} onChange={(e) => setFulfillment({...fulfillment, minOrder: e.target.value})} />
+                  </div>
+                  <div style={{ gridColumn: 'span 2' }}>
+                    <label style={{ display: 'block', fontSize: 12, color: '#86869A', marginBottom: 6 }}>Kawasan Delivery</label>
+                    <input type="text" placeholder="Shah Alam, Klang, Subang" className="cr-input" value={fulfillment.deliveryArea} onChange={(e) => setFulfillment({...fulfillment, deliveryArea: e.target.value})} />
+                  </div>
+                </div>
+
+                {/* Self Pickup */}
+                <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid rgba(255,255,255,.06)' }}>
+                  <label className="cr-check">
+                    <input type="checkbox" checked={fulfillment.pickup} onChange={(e) => setFulfillment({...fulfillment, pickup: e.target.checked})} />
+                    <span className="cr-check-box" />
+                    <span style={{ fontSize: 18 }}>🏪</span>
+                    <div style={{ flex: 1 }}>
+                      <span style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA', display: 'block' }}>Self Pickup</span>
+                      <span style={{ fontSize: 12, color: '#5A5A6E', display: 'block' }}>Pelanggan ambil di kedai</span>
+                    </div>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: '#34D399' }}>FREE</span>
+                  </label>
+
+                  {fulfillment.pickup && (
+                    <div style={{ marginTop: 10, marginLeft: 32 }}>
+                      <label style={{ display: 'block', fontSize: 12, color: '#86869A', marginBottom: 6 }}>Alamat Pickup</label>
+                      <input type="text" autoComplete="binaapp-no-autofill" name="binaapp_pickup_address" placeholder="No. 123, Jalan ABC, Shah Alam" className="cr-input" value={fulfillment.pickupAddress} onChange={(e) => setFulfillment({...fulfillment, pickupAddress: e.target.value})} />
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ── 05 Cara terima bayaran ── */}
+            <section id="cr-step-bayaran" className="cr-sec" style={{ marginBottom: 32 }}>
+              <div style={{ marginBottom: 20 }}>
+                <div className="section-num" style={{ marginBottom: 10 }}>
+                  <span className="dot" />05 — CARA TERIMA BAYARAN
+                </div>
+                <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.025em', margin: 0, color: '#F5F5FA', lineHeight: 1.1 }}>Cara terima bayaran</h2>
+                <p style={{ color: '#86869A', fontSize: 14, margin: '8px 0 0', maxWidth: 540, lineHeight: 1.5 }}>Pilih method pembayaran. ToyyibPay &amp; QR boleh setup lepas generate.</p>
+              </div>
+              <div className="payment-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                {(() => {
+                  const CashIcon = ({ size = 20 }: { size?: number }) => (
+                    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="2" y="6" width="20" height="12" rx="2" />
+                      <circle cx="12" cy="12" r="2.5" />
+                      <path d="M6 10v.01M18 14v.01" />
+                    </svg>
+                  )
+                  const QRIcon = ({ size = 20 }: { size?: number }) => (
+                    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="3" y="3" width="7" height="7" rx="1" />
+                      <rect x="14" y="3" width="7" height="7" rx="1" />
+                      <rect x="3" y="14" width="7" height="7" rx="1" />
+                      <path d="M14 14h3v3M21 14v3M14 21h3M21 17v4" />
+                    </svg>
+                  )
+                  const methods = [
+                    { id: 'cod' as const, l: 'Cash on Delivery', s: 'Customer bayar masa terima · simple', Icon: CashIcon, recommended: false },
+                    { id: 'qr'  as const, l: 'QR / Online Payment', s: 'DuitNow QR · ToyyibPay · Stripe', Icon: QRIcon, recommended: true },
+                  ]
+                  return methods.map(p => {
+                    const on = paymentMethods[p.id]
+                    return (
+                      <div
+                        key={p.id}
+                        role="checkbox"
+                        aria-checked={on}
+                        tabIndex={0}
+                        className={'opt ' + (on ? 'selected' : '')}
+                        onClick={() => setPaymentMethods({ ...paymentMethods, [p.id]: !on })}
+                        onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setPaymentMethods({ ...paymentMethods, [p.id]: !on }); } }}
+                        style={{ padding: 18, display: 'flex', gap: 14, alignItems: 'center' }}
+                      >
+                        <div style={{ width: 44, height: 44, borderRadius: 10, background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#B8B8C8', flexShrink: 0 }}>
+                          <p.Icon size={20} />
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                            <div style={{ fontSize: 15, fontWeight: 600, color: '#F5F5FA' }}>{p.l}</div>
+                            {p.recommended && <span className="pill pill-volt" style={{ padding: '2px 7px', fontSize: 9 }}>POPULAR</span>}
+                          </div>
+                          <div style={{ fontSize: 12, color: '#86869A', marginTop: 3 }}>{p.s}</div>
+                        </div>
+                        <div style={{ width: 16, height: 16, borderRadius: 4, border: `1.5px solid ${on ? '#6B5CFF' : 'rgba(255,255,255,.15)'}`, background: on ? '#4F3DFF' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: '#fff' }}>
+                          {on && <Check size={10} strokeWidth={3} />}
+                        </div>
+                      </div>
+                    )
+                  })
+                })()}
+              </div>
+
+              {/* QR Upload (expand when QR enabled) */}
+              {paymentMethods.qr && (
+                <div className="cr-sub-card float-in" style={{ marginTop: 14 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: '#B8B8C8', marginBottom: 10 }}>Muat Naik QR Pembayaran Anda</div>
+                  <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                    <div style={{ width: 120, height: 120, border: '2px dashed rgba(255,255,255,.12)', borderRadius: 14, background: 'rgba(255,255,255,.02)', flexShrink: 0, overflow: 'hidden' }}>
+                      <label style={{ cursor: 'pointer', width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                        <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleQRUpload} />
+                        {paymentQRPreview ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={paymentQRPreview} alt="Payment QR" style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 4, borderRadius: 12 }} />
+                        ) : (
+                          <>
+                            <span style={{ fontSize: 28, marginBottom: 4 }}>📷</span>
+                            <span style={{ fontSize: 11, color: '#5A5A6E' }}>Upload QR</span>
+                          </>
+                        )}
+                      </label>
+                    </div>
+                    <div style={{ flex: 1, minWidth: 200, fontSize: 13, color: '#86869A' }}>
+                      <div style={{ fontSize: 13, fontWeight: 500, color: '#B8B8C8', marginBottom: 8 }}>Cara mendapatkan QR:</div>
+                      <ol style={{ listStyleType: 'decimal', paddingLeft: 16, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <li>Buka app bank / TNG / DuitNow</li>
+                        <li>Pergi ke &quot;Receive Money&quot; atau &quot;My QR&quot;</li>
+                        <li>Screenshot QR code anda</li>
+                        <li>Upload di sini</li>
+                      </ol>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </section>
+
+            {/* ── 06 Bahasa & Tema ── */}
+            <section id="cr-step-rupa" className="cr-sec" style={{ marginBottom: 32 }}>
+              <div style={{ marginBottom: 20 }}>
+                <div className="section-num" style={{ marginBottom: 10 }}>
+                  <span className="dot" />06 — BAHASA &amp; TEMA <span className="cr-optional">Pilihan</span>
                 </div>
                 <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.025em', margin: 0, color: '#F5F5FA', lineHeight: 1.1 }}>Bahasa &amp; tema</h2>
                 <p style={{ color: '#86869A', fontSize: 14, margin: '8px 0 0', maxWidth: 540, lineHeight: 1.5 }}>Pilihan asas — boleh tukar bila-bila masa selepas generate.</p>
@@ -2407,7 +3215,7 @@ export default function CreatePage() {
                         Cakap macam anda brief seorang designer: rupa, warna, mood, rujukan, section yang anda nak. AI akan reka concept ikut arahan ni dulu, baru bina website.
                       </div>
                     </div>
-                    <div style={{ display: 'flex', gap: 6, flexShrink: 0 }} role="radiogroup" aria-label="Kebebasan designer AI">
+                    <div className="cr-freedom" style={{ display: 'flex', gap: 6, flexShrink: 0 }} role="radiogroup" aria-label="Kebebasan designer AI">
                       {FREEDOM_OPTIONS.map((opt) => (
                         <div
                           key={opt.key}
@@ -2420,7 +3228,7 @@ export default function CreatePage() {
                           style={{ padding: '10px 12px', minWidth: 0, cursor: 'pointer' }}
                         >
                           <div style={{ fontSize: 13, fontWeight: 600, color: '#F5F5FA', lineHeight: 1.2 }}>{opt.label}</div>
-                          <div style={{ fontSize: 11, color: '#86869A', marginTop: 3, whiteSpace: 'nowrap' }}>{opt.hint}</div>
+                          <div className="cr-freedom-hint" style={{ fontSize: 11, color: '#86869A', marginTop: 3, whiteSpace: 'nowrap' }}>{opt.hint}</div>
                         </div>
                       ))}
                     </div>
@@ -2478,215 +3286,11 @@ export default function CreatePage() {
               </div>
             </section>
 
-            {/* ── 03 Apa jenis kedai anda? ── */}
-            <section style={{ marginBottom: 32 }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 24, marginBottom: 20, flexWrap: 'wrap' }}>
-                <div>
-                  <div className="section-num" style={{ marginBottom: 10 }}>
-                    <span className="dot" />03 — APA JENIS KEDAI ANDA?
-                  </div>
-                  <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.025em', margin: 0, color: '#F5F5FA', lineHeight: 1.1 }}>Apa jenis kedai anda?</h2>
-                  <p style={{ color: '#86869A', fontSize: 14, margin: '8px 0 0', maxWidth: 540, lineHeight: 1.5 }}>AI guna pilihan ni untuk pilih layout, content &amp; menu structure yang sesuai.</p>
-                </div>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
-                  <div
-                    role="switch"
-                    aria-checked={multiStyle}
-                    tabIndex={0}
-                    onClick={() => setMultiStyle(!multiStyle)}
-                    onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setMultiStyle(!multiStyle); } }}
-                    className={'toggle ' + (multiStyle ? 'on' : '')}
-                  />
-                  <span style={{ fontSize: 13, color: '#B8B8C8' }}>
-                    Multi-style preview
-                    <span className="pill pill-indigo" style={{ marginLeft: 6, padding: '2px 7px' }}>
-                      <span style={{ display: 'inline-flex', width: 10, height: 10 }}>
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#C7FF3D" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M5.6 18.4l2.8-2.8M15.6 8.4l2.8-2.8"/></svg>
-                      </span>
-                      AI
-                    </span>
-                  </span>
-                </div>
-              </div>
-              <div className="biz-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0,1fr))', gap: 12 }}>
-                {([
-                  { id: 'auto' as const, icon: '✨', label: 'Auto Detect', sub: 'AI pilih sesuai dengan deskripsi anda', recommended: true },
-                  { id: 'food' as const, icon: '🍜', label: 'Restoran', sub: 'Mamak, kafe, kedai makan', recommended: false },
-                  { id: 'clothing' as const, icon: '👗', label: 'Pakaian', sub: 'Butik, fashion, lifestyle', recommended: false },
-                  { id: 'salon' as const, icon: '💇', label: 'Salon', sub: 'Hair, beauty, spa', recommended: false },
-                  { id: 'services' as const, icon: '🔧', label: 'Servis', sub: 'Bengkel, plumbing, repair', recommended: false },
-                  { id: 'bakery' as const, icon: '🥐', label: 'Bakeri', sub: 'Roti, kek, pastri', recommended: false },
-                  { id: 'general' as const, icon: '✦', label: 'Lain-lain', sub: 'Custom — beritahu AI', recommended: false }
-                ]).map(type => (
-                  <div
-                    key={type.id}
-                    onClick={() => setBusinessType(type.id)}
-                    className={'opt ' + (businessType === type.id ? 'selected' : '')}
-                    style={{ padding: 14, minHeight: 110, minWidth: 0 }}
-                  >
-                    {type.recommended && (
-                      <div className="pill pill-volt" style={{ position: 'absolute', top: 8, right: 8, padding: '2px 6px', fontSize: 9 }}>RECOMMENDED</div>
-                    )}
-                    <div style={{ fontSize: 22, marginBottom: 10, filter: 'grayscale(.2)' }}>{type.icon}</div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: '#F5F5FA', marginBottom: 3, lineHeight: 1.2 }}>{type.label}</div>
-                    <div style={{ fontSize: 11, color: '#86869A', lineHeight: 1.35 }}>{type.sub}</div>
-                  </div>
-                ))}
-              </div>
-              <div style={{ fontSize: 12, color: '#5A5A6E', marginTop: 12 }}>
-                {businessType === 'auto' && 'Sistem akan mengesan jenis perniagaan anda secara automatik dari deskripsi'}
-                {businessType === 'food' && 'Butang: "Pesan Delivery" | Kategori: Nasi, Lauk, Minuman'}
-                {businessType === 'clothing' && 'Butang: "Beli Sekarang" | Pilihan saiz & warna | Penghantaran'}
-                {businessType === 'salon' && 'Butang: "Tempah Sekarang" | Tarikh temujanji & pilih staff'}
-                {businessType === 'services' && 'Butang: "Tempah Servis" | Tarikh & lokasi servis'}
-                {businessType === 'bakery' && 'Butang: "Tempah Kek" | Pilihan saiz & mesej atas kek'}
-                {businessType === 'general' && 'Butang: "Beli Sekarang" | Pilihan penghantaran'}
-              </div>
-              {multiStyle && (
-                <label className="cr-check" style={{ marginTop: 14, padding: '10px 12px', background: 'rgba(255,255,255,.02)', border: '1px solid rgba(255,255,255,.04)', borderRadius: 10 }}>
-                  <input
-                    type="checkbox"
-                    checked={generatePreviews}
-                    onChange={(e) => setGeneratePreviews(e.target.checked)}
-                  />
-                  <span className="cr-check-box" />
-                  <div>
-                    <span style={{ fontSize: 13, fontWeight: 500, color: '#B8B8C8' }}>Generate Preview Thumbnails</span>
-                    <p style={{ fontSize: 12, color: '#5A5A6E', marginTop: 2 }}>Takes 10-15 seconds longer but shows better previews</p>
-                  </div>
-                </label>
-              )}
-            </section>
-
-            {/* ── 04 Cerita pasal kedai anda ── */}
-            {(() => {
-              const DESC_MIN = 200;
-              // Matches WebsiteGenerationRequest.description (max_length=5000).
-              // Was 1000, which silently truncated mid-sentence and ate
-              // merchants' contact details before they reached generation.
-              const DESC_MAX = 5000;
-              const len = description.length;
-              const pct = Math.min(100, (len / DESC_MIN) * 100);
-              // Thresholds rescaled for DESC_MAX=5000 (they were tuned for 1000).
-              // 'nearmax' exists so the cap announces itself BEFORE the input
-              // starts dropping characters — the old behaviour cut mid-sentence
-              // with no warning and silently ate merchants' contact details.
-              const DESC_WARN = DESC_MAX - 500;
-              type DescStatus = 'empty' | 'tooshort' | 'ok' | 'great' | 'plenty' | 'nearmax';
-              const status: DescStatus =
-                len === 0 ? 'empty'
-                : len < DESC_MIN ? 'tooshort'
-                : len < 600 ? 'ok'
-                : len < 1200 ? 'great'
-                : len < DESC_WARN ? 'plenty'
-                : 'nearmax';
-              const helpers: Record<DescStatus, { c: string; t: string }> = {
-                empty:    { c: '#5A5A6E', t: 'AI akan tanya soalan dengan deskripsi anda.' },
-                tooshort: { c: '#FFB020', t: `Tambah ${DESC_MIN - len} aksara lagi untuk hasil terbaik.` },
-                ok:       { c: '#22C08F', t: 'Bagus — AI dah ada cukup info.' },
-                great:    { c: '#C7FF3D', t: 'Premium quality output dijangka. AI ready.' },
-                plenty:   { c: '#C7FF3D', t: `Sangat detailed. ${DESC_MAX - len} aksara baki.` },
-                nearmax:  { c: '#FFB020', t: len >= DESC_MAX
-                              ? `Had ${DESC_MAX} aksara dicapai — teks selepas ini tidak akan dihantar.`
-                              : `Hampir penuh: tinggal ${DESC_MAX - len} aksara sebelum had ${DESC_MAX}.` },
-              };
-              const helper = helpers[status];
-              return (
-                <section style={{ marginBottom: 32 }}>
-                  <div style={{ marginBottom: 20 }}>
-                    <div className="section-num" style={{ marginBottom: 10 }}>
-                      <span className="dot" />04 — CERITA PASAL KEDAI ANDA
-                    </div>
-                    <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.025em', margin: 0, color: '#F5F5FA', lineHeight: 1.1 }}>Cerita pasal kedai anda</h2>
-                    <p style={{ color: '#86869A', fontSize: 14, margin: '8px 0 0', maxWidth: 540, lineHeight: 1.5 }}>Lebih detail = website lebih baik. Cakap pasal vibe, pelanggan, signature menu, sejarah — semua membantu AI.</p>
-                  </div>
-                  <div className="cr-card cr-card-hairline" style={{ padding: '16px 18px', marginBottom: 12 }}>
-                    <label
-                      htmlFor="cr-business-name"
-                      style={{ display: 'block', fontSize: 12, color: '#86869A', marginBottom: 6 }}
-                    >
-                      Nama kedai <span style={{ color: '#FFB020' }}>*wajib</span>
-                    </label>
-                    <input
-                      id="cr-business-name"
-                      type="text"
-                      required
-                      maxLength={80}
-                      // Chrome classifies a "business name" input as an
-                      // organisation field and, on the first interaction, fills
-                      // the WHOLE saved-address group around it — the address
-                      // input further down included. That is the only mechanism
-                      // that fills a controlled input and fires onChange without
-                      // typing, and it is the best explanation for a blank
-                      // address field publishing a merchant's own home address
-                      // (bji). "off" alone is ignored for address groups; a
-                      // non-standard token is not.
-                      autoComplete="binaapp-no-autofill"
-                      name="binaapp_business_name"
-                      placeholder="cth: Nasi Kandar Daging Crystal"
-                      className="cr-input"
-                      value={businessName}
-                      onChange={(e) => setBusinessName(e.target.value.slice(0, 80))}
-                      onPaste={handleBusinessNamePaste}
-                    />
-                    <div style={{ fontSize: 11, color: '#5A5A6E', marginTop: 6, lineHeight: 1.4 }}>
-                      Nama ini jadi tajuk website, nama dalam Google, dan nama di footer. Tanpa nama, website tak boleh dijana.
-                    </div>
-                  </div>
-                  <div className="cr-card cr-card-hairline" style={{ padding: 4, position: 'relative', overflow: 'hidden' }}>
-                    <div style={{ position: 'absolute', top: 16, right: 16, display: 'flex', alignItems: 'center', gap: 8, zIndex: 2 }}>
-                      <span className="pill pill-indigo" style={{ padding: '4px 10px' }}>
-                        <span style={{ display: 'inline-flex', width: 10, height: 10 }}>
-                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#C7FF3D" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M5.6 18.4l2.8-2.8M15.6 8.4l2.8-2.8"/></svg>
-                        </span>
-                        AI listening
-                      </span>
-                    </div>
-                    <textarea
-                      value={description}
-                      onChange={(e) => setDescription(e.target.value.slice(0, DESC_MAX))}
-                      placeholder={
-                        language === 'ms'
-                          ? 'Contoh: Kedai mamak family-run di Shah Alam since 1998. Kami famous dengan nasi kandar daging crystal kuah pedas — customer datang dari KL khas untuk makan. Vibe authentic, tak fancy. Open 24 jam, weekends penuh dengan family ramai-ramai.'
-                          : 'Example: I have a coffee shop in Kuala Lumpur serving specialty coffee, cakes, and light meals. Prices from RM8. Located at TTDI. Contact via WhatsApp 012-3456789. Open daily 8am-6pm.'
-                      }
-                      style={{
-                        width: '100%',
-                        background: 'transparent',
-                        border: 'none',
-                        minHeight: 180,
-                        fontSize: 15,
-                        padding: '20px 22px 64px',
-                        boxShadow: 'none',
-                        outline: 'none',
-                        resize: 'vertical',
-                        color: '#F5F5FA',
-                        lineHeight: 1.55,
-                        fontFamily: "'Geist', 'Inter', -apple-system, sans-serif",
-                        letterSpacing: '-0.005em',
-                      }}
-                    />
-                    <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '12px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderTop: '1px solid rgba(255,255,255,.04)', background: 'linear-gradient(180deg, transparent, rgba(0,0,0,.2))', flexWrap: 'wrap' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 200, maxWidth: 480 }}>
-                        <div style={{ flex: 1, height: 4, background: 'rgba(255,255,255,.06)', borderRadius: 999, overflow: 'hidden' }}>
-                          <div style={{ height: '100%', width: `${pct}%`, background: helper.c, transition: 'all 300ms', boxShadow: `0 0 8px ${helper.c}` }} />
-                        </div>
-                        <div className="num" style={{ fontSize: 11, color: helper.c, minWidth: 60 }}>{len} / {DESC_MAX}</div>
-                      </div>
-                      <div style={{ fontSize: 12, color: helper.c, display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <Sparkles size={11} /> {helper.t}
-                      </div>
-                    </div>
-                  </div>
-                </section>
-              );
-            })()}
-
-            {/* ── 05 Hero image ── */}
-            <section style={{ marginBottom: 32 }}>
+            {/* ── 07 Hero image ── */}
+            <section id="cr-step-hero" className="cr-sec" style={{ marginBottom: 32 }}>
               <div style={{ marginBottom: 20 }}>
                 <div className="section-num" style={{ marginBottom: 10 }}>
-                  <span className="dot" />05 — HERO IMAGE
+                  <span className="dot" />07 — HERO IMAGE <span className="cr-optional">Pilihan</span>
                 </div>
                 <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.025em', margin: 0, color: '#F5F5FA', lineHeight: 1.1 }}>Hero image</h2>
                 <p style={{ color: '#86869A', fontSize: 14, margin: '8px 0 0', maxWidth: 540, lineHeight: 1.5 }}>Image utama untuk header website. Optional — AI boleh suggest dari brief anda.</p>
@@ -2914,463 +3518,6 @@ export default function CreatePage() {
               )}
             </section>
 
-            {/* ── 06 Menu items ── */}
-            <section style={{ marginBottom: 32 }}>
-              <div style={{ marginBottom: 20 }}>
-                <div className="section-num" style={{ marginBottom: 10 }}>
-                  <span className="dot" />06 — MENU ITEMS
-                </div>
-                <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.025em', margin: 0, color: '#F5F5FA', lineHeight: 1.1 }}>Menu items</h2>
-                <p style={{ color: '#86869A', fontSize: 14, margin: '8px 0 0', maxWidth: 540, lineHeight: 1.5 }}>Tambah signature items anda. AI akan suggest description + format harga.</p>
-              </div>
-              <div className="cr-card cr-card-hairline" style={{ padding: 20 }}>
-                <div style={{ marginBottom: 16 }}>
-                  <div className="eyebrow" style={{ marginBottom: 10 }}>Image source</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
-                    {(() => {
-                      const uploadedCount = (uploadedImages.hero ? 1 : 0) + uploadedImages.gallery.filter(g => g.url).length
-                      const sources = [
-                        { id: 'ai' as const,     l: 'AI Gambar — Percuma', s: 'Auto-match ikut menu anda', icon: <Sparkles size={16} />, badge: 'PERCUMA' },
-                        { id: 'upload' as const, l: 'Upload sendiri', s: 'Drag drop images', icon: <Upload size={16} />, badge: uploadedCount > 0 ? `${uploadedCount} uploaded` : '' },
-                        { id: 'none' as const,   l: 'Tiada gambar',   s: 'Text-only menu', icon: <FileText size={16} />, badge: '' },
-                      ]
-                      return sources.map(s => (
-                        <div
-                          key={s.id}
-                          className={'opt ' + (imageChoice === s.id ? 'selected' : '')}
-                          onClick={() => setImageChoice(s.id)}
-                          style={{ padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}
-                        >
-                          <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#B8B8C8', flexShrink: 0 }}>
-                            {s.icon}
-                          </div>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 13, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                              {s.l}
-                              {s.badge && <span className="pill pill-volt" style={{ padding: '1px 6px', fontSize: 9 }}>{s.badge}</span>}
-                            </div>
-                            <div style={{ fontSize: 11, color: '#86869A', marginTop: 1 }}>{s.s}</div>
-                          </div>
-                        </div>
-                      ))
-                    })()}
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {(uploadedImages.gallery.length > 0 ? uploadedImages.gallery : [{ url: '', name: '', price: '' }]).map((it, i) => {
-                    const showImg = menuPreviews[i] || it.url
-                    const canRemove = uploadedImages.gallery.length > 0
-                    return (
-                      <div key={i} className="float-in menu-row" style={{ display: 'grid', gridTemplateColumns: '48px minmax(0,1fr) 128px 100px 32px', gap: 8, alignItems: 'center', padding: '8px 10px 8px 8px', background: '#0F0F1A', border: '1px solid rgba(255,255,255,.06)', borderRadius: 12 }}>
-                        <div
-                          onClick={() => document.getElementById(`v3-menu-upload-${i}`)?.click()}
-                          style={{ width: 40, height: 40, borderRadius: 8, background: showImg ? '#000' : 'rgba(255,255,255,.04)', border: showImg ? '1px solid rgba(255,255,255,.08)' : '1px dashed rgba(255,255,255,.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#5A5A6E', cursor: 'pointer', overflow: 'hidden', position: 'relative' }}
-                        >
-                          {showImg ? (
-                            <>
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src={showImg} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                              {uploadingMenuIdx === i && (
-                                <div style={{ position: 'absolute', inset: 0, background: 'rgba(5,5,12,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                  <div style={{ width: 12, height: 12, border: '1.5px solid rgba(255,255,255,.25)', borderTopColor: '#C7FF3D', borderRadius: '50%', animation: 'spin .8s linear infinite' }} />
-                                </div>
-                              )}
-                              {it.url && uploadingMenuIdx !== i && (
-                                <>
-                                  <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 12, background: 'linear-gradient(180deg, transparent, rgba(5,5,12,.8))', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', color: '#C7FF3D', fontSize: 9, fontWeight: 700, lineHeight: 1, paddingBottom: 1, pointerEvents: 'none' }}>✓</div>
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); clearMenuImage(i); }}
-                                    type="button"
-                                    aria-label="Buang gambar"
-                                    style={{ position: 'absolute', top: 0, right: 0, width: 16, height: 16, borderRadius: '0 8px 0 4px', background: 'rgba(5,5,12,.8)', border: 0, color: '#F5F5FA', fontSize: 9, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                                  >✕</button>
-                                </>
-                              )}
-                            </>
-                          ) : (
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></svg>
-                          )}
-                          <input id={`v3-menu-upload-${i}`} type="file" accept="image/png,image/jpeg,image/jpg,image/webp" onChange={handleMenuInputChange(i)} style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }} />
-                        </div>
-                        <input
-                          className="cr-input"
-                          placeholder="Nasi Kandar Daging Crystal"
-                          value={it.name}
-                          onChange={(e) => updateMenuField(i, { name: e.target.value })}
-                          style={{ background: 'transparent', border: '1px solid rgba(255,255,255,.04)', height: 40, padding: '0 12px', minWidth: 0, width: '100%' }}
-                        />
-                        <input
-                          className="cr-input menu-row-category"
-                          list="v3-menu-categories"
-                          placeholder="Kategori (cth: Set Ayam)"
-                          aria-label="Kategori / seksyen menu"
-                          value={it.category || ''}
-                          onChange={(e) => updateMenuField(i, { category: e.target.value.slice(0, 60) })}
-                          style={{ background: 'transparent', border: '1px solid rgba(255,255,255,.04)', height: 40, padding: '0 10px', minWidth: 0, width: '100%', fontSize: 12 }}
-                        />
-                        <div className="menu-row-price" style={{ position: 'relative', minWidth: 0 }}>
-                          <span className="num" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: '#5A5A6E', pointerEvents: 'none' }}>RM</span>
-                          <input
-                            className="cr-input"
-                            placeholder="12.50"
-                            inputMode="decimal"
-                            pattern="[0-9]*[.,]?[0-9]{0,2}"
-                            value={it.price}
-                            // Round 2: a price is digits and at most two decimals. Letters
-                            // never enter the field, so "RM25.oo" cannot be typed.
-                            onChange={(e) => {
-                              const cleaned = e.target.value.replace(/,/g, '.').replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1').replace(/^(\d*\.\d{0,2}).*$/, '$1')
-                              updateMenuField(i, { price: cleaned })
-                            }}
-                            style={{ background: 'transparent', border: '1px solid rgba(255,255,255,.04)', height: 40, padding: '0 10px 0 32px', fontFamily: "'Geist Mono', monospace", width: '100%', minWidth: 0 }}
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => removeMenuItemRow(i)}
-                          aria-label="Buang item"
-                          className="cr-btn-icon menu-row-trash"
-                          style={{ width: 32, height: 40, opacity: canRemove ? 1 : 0.35, cursor: canRemove ? 'pointer' : 'not-allowed' }}
-                          disabled={!canRemove}
-                          title={canRemove ? 'Buang item ini' : 'Tambah item lain dahulu'}
-                        >
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M5 6l1 14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-14"/></svg>
-                        </button>
-                      </div>
-                    )
-                  })}
-                </div>
-                {(() => {
-                  const named = uploadedImages.gallery.filter(g => (g.name || '').trim()).length
-                  const photoIdx = uploadedImages.gallery.findIndex(g => g.url && !(g.name || '').trim())
-                  if (named > 0 || photoIdx < 0) return null
-                  return (
-                    <div className="banner-accent float-in" style={{ marginTop: 10, marginBottom: 0, background: 'linear-gradient(90deg, rgba(199,255,61,.06), transparent)', border: '1px solid rgba(199,255,61,.22)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                      <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: '#C7FF3D' }} />
-                      <span style={{ fontSize: 13, color: '#DDFF7A', flex: 1, minWidth: 220 }}>Gambar ini papan menu? Baca item dan harga terus dari gambar — anda semak sebelum jana.</span>
-                      <button
-                        type="button"
-                        className="cr-btn"
-                        disabled={readingMenuIdx !== null}
-                        onClick={() => readMenuFromImage(photoIdx)}
-                        style={{ background: '#C7FF3D', color: '#05050C', height: 34, padding: '0 12px', fontSize: 12 }}
-                      >{readingMenuIdx !== null ? 'Membaca…' : 'Baca menu dari gambar'}</button>
-                    </div>
-                  )
-                })()}
-                <datalist id="v3-menu-categories">
-                  {categoriesOf(uploadedImages.gallery).map(c => <option key={c} value={c} />)}
-                </datalist>
-                {menuPasteOpen && (
-                  <div className="float-in" style={{ marginTop: 10, padding: 12, background: '#0F0F1A', border: '1px solid rgba(199,255,61,.2)', borderRadius: 12 }}>
-                    <div style={{ fontSize: 12, color: '#B8B8C8', marginBottom: 8 }}>
-                      Tampal senarai menu anda — satu item setiap baris atau asingkan dengan &quot;|&quot;. Tulis nama seksyen diikuti &quot;:&quot; untuk mengumpulkan, contoh:
-                      <code style={{ display: 'block', marginTop: 6, fontSize: 11, color: '#86869A', whiteSpace: 'pre-wrap' }}>{'Set Ayam: Set A – Ayam Gepuk 12.50 | Set B – Ayam Gepuk Tauhu Tempe 13.50\nMinuman: Teh O Ice 3.00 | Limau Ice 3.50'}</code>
-                    </div>
-                    <textarea
-                      className="cr-input"
-                      value={menuPasteText}
-                      onChange={(e) => setMenuPasteText(e.target.value)}
-                      rows={6}
-                      placeholder="Set Ayam: Set A – Ayam Gepuk 12.50 | Set B – Ayam Gepuk Tauhu Tempe 13.50"
-                      style={{ width: '100%', minHeight: 120, padding: 10, fontSize: 13, fontFamily: "'Geist Mono', monospace", resize: 'vertical' }}
-                    />
-                    <div style={{ display: 'flex', gap: 8, marginTop: 8, justifyContent: 'flex-end' }}>
-                      <button type="button" className="cr-btn cr-btn-ghost" onClick={() => { setMenuPasteOpen(false); setMenuPasteText('') }}>Batal</button>
-                      <button type="button" className="cr-btn" onClick={importMenuPaste} style={{ background: '#C7FF3D', color: '#05050C' }}>Tambah item dari senarai</button>
-                    </div>
-                  </div>
-                )}
-                {!menuPasteOpen && (
-                  <button
-                    type="button"
-                    onClick={() => setMenuPasteOpen(true)}
-                    style={{ marginTop: 10, width: '100%', padding: 10, background: 'transparent', border: '1px dashed rgba(255,255,255,.12)', borderRadius: 12, color: '#B8B8C8', fontSize: 12, cursor: 'pointer', fontFamily: "'Geist', 'Inter', -apple-system, sans-serif" }}
-                  >
-                    Tampal senarai menu (banyak item sekali gus)
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={addMenuItemRow}
-                  style={{ marginTop: 10, width: '100%', padding: 12, background: 'transparent', border: '1.5px dashed rgba(199,255,61,.25)', borderRadius: 12, color: '#C7FF3D', fontSize: 13, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontWeight: 500, fontFamily: "'Geist', 'Inter', -apple-system, sans-serif", transition: 'all 180ms' }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(199,255,61,.04)'; e.currentTarget.style.borderColor = 'rgba(199,255,61,.4)'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'rgba(199,255,61,.25)'; }}
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
-                  Add item
-                </button>
-
-                {(() => {
-                  const filled = uploadedImages.gallery.filter(g => g.name || g.price || g.url).length
-                  return filled > 0 ? (
-                    <div className="num" style={{ marginTop: 10, fontSize: 11, color: '#5A5A6E', textAlign: 'center' }}>
-                      {filled} item{filled === 1 ? '' : 's'} added
-                    </div>
-                  ) : null
-                })()}
-
-                {imageChoice === 'upload' && uploadedImages.gallery.filter(g => g.url).length === 0 && !uploadedImages.hero && (
-                  <div className="banner-accent float-in" style={{ marginTop: 14, marginBottom: 0, background: 'linear-gradient(90deg, rgba(255,176,32,.06), transparent)', border: '1px solid rgba(255,176,32,.22)' }}>
-                    <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: '#FFB020' }} />
-                    <span style={{ fontSize: 13, color: '#FFB020' }}>Anda belum muat naik gambar. Drop hero image di atas atau pilih pilihan lain.</span>
-                  </div>
-                )}
-              </div>
-            </section>
-
-            {/* ── 07 Features yang anda nak ── */}
-            <section style={{ marginBottom: 32 }}>
-              <div style={{ marginBottom: 20 }}>
-                <div className="section-num" style={{ marginBottom: 10 }}>
-                  <span className="dot" />07 — FEATURES YANG ANDA NAK
-                </div>
-                <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.025em', margin: 0, color: '#F5F5FA', lineHeight: 1.1 }}>Features yang anda nak</h2>
-                <p style={{ color: '#86869A', fontSize: 14, margin: '8px 0 0', maxWidth: 540, lineHeight: 1.5 }}>Pilih mana yang relevant. Boleh tukar/tambah selepas generate.</p>
-              </div>
-              <div className="features-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0,1fr))', gap: 12 }}>
-                {(() => {
-                  const WhatsAppIcon = ({ size = 16 }: { size?: number }) => (
-                    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M21 11.5a8.4 8.4 0 0 1-1.2 4.4L21 21l-5.2-1.4a8.5 8.5 0 1 1 5.2-8.1Z" />
-                      <path d="M8.5 9.5c.2 1 .8 2.2 1.7 3.1.9 1 2 1.5 3 1.7l1.2-1.1 2 .9c-.1.6-.5 1.2-1.1 1.5-1.4.7-3.7.2-5.6-1.7-1.8-1.8-2.4-4.2-1.7-5.6.3-.6.8-1 1.4-1.1l1 2-1 1.3Z" />
-                    </svg>
-                  )
-                  const features = [
-                    { key: 'whatsapp' as const,        label: 'WhatsApp Order',  sub: 'Pesanan terus ke WhatsApp', Icon: WhatsAppIcon, color: '#25D366' },
-                    { key: 'googleMap' as const,       label: 'Google Maps',     sub: 'Lokasi & arah ke kedai',     Icon: MapPin,       color: '#4F3DFF' },
-                    { key: 'deliverySystem' as const,  label: 'Delivery',        sub: 'Penghantaran sendiri',       Icon: Truck,        color: '#FFB020' },
-                    { key: 'contactForm' as const,     label: 'Borang Tempahan', sub: 'Booking / reservation',      Icon: FileText,     color: '#3FB8FF' },
-                    { key: 'socialMedia' as const,     label: 'Social Media',    sub: 'IG, FB, TikTok feed',        Icon: Share2,       color: '#FF5A5F' },
-                    { key: 'priceList' as const,       label: 'Senarai Harga',   sub: 'Menu / katalog harga',       Icon: ListChecks,   color: '#C7FF3D' },
-                  ]
-                  return features.map(f => {
-                    const on = selectedFeatures[f.key]
-                    return (
-                      <div
-                        key={f.key}
-                        role="checkbox"
-                        aria-checked={on}
-                        tabIndex={0}
-                        className={'opt ' + (on ? 'selected' : '')}
-                        onClick={() => setSelectedFeatures({ ...selectedFeatures, [f.key]: !on })}
-                        onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setSelectedFeatures({ ...selectedFeatures, [f.key]: !on }); } }}
-                        style={{ padding: 14, display: 'flex', gap: 10, alignItems: 'flex-start', minWidth: 0 }}
-                      >
-                        <div style={{ width: 34, height: 34, borderRadius: 9, background: on ? 'rgba(79,61,255,.18)' : 'rgba(255,255,255,.04)', border: `1px solid ${on ? 'rgba(107,92,255,.4)' : 'rgba(255,255,255,.08)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: on ? '#BAB0FF' : f.color, flexShrink: 0 }}>
-                          <f.Icon size={16} />
-                        </div>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2, lineHeight: 1.25, wordBreak: 'break-word', color: '#F5F5FA' }}>{f.label}</div>
-                          <div style={{ fontSize: 11, color: '#86869A', lineHeight: 1.35 }}>{f.sub}</div>
-                        </div>
-                        <div style={{ width: 16, height: 16, borderRadius: 4, border: `1.5px solid ${on ? '#6B5CFF' : 'rgba(255,255,255,.15)'}`, background: on ? '#4F3DFF' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2, color: '#fff' }}>
-                          {on && <Check size={10} strokeWidth={3} />}
-                        </div>
-                      </div>
-                    )
-                  })
-                })()}
-              </div>
-            </section>
-
-            {/* WhatsApp expand */}
-            {selectedFeatures.whatsapp && (
-              <div className="cr-sub-card float-in">
-                <div style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA', marginBottom: 10 }}>💬 WhatsApp</div>
-                <div>
-                  <label style={{ display: 'block', fontSize: 12, color: '#86869A', marginBottom: 6 }}>Nombor WhatsApp</label>
-                  <input
-                    type="tel"
-                    inputMode="tel"
-                    autoComplete="binaapp-no-autofill"
-                    name="binaapp_whatsapp"
-                    placeholder="cth: 012-345 6789"
-                    className="cr-input"
-                    value={whatsappNumber}
-                    onChange={(e) => setWhatsappNumber(e.target.value)}
-                  />
-                  <div style={{ fontSize: 11, color: '#5A5A6E', marginTop: 6, lineHeight: 1.4 }}>
-                    Tanpa nombor, butang WhatsApp tidak akan dipaparkan langsung — lebih baik tiada butang daripada butang yang pergi ke nombor orang lain.
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Google Map expand */}
-            {selectedFeatures.googleMap && (
-              <div className="cr-sub-card float-in">
-                <div style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA', marginBottom: 10 }}>📍 Google Map</div>
-                <div>
-                  <label style={{ display: 'block', fontSize: 12, color: '#86869A', marginBottom: 6 }}>Alamat Penuh</label>
-                  <input
-                    type="text"
-                    autoComplete="binaapp-no-autofill"
-                    name="binaapp_business_address"
-                    placeholder="cth: 123, Jalan Sultan, Shah Alam, Selangor"
-                    className="cr-input"
-                    value={fullAddress}
-                    onChange={(e) => setFullAddress(e.target.value)}
-                  />
-                  {addressLocalityConflict && (
-                    <div role="alert" style={{ fontSize: 12, color: '#FFB020', marginTop: 8, lineHeight: 1.45 }}>
-                      ⚠️ Alamat ini sebut <b>{addressLocalityConflict.address}</b>, tetapi cerita kedai anda sebut <b>{addressLocalityConflict.story}</b>. Pastikan alamat ini betul — ia akan dipaparkan pada peta, footer dan Google.
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Social Media expand */}
-            {selectedFeatures.socialMedia && (
-              <div className="cr-sub-card float-in">
-                <div style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA', marginBottom: 10 }}>📱 Social Media</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  <input type="text" placeholder="Instagram: @username" className="cr-input" value={instagram} onChange={(e) => setInstagram(e.target.value)} />
-                  <input type="text" placeholder="Facebook: page name or URL" className="cr-input" value={facebook} onChange={(e) => setFacebook(e.target.value)} />
-                  <input type="text" placeholder="TikTok: @username" className="cr-input" value={tiktok} onChange={(e) => setTiktok(e.target.value)} />
-                </div>
-              </div>
-            )}
-
-            {/* Delivery Settings expand */}
-            {selectedFeatures.deliverySystem && (
-              <div className="cr-sub-card float-in">
-                <div style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA', marginBottom: 10 }}>🛵 Tetapan Delivery</div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: 12, color: '#86869A', marginBottom: 6 }}>Caj Delivery (RM)</label>
-                    <input type="number" placeholder="5.00" step="0.50" className="cr-input" value={fulfillment.deliveryFee} onChange={(e) => setFulfillment({...fulfillment, deliveryFee: e.target.value})} />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: 12, color: '#86869A', marginBottom: 6 }}>Min. Order (RM)</label>
-                    <input type="number" placeholder="20.00" step="1" className="cr-input" value={fulfillment.minOrder} onChange={(e) => setFulfillment({...fulfillment, minOrder: e.target.value})} />
-                  </div>
-                  <div style={{ gridColumn: 'span 2' }}>
-                    <label style={{ display: 'block', fontSize: 12, color: '#86869A', marginBottom: 6 }}>Kawasan Delivery</label>
-                    <input type="text" placeholder="Shah Alam, Klang, Subang" className="cr-input" value={fulfillment.deliveryArea} onChange={(e) => setFulfillment({...fulfillment, deliveryArea: e.target.value})} />
-                  </div>
-                </div>
-
-                {/* Self Pickup */}
-                <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid rgba(255,255,255,.06)' }}>
-                  <label className="cr-check">
-                    <input type="checkbox" checked={fulfillment.pickup} onChange={(e) => setFulfillment({...fulfillment, pickup: e.target.checked})} />
-                    <span className="cr-check-box" />
-                    <span style={{ fontSize: 18 }}>🏪</span>
-                    <div style={{ flex: 1 }}>
-                      <span style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA', display: 'block' }}>Self Pickup</span>
-                      <span style={{ fontSize: 12, color: '#5A5A6E', display: 'block' }}>Pelanggan ambil di kedai</span>
-                    </div>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: '#34D399' }}>FREE</span>
-                  </label>
-
-                  {fulfillment.pickup && (
-                    <div style={{ marginTop: 10, marginLeft: 32 }}>
-                      <label style={{ display: 'block', fontSize: 12, color: '#86869A', marginBottom: 6 }}>Alamat Pickup</label>
-                      <input type="text" autoComplete="binaapp-no-autofill" name="binaapp_pickup_address" placeholder="No. 123, Jalan ABC, Shah Alam" className="cr-input" value={fulfillment.pickupAddress} onChange={(e) => setFulfillment({...fulfillment, pickupAddress: e.target.value})} />
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* ── 08 Cara terima bayaran ── */}
-            <section style={{ marginBottom: 32 }}>
-              <div style={{ marginBottom: 20 }}>
-                <div className="section-num" style={{ marginBottom: 10 }}>
-                  <span className="dot" />08 — CARA TERIMA BAYARAN
-                </div>
-                <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.025em', margin: 0, color: '#F5F5FA', lineHeight: 1.1 }}>Cara terima bayaran</h2>
-                <p style={{ color: '#86869A', fontSize: 14, margin: '8px 0 0', maxWidth: 540, lineHeight: 1.5 }}>Pilih method pembayaran. ToyyibPay &amp; QR boleh setup lepas generate.</p>
-              </div>
-              <div className="payment-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                {(() => {
-                  const CashIcon = ({ size = 20 }: { size?: number }) => (
-                    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                      <rect x="2" y="6" width="20" height="12" rx="2" />
-                      <circle cx="12" cy="12" r="2.5" />
-                      <path d="M6 10v.01M18 14v.01" />
-                    </svg>
-                  )
-                  const QRIcon = ({ size = 20 }: { size?: number }) => (
-                    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                      <rect x="3" y="3" width="7" height="7" rx="1" />
-                      <rect x="14" y="3" width="7" height="7" rx="1" />
-                      <rect x="3" y="14" width="7" height="7" rx="1" />
-                      <path d="M14 14h3v3M21 14v3M14 21h3M21 17v4" />
-                    </svg>
-                  )
-                  const methods = [
-                    { id: 'cod' as const, l: 'Cash on Delivery', s: 'Customer bayar masa terima · simple', Icon: CashIcon, recommended: false },
-                    { id: 'qr'  as const, l: 'QR / Online Payment', s: 'DuitNow QR · ToyyibPay · Stripe', Icon: QRIcon, recommended: true },
-                  ]
-                  return methods.map(p => {
-                    const on = paymentMethods[p.id]
-                    return (
-                      <div
-                        key={p.id}
-                        role="checkbox"
-                        aria-checked={on}
-                        tabIndex={0}
-                        className={'opt ' + (on ? 'selected' : '')}
-                        onClick={() => setPaymentMethods({ ...paymentMethods, [p.id]: !on })}
-                        onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setPaymentMethods({ ...paymentMethods, [p.id]: !on }); } }}
-                        style={{ padding: 18, display: 'flex', gap: 14, alignItems: 'center' }}
-                      >
-                        <div style={{ width: 44, height: 44, borderRadius: 10, background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#B8B8C8', flexShrink: 0 }}>
-                          <p.Icon size={20} />
-                        </div>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                            <div style={{ fontSize: 15, fontWeight: 600, color: '#F5F5FA' }}>{p.l}</div>
-                            {p.recommended && <span className="pill pill-volt" style={{ padding: '2px 7px', fontSize: 9 }}>POPULAR</span>}
-                          </div>
-                          <div style={{ fontSize: 12, color: '#86869A', marginTop: 3 }}>{p.s}</div>
-                        </div>
-                        <div style={{ width: 16, height: 16, borderRadius: 4, border: `1.5px solid ${on ? '#6B5CFF' : 'rgba(255,255,255,.15)'}`, background: on ? '#4F3DFF' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: '#fff' }}>
-                          {on && <Check size={10} strokeWidth={3} />}
-                        </div>
-                      </div>
-                    )
-                  })
-                })()}
-              </div>
-
-              {/* QR Upload (expand when QR enabled) */}
-              {paymentMethods.qr && (
-                <div className="cr-sub-card float-in" style={{ marginTop: 14 }}>
-                  <div style={{ fontSize: 13, fontWeight: 500, color: '#B8B8C8', marginBottom: 10 }}>Muat Naik QR Pembayaran Anda</div>
-                  <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-                    <div style={{ width: 120, height: 120, border: '2px dashed rgba(255,255,255,.12)', borderRadius: 14, background: 'rgba(255,255,255,.02)', flexShrink: 0, overflow: 'hidden' }}>
-                      <label style={{ cursor: 'pointer', width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                        <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleQRUpload} />
-                        {paymentQRPreview ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={paymentQRPreview} alt="Payment QR" style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 4, borderRadius: 12 }} />
-                        ) : (
-                          <>
-                            <span style={{ fontSize: 28, marginBottom: 4 }}>📷</span>
-                            <span style={{ fontSize: 11, color: '#5A5A6E' }}>Upload QR</span>
-                          </>
-                        )}
-                      </label>
-                    </div>
-                    <div style={{ flex: 1, minWidth: 200, fontSize: 13, color: '#86869A' }}>
-                      <div style={{ fontSize: 13, fontWeight: 500, color: '#B8B8C8', marginBottom: 8 }}>Cara mendapatkan QR:</div>
-                      <ol style={{ listStyleType: 'decimal', paddingLeft: 16, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        <li>Buka app bank / TNG / DuitNow</li>
-                        <li>Pergi ke &quot;Receive Money&quot; atau &quot;My QR&quot;</li>
-                        <li>Screenshot QR code anda</li>
-                        <li>Upload di sini</li>
-                      </ol>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </section>
-
             {error && (
               <div className="banner-accent" style={{ background: 'linear-gradient(90deg, rgba(239,68,68,.06), transparent)', border: '1px solid rgba(239,68,68,.22)' }}>
                 <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: '#EF4444' }} />
@@ -3445,7 +3592,7 @@ export default function CreatePage() {
           </div>
 
           {/* ── AI Preview Rail (V3) ── */}
-          <aside className="cr-rail" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <aside className="cr-rail">
             {(() => {
               const featureCount = (
                 (selectedFeatures.whatsapp ? 1 : 0) +
@@ -3605,6 +3752,51 @@ export default function CreatePage() {
               )
             })()}
           </aside>
+
+          {/* Mobile generate bar — the rail is hidden under 1100px, so the
+              button and what still blocks it stay in reach while scrolling. */}
+          <div className="cr-mobilebar" data-testid="mobile-generate-bar">
+            <button
+              type="button"
+              className="cr-mobilebar-hint"
+              disabled={generateHint.ready || !generateHint.focusId}
+              onClick={() => {
+                scrollToStep('cerita')
+                const id = generateHint.focusId
+                if (id) setTimeout(() => document.getElementById(id)?.focus({ preventScroll: true }), 350)
+              }}
+            >
+              <span className={'cr-ring' + (generateHint.ready ? ' ready' : '')} aria-hidden="true">
+                <svg width="38" height="38" viewBox="0 0 38 38">
+                  <circle cx="19" cy="19" r="16" fill="none" stroke="rgba(255,255,255,.08)" strokeWidth="3" />
+                  <circle
+                    cx="19" cy="19" r="16" fill="none" strokeWidth="3" strokeLinecap="round"
+                    stroke={generateHint.ready ? '#C7FF3D' : '#FFB020'}
+                    strokeDasharray={2 * Math.PI * 16}
+                    strokeDashoffset={2 * Math.PI * 16 * (1 - doneCount / CREATE_STEPS.length)}
+                    transform="rotate(-90 19 19)"
+                    style={{ transition: 'stroke-dashoffset 500ms cubic-bezier(.25,1,.5,1), stroke 300ms' }}
+                  />
+                </svg>
+                <span key={doneCount} className="cr-ring-num">{doneCount}</span>
+              </span>
+              <span style={{ minWidth: 0 }}>
+                <span className="cr-mobilebar-text">{generateHint.text}</span>
+                <span className="cr-mobilebar-sub">
+                  {doneCount === CREATE_STEPS.length ? 'Semua langkah lengkap 🎉' : `${doneCount} / ${CREATE_STEPS.length} langkah diisi`}
+                </span>
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={handleGenerate}
+              disabled={loading || description.length < 10 || !businessName.trim() || isAtLimit}
+              className={'cr-gen-btn' + (generateHint.ready && !loading ? ' cr-ready-nudge' : '')}
+              style={{ width: 'auto', height: 46, padding: '0 18px', fontSize: 15, marginTop: 0, flexShrink: 0 }}
+            >
+              <Sparkles size={15} /> {loading ? 'Generating…' : 'Generate'}
+            </button>
+          </div>
 
           </div>
         ) : styleVariations.length > 0 && !selectedStyle ? (
