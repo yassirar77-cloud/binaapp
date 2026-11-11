@@ -147,7 +147,8 @@ def test_tiles_overlap_and_cover_the_whole_page():
 
 
 def test_run_gate_vision_verdicts(monkeypatch):
-    """A high-severity vision issue fails the gate; a photo mismatch is
+    """A confirmed high-severity vision issue of a kind the browser cannot
+    measure fails the gate; a photo mismatch is
     soft (fixed by dropping the photo); no verdict gates on measurements."""
     async def _render(html, **kw):
         return _measured(), _measured(innerWidth=1280, scrollWidth=1280), b"png", b"png", None
@@ -155,8 +156,8 @@ def test_run_gate_vision_verdicts(monkeypatch):
 
     async def _high(messages):
         if "A first reviewer reported" in messages[0]["content"][0]["text"]:
-            return json.dumps({"confirmed": True, "evidence": "the strip covers the button"})
-        return json.dumps({"issues": [{"slice": 1, "type": "overlap", "where": "hero", "detail": "strip over the button", "severity": "high"}], "photo_mismatches": [], "overall": "fail"})
+            return json.dumps({"confirmed": True, "evidence": "the card sits at an angle"})
+        return json.dumps({"issues": [{"slice": 1, "type": "tilted", "where": "menu", "detail": "a card is rotated", "severity": "high"}], "photo_mismatches": [], "overall": "fail"})
     r = asyncio.run(run_gate("<html/>", expect_map=False, expect_whatsapp=False, call_vision=_high))
     assert not r.passed and [c.name for c in r.failed] == ["vision_review"]
 

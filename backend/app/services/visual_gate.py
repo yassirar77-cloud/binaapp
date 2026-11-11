@@ -16,9 +16,10 @@ Before a page reaches the merchant it is rendered in a real browser at
 Then a vision model (``qwen3-vl-plus``) answers three questions at once:
 
 - the page, as overlapping slices of the mobile screenshot: overlapping,
-  tilted, cut-off or unreadable elements. A cut-off fails the gate only
-  when the browser measured clipping or overflow too (a slice edge is not
-  a page edge);
+  tilted, cut-off or unreadable elements. A cut-off, an overlap or
+  unreadable text fails the gate only when the browser measured the same
+  kind of problem too (the numbers overrule the picture); anything else
+  needs a second look to confirm it;
 - each menu card's OWN photo against its OWN name (one crop per card);
   a mismatch drops that photo;
 - the hero photo against the business; a mismatch swaps in the
@@ -1349,10 +1350,47 @@ _CUTOFF_TYPES = ("cutoff", "cut-off", "cut off", "clipped", "truncated")
 
 
 def _is_cutoff(issue: Dict[str, Any]) -> bool:
+    return _measured_kind(issue) == "cutoff"
+
+
+#: What the browser measures for each kind of reviewer report. The reviewer
+#: is a language model looking at a picture; the browser has the numbers. On
+#: these kinds the numbers decide: a report blocks only when one of the
+#: matching measured checks failed too. (Found on a real page: the reviewer
+#: reported, and on a second look confirmed, an overlap and a low-contrast
+#: label that were not there.) "tilted" and "other" have no measurement and
+#: stay with the reviewer and its second look.
+MEASURED_FOR_KIND: Dict[str, Tuple[str, ...]] = {
+    "cutoff": ("no_clipped_text", "no_horizontal_overflow"),
+    "overlap": ("no_overlapping_text", "hero_cta_unobstructed", "floating_button_unobstructed"),
+    "unreadable": ("contrast_aa", "hero_text_legible", "text_readable_size"),
+}
+
+_KIND_IN_DETAIL = (
+    ("cutoff", re.compile(r"\bcut(?:\s|-)?off\b|\btruncat", re.IGNORECASE)),
+    ("overlap", re.compile(r"\boverlap", re.IGNORECASE)),
+    ("unreadable", re.compile(r"\bcontrast\b|\bunreadable\b|\billegible\b|\btoo small\b", re.IGNORECASE)),
+)
+
+
+def _measured_kind(issue: Dict[str, Any]) -> Optional[str]:
+    """The measurable kind a reviewer report belongs to, or None."""
     t = str(issue.get("type") or "").lower()
     if any(k in t for k in _CUTOFF_TYPES):
-        return True
-    return t == "other" and bool(re.search(r"\bcut(?:\s|-)?off\b|\btruncat", str(issue.get("detail") or ""), re.IGNORECASE))
+        return "cutoff"
+    if "overlap" in t:
+        return "overlap"
+    if "unreadable" in t or "contrast" in t or "illegible" in t:
+        return "unreadable"
+    if t == "other":
+        detail = str(issue.get("detail") or "")
+        for kind, pattern in _KIND_IN_DETAIL:
+            if pattern.search(detail):
+                return kind
+    return None
+
+
+_KIND_WORD = {"cutoff": "cut-off", "overlap": "overlap", "unreadable": "unreadable text"}
 
 
 async def _ask(call_vision: Callable[[List[Dict[str, Any]]], Awaitable[Optional[str]]], messages: List[Dict[str, Any]], what: str) -> Optional[str]:
@@ -1407,11 +1445,12 @@ async def run_gate(
             logger.warning("👁️ Vision review produced no verdict — gating on measurements only")
         else:
             report.vision = parsed
-            measured_clip = any(c.name in ("no_clipped_text", "no_horizontal_overflow") and not c.ok for c in report.checks)
+            failed_measured = {c.name for c in report.checks if not c.ok}
             for issue in parsed["issues"]:
-                if issue["severity"] == "high" and _is_cutoff(issue) and not measured_clip:
+                kind = _measured_kind(issue)
+                if issue["severity"] == "high" and kind and not failed_measured.intersection(MEASURED_FOR_KIND[kind]):
                     issue["severity"] = "low"
-                    issue["note"] = "cut-off not confirmed by the browser's measurements"
+                    issue["note"] = f"{_KIND_WORD[kind]} not confirmed by the browser's measurements"
             # One opinion never fails a build: each high-severity issue gets
             # a second look at its own slice, and counts only if that look
             # confirms it. (No slice named, no second answer, or more than

@@ -191,8 +191,9 @@ def test_one_photo_on_three_cards_keeps_the_first():
 # One reviewer opinion never fails a build
 # ---------------------------------------------------------------------------
 
-OVERLAP = {"issues": [{"slice": 1, "type": "overlap", "where": "menu", "detail": "price over the name", "severity": "high"}],
-           "design": {"score": 7, "weakest": "cards without photos"}, "overall": "fail"}
+# "tilted" has no browser measurement, so it is the reviewer's to call.
+TILTED = {"issues": [{"slice": 1, "type": "tilted", "where": "menu", "detail": "a card is rotated", "severity": "high"}],
+          "design": {"score": 7, "weakest": "cards without photos"}, "overall": "fail"}
 
 
 def _reviewer(page, confirm):
@@ -215,26 +216,77 @@ def _gate(monkeypatch, call):
 
 
 def test_high_issue_fails_only_when_a_second_look_confirms_it(monkeypatch):
-    call, seen = _reviewer(OVERLAP, {"confirmed": True, "evidence": "RM12.50 sits on the dish name"})
+    call, seen = _reviewer(TILTED, {"confirmed": True, "evidence": "the second card sits at an angle"})
     rep = _gate(monkeypatch, call)
     assert [c.name for c in rep.failed] == ["vision_review"] and rep.vision["issues"][0]["confirmed"] is True
     second = next(t for t in seen if "A first reviewer reported" in t)
-    assert "overlap at menu: price over the name" in second
+    assert "tilted at menu: a card is rotated" in second
 
-    call, _ = _reviewer(OVERLAP, {"confirmed": False, "evidence": "price and name are on separate lines"})
+    call, _ = _reviewer(TILTED, {"confirmed": False, "evidence": "every card is straight"})
     rep = _gate(monkeypatch, call)
     assert rep.passed and rep.vision["issues"][0]["severity"] == "low" and "did not confirm" in rep.vision["issues"][0]["note"]
 
 
 def test_no_second_answer_or_no_slice_is_not_a_confirmation(monkeypatch):
-    call, _ = _reviewer(OVERLAP, None)
+    call, _ = _reviewer(TILTED, None)
     assert _gate(monkeypatch, call).passed
-    no_slice = {"issues": [dict(OVERLAP["issues"][0])], "overall": "fail"}
+    no_slice = {"issues": [dict(TILTED["issues"][0])], "overall": "fail"}
     no_slice["issues"][0].pop("slice")
     call, seen = _reviewer(no_slice, {"confirmed": True})
     rep = _gate(monkeypatch, call)
     assert rep.passed and not any("A first reviewer reported" in t for t in seen)
     assert "no second look" in rep.vision["issues"][0]["note"]
+
+
+# ---------------------------------------------------------------------------
+# The numbers overrule the picture
+# ---------------------------------------------------------------------------
+
+def _gate_measured(monkeypatch, call, **measured):
+    async def _render(html, **kw):
+        return _measured(**measured), _measured(innerWidth=1280, scrollWidth=1280), b"png", b"png", None
+    monkeypatch.setattr(vg, "render", _render)
+    return asyncio.run(run_gate("<html/>", expect_map=False, expect_whatsapp=True, call_vision=call))
+
+
+# Both reports below were made, and confirmed on a second look, on a real
+# production page (Ayam Gepuk Panglima, 2026-11-08) where neither was true.
+FALSE_ALARMS = {"issues": [
+    {"slice": 1, "type": "overlap", "where": "spicy level tags", "detail": "the tags are overlapping the cards below them", "severity": "high"},
+    {"slice": 9, "type": "unreadable", "where": "form labels", "detail": "light gray text on a pale background (approx. 2.8:1)", "severity": "high"},
+    {"slice": 2, "type": "other", "where": "menu", "detail": "low contrast price", "severity": "high"},
+], "overall": "fail"}
+
+
+def test_reviewer_cannot_fail_what_the_browser_measured_as_fine(monkeypatch):
+    call, seen = _reviewer(FALSE_ALARMS, {"confirmed": True, "evidence": "yes"})
+    rep = _gate_measured(monkeypatch, call)
+    assert rep.passed
+    assert [i["severity"] for i in rep.vision["issues"]] == ["low", "low", "low"]
+    assert [i["note"] for i in rep.vision["issues"]] == [
+        "overlap not confirmed by the browser's measurements",
+        "unreadable text not confirmed by the browser's measurements",
+        "unreadable text not confirmed by the browser's measurements"]
+    # Nothing left to confirm, so no second call is spent on them.
+    assert not any("A first reviewer reported" in t for t in seen)
+
+
+def test_reviewer_report_counts_when_the_browser_measured_it_too(monkeypatch):
+    low = [{"text": "Nama", "path": "label", "sel": "label.f", "fg": "rgb(190, 190, 190)", "bg": "rgb(255, 250, 230)", "ratio": 1.8, "need": 4.5}]
+    page = {"issues": [dict(FALSE_ALARMS["issues"][1], slice=1)], "overall": "fail"}
+    call, _ = _reviewer(page, {"confirmed": True, "evidence": "the labels are faint"})
+    rep = _gate_measured(monkeypatch, call, lowContrast=low)
+    assert {c.name for c in rep.failed} == {"contrast_aa", "vision_review"}
+    # A measured contrast failure says nothing about an overlap.
+    call, _ = _reviewer({"issues": [FALSE_ALARMS["issues"][0]], "overall": "fail"}, {"confirmed": True})
+    rep = _gate_measured(monkeypatch, call, lowContrast=low)
+    assert {c.name for c in rep.failed} == {"contrast_aa"}
+
+
+def test_every_measured_kind_names_real_checks():
+    known = set(vg.HARD_CHECKS) | set(vg.SOFT_CHECKS)
+    for kind, names in vg.MEASURED_FOR_KIND.items():
+        assert names and set(names) <= known, kind
 
 
 def test_design_score_is_recorded_and_never_gates(monkeypatch):

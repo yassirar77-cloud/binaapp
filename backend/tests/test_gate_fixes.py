@@ -80,9 +80,9 @@ def test_vision_cutoff_with_measured_clipping_fails(monkeypatch):
 def test_cutoff_said_in_other_words_is_still_a_cutoff(monkeypatch):
     monkeypatch.setattr(vg, "render", _render_with(_measured()))
     page = {"issues": [{"type": "other", "where": "menu", "detail": "price is cut off", "severity": "high"},
-                       {"slice": 1, "type": "overlap", "where": "hero", "detail": "badge over the button", "severity": "high"}], "overall": "fail"}
+                       {"slice": 1, "type": "tilted", "where": "hero", "detail": "the badge is rotated", "severity": "high"}], "overall": "fail"}
     r = asyncio.run(run_gate("<html/>", expect_map=False, expect_whatsapp=False, call_vision=_vision(page=page)))
-    assert [c.name for c in r.failed] == ["vision_review"] and r.failed[0].count == 1 and "overlap" in r.failed[0].detail
+    assert [c.name for c in r.failed] == ["vision_review"] and r.failed[0].count == 1 and "tilted" in r.failed[0].detail
 
 
 # ---------------------------------------------------------------------------

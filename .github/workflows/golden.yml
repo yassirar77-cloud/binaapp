@@ -4,7 +4,8 @@ name: Golden sites
 # gate). Offline on every PR that touches the generator, its guards or the
 # fixtures (no model keys: library theme + fallback copy, the exact composed
 # layout, the full measured gate). Live nightly with the real models, images
-# and the vision review. Screenshots, diffs and reports are kept as
+# and the vision review when the repository has the model keys (offline,
+# with a warning, when it does not). Screenshots, diffs and reports are kept as
 # artifacts; a failing golden site fails the job. Add "golden" to the
 # required checks of main so a regression cannot merge.
 
@@ -58,12 +59,24 @@ jobs:
           pip install -r requirements.txt
           python -m playwright install chromium --with-deps
 
+      # The nightly run is live only when this repository has the model
+      # keys (Settings → Secrets and variables → Actions). Without them it
+      # runs offline and says so: a "live" run that silently builds offline
+      # pages would report a success it did not earn. A live run asked for
+      # by hand with no keys fails instead (golden_run.py refuses to start).
       - name: Decide mode
         id: mode
+        env:
+          HAS_LIVE_KEYS: ${{ secrets.QWEN_API_KEY != '' && (secrets.ZAI_API_KEY != '' || secrets.STABILITY_API_KEY != '') }}
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then echo "mode=offline" >> "$GITHUB_OUTPUT";
           elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then echo "mode=${{ github.event.inputs.mode }}" >> "$GITHUB_OUTPUT";
-          else echo "mode=live" >> "$GITHUB_OUTPUT"; fi
+          elif [ "$HAS_LIVE_KEYS" = "true" ]; then echo "mode=live" >> "$GITHUB_OUTPUT";
+          else
+            echo "mode=offline" >> "$GITHUB_OUTPUT"
+            echo "::warning::Nightly golden run is OFFLINE: this repository has no model keys in its Actions secrets (QWEN_API_KEY plus ZAI_API_KEY or STABILITY_API_KEY). The real models, AI photos and the vision reviewer were not exercised."
+            echo "### Nightly run was offline: no model keys in this repository's Actions secrets" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       # The gate's own test: one planted defect per check must be caught
       # (and repaired where the gate has a fix), and the clean page must
@@ -78,6 +91,8 @@ jobs:
           DEEPSEEK_API_KEY: ${{ steps.mode.outputs.mode == 'live' && secrets.DEEPSEEK_API_KEY || '' }}
           QWEN_API_KEY: ${{ steps.mode.outputs.mode == 'live' && secrets.QWEN_API_KEY || '' }}
           ZAI_API_KEY: ${{ steps.mode.outputs.mode == 'live' && secrets.ZAI_API_KEY || '' }}
+          STABILITY_API_KEY: ${{ steps.mode.outputs.mode == 'live' && secrets.STABILITY_API_KEY || '' }}
+          IMAGE_PROVIDER: ${{ vars.IMAGE_PROVIDER || (secrets.ZAI_API_KEY != '' && 'zai' || 'stability') }}
           CLOUDINARY_CLOUD_NAME: ${{ steps.mode.outputs.mode == 'live' && secrets.CLOUDINARY_CLOUD_NAME || '' }}
           CLOUDINARY_API_KEY: ${{ steps.mode.outputs.mode == 'live' && secrets.CLOUDINARY_API_KEY || '' }}
           CLOUDINARY_API_SECRET: ${{ steps.mode.outputs.mode == 'live' && secrets.CLOUDINARY_API_SECRET || '' }}
