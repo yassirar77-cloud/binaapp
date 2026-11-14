@@ -198,3 +198,28 @@ def _no_ops_alert_delivery(monkeypatch):
     monkeypatch.setattr(ops_alerts, "_deliver", _fake_deliver)
     monkeypatch.setattr(ops_alerts, "_recent", {})
     return delivered
+
+
+@pytest.fixture(autouse=True)
+def _no_version_history_network(monkeypatch):
+    """Version snapshots are taken on every page overwrite; in tests the
+    table is an in-memory no-op so no save path reaches for Supabase
+    (tests/test_website_versions.py installs its own fake table)."""
+    from app.services import website_versions
+
+    async def _select(params):
+        return []
+
+    async def _insert(row):
+        return None
+
+    async def _delete(ids):
+        return None
+
+    async def _update(version_id, website_id, data):
+        return None
+
+    monkeypatch.setattr(website_versions, "_select", _select)
+    monkeypatch.setattr(website_versions, "_insert", _insert)
+    monkeypatch.setattr(website_versions, "_delete", _delete)
+    monkeypatch.setattr(website_versions, "_update", _update)

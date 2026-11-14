@@ -303,6 +303,10 @@ async def update_website_theme(
             },
         )
 
+    # Version history: keep the page in its old colours (never raises).
+    from app.services import website_versions as _versions
+    await _versions.snapshot(website_id, base_html, "theme", user_id)
+
     update_data = {
         "html_content": result.html,
         "updated_at": datetime.utcnow().isoformat(),

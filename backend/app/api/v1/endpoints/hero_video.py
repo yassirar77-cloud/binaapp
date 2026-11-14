@@ -400,6 +400,11 @@ async def _persist(website: dict, user_id: str, new_html: str) -> Tuple[bool, Op
             },
         )
 
+    # Version history: keep the stored page from before this patch (never
+    # raises; a run of look tweaks collapses to one version).
+    from app.services import website_versions as _versions
+    await _versions.snapshot(website["id"], website.get("html_content"), "hero_video", user_id)
+
     is_published = bool(website.get("status") == "published" and website.get("subdomain"))
     live_site_updated = False
     warning = None

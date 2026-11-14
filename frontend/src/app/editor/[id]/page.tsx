@@ -28,6 +28,7 @@ import { DESIGN_BRIEF_MAX, normalizeDesignBrief } from '@/lib/designBrief';
 import DesignStudioPanel from '@/components/DesignStudioPanel';
 import HeroVideoPanel from '@/components/HeroVideoPanel';
 import PromoKitPanel from '@/components/PromoKitPanel';
+import VersionHistoryPanel from '@/components/VersionHistoryPanel';
 
 // Backend API URL
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://binaapp-backend.onrender.com';
@@ -892,6 +893,21 @@ export default function EditorPage() {
               server-side flag (HERO_VIDEO_ENABLED) is off. */}
           <HeroVideoPanel
             websiteId={id}
+            onHtmlChange={(next) => {
+              setHtml(next);
+              setDirty(false);
+            }}
+          />
+
+          {/* Sejarah Versi — earlier copies of the page, restorable for
+              free. A restore writes straight through to the stored (and
+              live) site, so the buffer is refreshed and left clean. The
+              list reloads whenever the page's HTML changes underneath it
+              (a save, a regenerate, a theme change). */}
+          <VersionHistoryPanel
+            websiteId={id}
+            hasUnsavedChanges={dirty}
+            refreshKey={`${saving}:${applying}:${dirty ? '' : html.length}`}
             onHtmlChange={(next) => {
               setHtml(next);
               setDirty(false);

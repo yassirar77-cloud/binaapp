@@ -966,6 +966,11 @@ async def regenerate_website(
     # post-PR665 hardening moved that bump into the background task on
     # success so a timeout/failure doesn't burn the user's quota. The
     # counter increment lives in generate_website_content's Step 4 update.
+    # Version history: a regenerate replaces the whole page — keep the one
+    # the merchant has now so a result they dislike is not permanent.
+    from app.services import website_versions as _versions
+    await _versions.snapshot(website_id, website.get("html_content"), "regenerate", user_id)
+
     update_payload = {
         "status": WebsiteStatus.GENERATING,
         "description": new_description,
@@ -2205,6 +2210,11 @@ async def update_website(
                 detail="Not authorized to update this website"
             )
 
+        # Version history: keep the page as it was before this save
+        # overwrites it. Never raises, never blocks the save.
+        from app.services import website_versions as _versions
+        await _versions.snapshot(website_id, website.get("html_content"), "manual_save", user_id)
+
         # Update website in database
         update_data = {
             "html_content": html_content,
@@ -2427,6 +2437,9 @@ async def update_website_contact(
             else:
                 # Keep the DB blob in sync with what we publish (repairs prior
                 # DB↔storage divergence going forward).
+                if rewritten != base_html:
+                    from app.services import website_versions as _versions
+                    await _versions.snapshot(website_id, base_html, "contact", user_id)
                 update_data["html_content"] = rewritten
                 result_html = rewritten
                 if is_published:
