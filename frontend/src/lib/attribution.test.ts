@@ -1,6 +1,14 @@
 import { describe, it, expect } from 'vitest'
 
-import { buildAttribution, dayKey, externalReferrer, hasCampaignSignal } from './attribution'
+import {
+  buildAttribution,
+  dayKey,
+  externalReferrer,
+  hasCampaignSignal,
+  mergeReferral,
+  parseReferralCode,
+  referralLink,
+} from './attribution'
 
 describe('externalReferrer', () => {
   it('keeps an outside host and strips www', () => {
@@ -57,5 +65,23 @@ describe('buildAttribution', () => {
 describe('dayKey', () => {
   it('formats a local calendar day', () => {
     expect(dayKey(new Date(2026, 0, 5, 23, 59))).toBe('2026-01-05')
+  })
+})
+
+describe('referrals', () => {
+  it('accepts only well-formed codes and upper-cases them', () => {
+    expect(parseReferralCode(' bina-ab12-cd34 ')).toBe('BINA-AB12-CD34')
+    expect(parseReferralCode('BINA-AB12')).toBeNull()
+    expect(parseReferralCode('<script>')).toBeNull()
+    expect(parseReferralCode(null)).toBeNull()
+  })
+
+  it('builds the share link', () => {
+    expect(referralLink('BINA-AB12-CD34')).toBe('https://binaapp.my/register?ref=BINA-AB12-CD34')
+  })
+
+  it('adds a referral code without losing the first touch', () => {
+    const merged = mergeReferral({ utm_source: 'tiktok', landing_path: '/' }, 'BINA-AB12-CD34')
+    expect(merged).toEqual({ utm_source: 'tiktok', landing_path: '/', ref: 'BINA-AB12-CD34' })
   })
 })

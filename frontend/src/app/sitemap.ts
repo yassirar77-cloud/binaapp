@@ -1,10 +1,11 @@
 import type { MetadataRoute } from 'next';
+import { SEO_PAGES } from '@/lib/landing/seoPages';
 
 /**
  * Sitemap for binaapp.my — Next.js App Router convention.
  *
- * Currently only emits the public-facing landing page and the four
- * legal routes. The /dashboard, /edit, /delivery, /rider, and other
+ * Emits the public-facing landing page, the search landing pages under
+ * /bina/, and the four legal routes. The /dashboard, /edit, /delivery, /rider, and other
  * authenticated routes are deliberately excluded — they're not useful
  * to anonymous crawlers and the legal pages already disclose the
  * platform's existence to the index.
@@ -79,6 +80,16 @@ export default function sitemap(): MetadataRoute.Sitemap {
       alternates: legalLanguages('/terma-perkhidmatan', '/terms-of-service'),
     },
   ];
+
+  // Search landing pages (/bina/<slug>) — see lib/landing/seoPages.ts.
+  for (const page of SEO_PAGES) {
+    entries.push({
+      url: `${baseUrl}/bina/${page.slug}`,
+      lastModified: new Date(),
+      changeFrequency: 'monthly',
+      priority: 0.8,
+    });
+  }
 
   return entries as MetadataRoute.Sitemap;
 }

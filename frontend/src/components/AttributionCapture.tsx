@@ -36,7 +36,9 @@ export default function AttributionCapture() {
   const pathname = usePathname()
 
   useEffect(() => {
-    if (!pathname || !MARKETING_PATHS.has(pathname)) return
+    const isMarketing =
+      !!pathname && (MARKETING_PATHS.has(pathname) || pathname.startsWith('/bina/'))
+    if (!isMarketing) return
     if (isSignedIn()) return
     captureAttribution()
     pingVisitOncePerDay(API_BASE_URL)

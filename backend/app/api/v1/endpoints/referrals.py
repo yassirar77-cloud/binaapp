@@ -42,6 +42,15 @@ async def apply_referral(
     if not request.code or len(request.code) < 5:
         raise HTTPException(status_code=400, detail="Kod rujukan tidak sah")
 
+    # Same rule as the signup path: a referral only pays out for an account
+    # whose email is verified.
+    from app.services.supabase_client import supabase_service
+    if not await supabase_service.is_email_verified(user_id):
+        raise HTTPException(
+            status_code=403,
+            detail="Sila sahkan e-mel anda dahulu sebelum menggunakan kod rujukan",
+        )
+
     result = await referral_service.apply_referral(user_id, request.code.strip().upper())
 
     if not result.get("success"):

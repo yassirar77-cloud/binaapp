@@ -43,6 +43,7 @@ _SOURCE_ALIASES = (
 )
 
 _LABEL_RE = re.compile(r"[^a-z0-9._-]+")
+_REF_CODE_RE = re.compile(r"^BINA-[A-Z0-9]{4}-[A-Z0-9]{4}$")
 
 
 def clean_label(value: Any, max_len: int = MAX_LABEL_LEN) -> str:
@@ -132,7 +133,16 @@ def normalize_attribution(raw: Optional[Dict[str, Any]]) -> Dict[str, str]:
         "content": clean_label(raw.get("utm_content") or raw.get("content")),
         "referrer": ref_domain,
         "landing_path": clean_path(raw.get("landing_path")),
+        "ref_code": referral_code(raw.get("ref")),
     }
+
+
+def referral_code(value: Any) -> str:
+    """A well-formed BINA-XXXX-XXXX referral code, upper-cased; '' otherwise."""
+    if not isinstance(value, str):
+        return ""
+    code = value.strip().upper()
+    return code if _REF_CODE_RE.match(code) else ""
 
 
 def profile_columns(attribution: Dict[str, str]) -> Dict[str, Optional[str]]:
@@ -144,6 +154,7 @@ def profile_columns(attribution: Dict[str, str]) -> Dict[str, Optional[str]]:
         "signup_content": attribution.get("content") or None,
         "signup_referrer": attribution.get("referrer") or None,
         "signup_landing_path": attribution.get("landing_path") or None,
+        "signup_ref_code": attribution.get("ref_code") or None,
     }
 
 

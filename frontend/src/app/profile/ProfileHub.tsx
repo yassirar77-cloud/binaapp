@@ -21,6 +21,7 @@ import {
 } from './components/BillingCard'
 import { RiderCard, type Rider } from './components/RiderCard'
 import { DisputeCard, type Dispute } from './components/DisputeCard'
+import { ReferralCard } from './components/ReferralCard'
 import { Toast, type ToastTone } from './components/primitives/Toast'
 import { RiderFormModal } from '@/components/riders/RiderFormModal'
 import type { RiderFormRider } from '@/components/riders/RiderForm'
@@ -506,6 +507,8 @@ export function ProfileHub({
           onRespond={handleRespondDispute}
           onCreate={handleCreateDispute}
         />
+
+        <ReferralCard onOpen={() => router.push('/referrals')} />
 
         <div style={{ display: 'flex', justifyContent: 'center', marginTop: 16 }}>
           <button

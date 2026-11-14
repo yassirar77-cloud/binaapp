@@ -154,3 +154,15 @@ class TestSummaryEndpoint:
         monkeypatch.setattr(subscription_service, "_is_admin", not_admin)
         app.dependency_overrides[get_current_user] = lambda: {"sub": "u1", "email": "someone@example.com"}
         assert client.get("/api/v1/marketing/summary").status_code == 403
+
+
+class TestReferralCode:
+    def test_well_formed_code_is_kept_upper_cased(self):
+        a = normalize_attribution({"ref": " bina-ab12-cd34 "})
+        assert a["ref_code"] == "BINA-AB12-CD34"
+        assert profile_columns(a)["signup_ref_code"] == "BINA-AB12-CD34"
+
+    def test_malformed_code_is_dropped(self):
+        for bad in ("ALI123", "BINA-AB12", "BINA-AB12-CD34; DROP", None, 5):
+            assert normalize_attribution({"ref": bad})["ref_code"] == ""
+        assert profile_columns(normalize_attribution({"ref": "x"}))["signup_ref_code"] is None

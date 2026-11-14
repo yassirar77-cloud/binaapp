@@ -313,6 +313,12 @@ async def verify_email(
             detail="Gagal mengemas kini status pengesahan. / Failed to update verification status.",
         )
 
+    # Pay out the referral this account signed up with, if any. Done here
+    # rather than at registration so it only counts for a real inbox.
+    # apply_signup_referral never raises.
+    from app.services.referral_service import referral_service
+    await referral_service.apply_signup_referral(user_id)
+
     logger.info(f"✅ Email verified for user: {email}")
     return {"message": "Email verified successfully", "email_verified": True}
 

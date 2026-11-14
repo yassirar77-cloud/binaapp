@@ -171,11 +171,24 @@ of the three videos that brought the most signups. Drop the rest.
 Targets for the first month: 300 kedai contacted, 30 videos posted,
 30 new signups, 10 paying.
 
-## 5. Still to build
+## 5. Built since this playbook was written
 
-- "Dibina dengan BinaApp" footer link on published sites, with
-  `utm_source=site-footer`, so every merchant site advertises the product.
-- Referral codes: the system exists but no codes have been issued.
-- Search pages per business type and city ("website restoran murah",
-  "sistem order WhatsApp"); today the sitemap has one real page.
+- **Footer credit is tracked.** The "Dibina dengan BinaApp" link on every
+  published site now reports as source `site-footer`, with the merchant's
+  subdomain as the campaign.
+- **Referral links work.** Each merchant has a link at `/referrals`
+  (also reachable from Tetapan → Jemput rakan):
+  `https://binaapp.my/register?ref=BINA-XXXX-XXXX`. Both sides get RM5
+  BinaCredit once the friend verifies their email. Ask every paying
+  merchant to share theirs (message E above).
+- **Search pages** under `https://binaapp.my/bina/`: website-restoran,
+  website-kedai-makan, website-kafe, website-bakeri, website-salon,
+  sistem-order-whatsapp, delivery-tanpa-komisen, menu-qr. Link to the
+  matching page, not the home page, when a post is about one topic.
+
+## 6. Still open
+
+- BinaCredit cannot yet be spent at checkout, so the referral reward has
+  no practical value until it can.
+- Submit `https://binaapp.my/sitemap.xml` in Google Search Console.
 - Two or three testimonials from paying merchants on the landing page.

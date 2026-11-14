@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { API_BASE_URL } from '@/lib/env'
 import { getStoredToken } from '@/lib/supabase'
+import { referralLink } from '@/lib/attribution'
 
 interface ReferralStats {
   code: string | null
@@ -26,6 +27,7 @@ export default function ReferralsPage() {
   const [applyLoading, setApplyLoading] = useState(false)
   const [message, setMessage] = useState('')
   const [copied, setCopied] = useState(false)
+  const [linkCopied, setLinkCopied] = useState(false)
 
   useEffect(() => {
     loadData()
@@ -59,17 +61,30 @@ export default function ReferralsPage() {
     }
   }
 
+  // The link carries the code, so the friend does not have to type it.
+  const shareText = (link: string) =>
+    `Saya guna BinaApp untuk website kedai saya. Bina website kedai anda dalam 60 saat, cuba percuma. Daftar guna link ini dan dapat RM5 BinaCredit: ${link}`
+
+  const copyLink = () => {
+    if (stats?.code) {
+      navigator.clipboard.writeText(referralLink(stats.code))
+      setLinkCopied(true)
+      setTimeout(() => setLinkCopied(false), 2000)
+    }
+  }
+
   const shareWhatsApp = () => {
     if (stats?.code) {
-      const text = `Jom sertai BinaApp! Guna kod rujukan saya ${stats.code} dan dapatkan RM5 BinaCredit percuma! https://binaapp.my`
+      const text = shareText(referralLink(stats.code))
       window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank')
     }
   }
 
   const shareTelegram = () => {
     if (stats?.code) {
-      const text = `Jom sertai BinaApp! Guna kod rujukan saya ${stats.code} dan dapatkan RM5 BinaCredit percuma! https://binaapp.my`
-      window.open(`https://t.me/share/url?url=https://binaapp.my&text=${encodeURIComponent(text)}`, '_blank')
+      const link = referralLink(stats.code)
+      const text = shareText('')
+      window.open(`https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(text)}`, '_blank')
     }
   }
 
@@ -134,6 +149,20 @@ export default function ReferralsPage() {
               {copied ? 'Disalin!' : 'Salin'}
             </button>
           </div>
+          {stats?.code && (
+            <div className="mb-4">
+              <p className="text-blue-100 text-sm mb-1">Link Jemputan</p>
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-sm break-all bg-white/10 rounded px-3 py-2">{referralLink(stats.code)}</span>
+                <button
+                  onClick={copyLink}
+                  className="bg-white/20 hover:bg-white/30 px-3 py-1 rounded text-sm transition-colors"
+                >
+                  {linkCopied ? 'Disalin!' : 'Salin link'}
+                </button>
+              </div>
+            </div>
+          )}
           <div className="flex gap-3">
             <button
               onClick={shareWhatsApp}
@@ -194,11 +223,11 @@ export default function ReferralsPage() {
           <div className="space-y-3">
             <div className="flex gap-3">
               <span className="bg-blue-100 text-blue-600 w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm">1</span>
-              <p className="text-gray-700">Kongsi kod rujukan anda dengan rakan</p>
+              <p className="text-gray-700">Kongsi link jemputan anda dengan rakan peniaga</p>
             </div>
             <div className="flex gap-3">
               <span className="bg-blue-100 text-blue-600 w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm">2</span>
-              <p className="text-gray-700">Rakan mendaftar dan masukkan kod anda</p>
+              <p className="text-gray-700">Rakan mendaftar melalui link itu dan sahkan e-mel</p>
             </div>
             <div className="flex gap-3">
               <span className="bg-blue-100 text-blue-600 w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm">3</span>
