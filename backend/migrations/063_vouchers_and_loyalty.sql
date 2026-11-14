@@ -314,8 +314,7 @@ $$;
 
 REVOKE ALL ON FUNCTION public.promo_on_order_status_change() FROM PUBLIC, anon, authenticated;
 
-DROP TRIGGER IF EXISTS trg_promo_on_order_status_change ON public.delivery_orders;
-CREATE TRIGGER trg_promo_on_order_status_change
+CREATE OR REPLACE TRIGGER trg_promo_on_order_status_change
     AFTER UPDATE OF status ON public.delivery_orders
     FOR EACH ROW
     WHEN (OLD.status IS DISTINCT FROM NEW.status)
