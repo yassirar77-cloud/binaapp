@@ -1,13 +1,21 @@
 import Link from 'next/link'
 import Image from 'next/image'
 
+import { SEO_PAGES } from '@/lib/landing/seoPages'
+
 const linkGroups = [
   {
     title: 'Produk',
     links: [
-      { label: 'Ciri-ciri', href: '#ciri' },
-      { label: 'Harga', href: '#harga' },
+      { label: 'Ciri-ciri', href: '/#ciri' },
+      { label: 'Harga', href: '/#harga' },
     ],
+  },
+  {
+    // Internal links to the search landing pages, so crawlers reach them
+    // from the home page and not only from the sitemap.
+    title: 'Untuk perniagaan anda',
+    links: SEO_PAGES.map((p) => ({ label: p.label, href: `/bina/${p.slug}` })),
   },
   {
     title: 'Undang-undang',
@@ -30,7 +38,7 @@ const linkGroups = [
 export default function LandingFooter() {
   return (
     <footer className="bg-ink-900 text-ink-400 border-t border-white/[.06] pt-16 pb-10 px-8">
-      <div className="max-w-[1200px] mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-10">
+      <div className="max-w-[1200px] mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-10">
 
         {/* Brand column */}
         <div>

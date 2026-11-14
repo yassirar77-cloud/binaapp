@@ -8,6 +8,7 @@ import { useState, Suspense } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { signUp } from '@/lib/supabase'
+import { parseReferralCode } from '@/lib/attribution'
 import toast from 'react-hot-toast'
 import AuthLayout from '@/components/auth/AuthLayout'
 import AuthLogo from '@/components/auth/AuthLogo'
@@ -17,6 +18,7 @@ function RegisterPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const redirectUrl = searchParams.get('redirect')
+  const referralCode = parseReferralCode(searchParams.get('ref'))
   const [formData, setFormData] = useState({
     fullName: '',
     email: '',
@@ -57,7 +59,8 @@ function RegisterPageContent() {
       const result = await signUp(
         formData.email,
         formData.password,
-        formData.fullName
+        formData.fullName,
+        referralCode
       )
       toast.success('Akaun berjaya didaftar! Sila sahkan e-mel anda.')
 
@@ -98,6 +101,12 @@ function RegisterPageContent() {
       <p className="font-geist text-base text-ink-300 text-center mb-8">
         Cipta akaun — percuma untuk bermula
       </p>
+
+      {referralCode && (
+        <p className="font-geist text-sm text-volt-400 text-center -mt-4 mb-8">
+          Anda dijemput oleh rakan. RM5 BinaCredit masuk selepas e-mel disahkan.
+        </p>
+      )}
 
       {/* Form card */}
       <div className="bg-ink-800 border border-white/[.08] rounded-2xl p-6 sm:p-8">

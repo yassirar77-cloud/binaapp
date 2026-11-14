@@ -358,8 +358,14 @@ export function restoreAuthState(): boolean {
 export async function signUp(
   email: string,
   password: string,
-  fullName: string
+  fullName: string,
+  referralCode?: string | null
 ) {
+  // The stored first touch, plus the referral code from the signup link —
+  // sent explicitly so it is not lost when storage is blocked.
+  const stored = getAttribution()
+  const attribution = referralCode ? { ...(stored || {}), ref: referralCode } : stored
+
   const response = await fetch(`${API_BASE}/api/v1/register`, {
     method: 'POST',
     headers: {
@@ -370,7 +376,7 @@ export async function signUp(
       password,
       full_name: fullName,
       // How this visitor first reached binaapp.my (null when unknown).
-      attribution: getAttribution(),
+      attribution,
     }),
   })
 

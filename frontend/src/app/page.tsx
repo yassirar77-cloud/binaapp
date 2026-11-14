@@ -4,8 +4,8 @@
 
 'use client'
 
-import { useState, useEffect, Suspense } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { signOut, getCurrentUser, getStoredToken } from '@/lib/supabase'
 import { UpgradeModal } from '@/components/UpgradeModal'
 import LandingNav from '@/components/landing/LandingNav'
@@ -18,7 +18,6 @@ import DownloadAppCard from '@/components/pwa/DownloadAppCard'
 
 function LandingPageContent() {
   const router = useRouter()
-  const searchParams = useSearchParams()
   const [user, setUser] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [showUpgradeModal, setShowUpgradeModal] = useState(false)
@@ -28,18 +27,23 @@ function LandingPageContent() {
     checkUser()
   }, [])
 
-  // Handle tier parameter from redirect after login
+  // Handle tier parameter from redirect after login.
+  //
+  // Read from window.location, NOT useSearchParams(): that hook suspends the
+  // component during the static build, so the server-rendered home page was
+  // only the Suspense fallback ("Loading...") — no headline, no copy, nothing
+  // for a crawler or a link preview to read.
   useEffect(() => {
     if (!loading && user) {
-      const tier = searchParams.get('tier') as 'starter' | 'pro' | null
-      if (tier && ['starter', 'pro'].includes(tier)) {
+      const tier = new URLSearchParams(window.location.search).get('tier')
+      if (tier === 'starter' || tier === 'pro') {
         // Clear the URL parameter
         router.replace('/', { scroll: false })
         // Open the upgrade modal or redirect
         handleSelectPlan(tier)
       }
     }
-  }, [loading, user, searchParams])
+  }, [loading, user])
 
   async function checkUser() {
     try {
@@ -110,9 +114,5 @@ function LandingPageContent() {
 }
 
 export default function LandingPage() {
-  return (
-    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">Loading...</div>}>
-      <LandingPageContent />
-    </Suspense>
-  )
+  return <LandingPageContent />
 }

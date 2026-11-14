@@ -70,6 +70,22 @@ export function buildAttribution(
   return out
 }
 
+/** Pure: add a referral code to an existing first-touch record. */
+export function mergeReferral(stored: Attribution, ref: string): Attribution {
+  return { ...stored, ref }
+}
+
+/** A well-formed BinaApp referral code (BINA-XXXX-XXXX), upper-cased, or null. */
+export function parseReferralCode(value: string | null | undefined): string | null {
+  const code = (value || '').trim().toUpperCase()
+  return /^BINA-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(code) ? code : null
+}
+
+/** The link a merchant shares to invite another merchant. */
+export function referralLink(code: string): string {
+  return `https://binaapp.my/register?ref=${encodeURIComponent(code)}`
+}
+
 /** True when this page load carries campaign information worth keeping. */
 export function hasCampaignSignal(a: Attribution): boolean {
   return Boolean(a.utm_source || a.utm_campaign || a.ref || a.referrer)
@@ -110,6 +126,13 @@ export function captureAttribution(): Attribution | null {
     )
     const stored = getAttribution()
     if (stored && (hasCampaignSignal(stored) || !hasCampaignSignal(current))) {
+      // A referral link is an explicit invitation: keep its code even when
+      // an earlier visit already set the first touch.
+      if (current.ref && current.ref !== stored.ref) {
+        const merged = mergeReferral(stored, current.ref)
+        window.localStorage.setItem(ATTRIBUTION_KEY, JSON.stringify(merged))
+        return merged
+      }
       return stored
     }
     window.localStorage.setItem(ATTRIBUTION_KEY, JSON.stringify(current))

@@ -1292,6 +1292,11 @@ async def subdomain_middleware(request: Request, call_next):
         # pages without structured hours.
         html_content = _inject_open_badge(html_content)
 
+        # STEP 3.7: tag the "Dibina dengan BinaApp" footer credit so visits
+        # and signups it sends are attributed to this merchant's site.
+        from app.services.attribution_links import tag_binaapp_links
+        html_content = tag_binaapp_links(html_content, subdomain)
+
         return _page_response(html_content, request, website_id)
 
     except Exception as e:
