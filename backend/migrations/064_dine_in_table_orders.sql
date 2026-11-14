@@ -9,6 +9,9 @@
 -- delivery_address stays NOT NULL (older readers expect it) and carries a
 -- human label such as "Makan di kedai · Meja 5".
 
+-- order_type already exists on some databases as a nullable column with
+-- no default (ADD COLUMN IF NOT EXISTS then leaves it as it is). NULL means
+-- delivery everywhere it is read, and passes both checks below.
 ALTER TABLE public.delivery_orders
     ADD COLUMN IF NOT EXISTS order_type   TEXT NOT NULL DEFAULT 'delivery',
     ADD COLUMN IF NOT EXISTS table_number TEXT;

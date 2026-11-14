@@ -38,6 +38,9 @@ ALTER TABLE public.delivery_orders
     ADD COLUMN IF NOT EXISTS loyalty_points_redeemed INTEGER NOT NULL DEFAULT 0,
     ADD COLUMN IF NOT EXISTS loyalty_discount       NUMERIC(10, 2) NOT NULL DEFAULT 0;
 
+-- discount_amount already exists on some databases as a NULLABLE column
+-- (ADD COLUMN IF NOT EXISTS then leaves it as it is), so everything below
+-- that reads these columns treats NULL as 0.
 COMMENT ON COLUMN public.delivery_orders.discount_amount IS
     'Voucher discount in RM, already subtracted from total_amount.';
 COMMENT ON COLUMN public.delivery_orders.loyalty_discount IS
@@ -276,7 +279,12 @@ BEGIN
             SELECT * INTO s FROM public.loyalty_settings WHERE website_id = NEW.website_id;
             IF FOUND AND s.enabled THEN
                 v_points := FLOOR(
-                    GREATEST(NEW.subtotal - NEW.discount_amount - NEW.loyalty_discount, 0)
+                    GREATEST(
+                        NEW.subtotal
+                        - COALESCE(NEW.discount_amount, 0)
+                        - COALESCE(NEW.loyalty_discount, 0),
+                        0
+                    )
                     * s.points_per_rm
                 );
                 IF v_points > 0 THEN
@@ -288,7 +296,7 @@ BEGIN
 
         ELSIF NEW.status IN ('cancelled', 'rejected')
               AND OLD.status NOT IN ('cancelled', 'rejected') THEN
-            IF NEW.loyalty_points_redeemed > 0 THEN
+            IF COALESCE(NEW.loyalty_points_redeemed, 0) > 0 THEN
                 INSERT INTO public.loyalty_ledger (website_id, customer_phone, order_id, points, reason)
                 VALUES (NEW.website_id, NEW.customer_phone, NEW.id, NEW.loyalty_points_redeemed, 'refund')
                 ON CONFLICT DO NOTHING;
