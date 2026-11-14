@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import { useRouter, useSearchParams, usePathname } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import toast from 'react-hot-toast'
 import {
   supabase,
@@ -31,13 +31,17 @@ const PROTECTED_PATHS = ['/profile', '/my-projects', '/dashboard', '/create']
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
-  const searchParams = useSearchParams()
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const hasShownExpiredToast = useRef(false)
 
   // Handle session expired error from URL params
+  //
+  // Read from window.location, NOT useSearchParams(): this provider wraps
+  // every page from the root layout, and useSearchParams() there opts the
+  // whole tree out of server rendering — every page (landing, legal, /bina)
+  // then reaches crawlers as an empty shell. Re-checked on each navigation.
   useEffect(() => {
-    const error = searchParams.get('error')
+    const error = new URLSearchParams(window.location.search).get('error')
     if (error === 'session_expired' && !hasShownExpiredToast.current) {
       hasShownExpiredToast.current = true
       toast.error('Sesi anda telah tamat. Sila log masuk semula.', {
@@ -45,7 +49,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         id: 'session-expired'
       })
     }
-  }, [searchParams])
+  }, [pathname])
 
   // Set up Supabase auth state listener
   useEffect(() => {
