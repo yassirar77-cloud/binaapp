@@ -45,6 +45,23 @@ interface AIPerf {
   total_website_rebuilds: number
 }
 
+interface MarketingSource {
+  source: string
+  visits: number
+  signups: number
+  paid: number
+  signup_rate: number | null
+}
+
+interface Marketing {
+  days: number
+  total_visits: number
+  total_signups: number
+  sources: MarketingSource[]
+  campaigns: { source: string; campaign: string; visits: number }[]
+  daily: { date: string; visits: number }[]
+}
+
 interface Credits {
   total_in_circulation: number
   total_wallets: number
@@ -58,12 +75,14 @@ export default function FounderDashboard() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [activeTab, setActiveTab] = useState<'overview' | 'revenue' | 'users' | 'ai' | 'credits'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'revenue' | 'users' | 'marketing' | 'ai' | 'credits'>('overview')
   const [overview, setOverview] = useState<Overview | null>(null)
   const [revenue, setRevenue] = useState<Revenue | null>(null)
   const [users, setUsers] = useState<Users | null>(null)
   const [aiPerf, setAiPerf] = useState<AIPerf | null>(null)
   const [credits, setCredits] = useState<Credits | null>(null)
+  const [marketing, setMarketing] = useState<Marketing | null>(null)
+  const [marketingDays, setMarketingDays] = useState(30)
 
   useEffect(() => {
     loadData()
@@ -100,6 +119,21 @@ export default function FounderDashboard() {
       setLoading(false)
     }
   }
+
+  // Loaded separately from the rest: it has its own period switch, and a
+  // failure here (e.g. migration 067 not applied yet) must not blank the page.
+  useEffect(() => {
+    const token = getStoredToken()
+    if (!token) return
+    let cancelled = false
+    fetch(`${API_BASE_URL}/api/v1/marketing/summary?days=${marketingDays}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (!cancelled) setMarketing(d ? d.data : null) })
+      .catch(() => { if (!cancelled) setMarketing(null) })
+    return () => { cancelled = true }
+  }, [marketingDays])
 
   const exportCSV = async (type: string) => {
     try {
@@ -199,6 +233,7 @@ export default function FounderDashboard() {
             { key: 'overview', label: 'Ringkasan' },
             { key: 'revenue', label: 'Hasil' },
             { key: 'users', label: 'Pengguna' },
+            { key: 'marketing', label: 'Marketing' },
             { key: 'ai', label: 'Prestasi AI' },
             { key: 'credits', label: 'Kredit' }
           ].map(tab => (
@@ -247,6 +282,109 @@ export default function FounderDashboard() {
           <div className="bg-gray-800 rounded-xl p-6">
             <h3 className="text-lg font-semibold mb-4">Pertumbuhan Pengguna (12 Bulan)</h3>
             <UserGrowthChart data={userGrowthData} />
+          </div>
+        )}
+
+        {/* Marketing Tab — where visitors and signups come from */}
+        {activeTab === 'marketing' && (
+          <div className="space-y-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-gray-400 text-sm">
+                Pelawat ke binaapp.my dan pendaftaran mengikut sumber. Dikira sejak penjejakan dipasang.
+              </p>
+              <div className="flex gap-2">
+                {[7, 30, 90].map(d => (
+                  <button
+                    key={d}
+                    onClick={() => setMarketingDays(d)}
+                    className={`px-3 py-1 rounded text-xs ${marketingDays === d ? 'bg-blue-600' : 'bg-gray-800 hover:bg-gray-700'}`}
+                  >{d} hari</button>
+                ))}
+              </div>
+            </div>
+
+            {!marketing ? (
+              <div className="bg-gray-800 rounded-xl p-6 text-gray-400 text-sm">
+                Tiada data marketing lagi.
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  <div className="bg-gray-800 rounded-xl p-4">
+                    <p className="text-gray-400 text-xs">Pelawat</p>
+                    <p className="text-2xl font-bold text-blue-400">{marketing.total_visits}</p>
+                  </div>
+                  <div className="bg-gray-800 rounded-xl p-4">
+                    <p className="text-gray-400 text-xs">Pendaftaran</p>
+                    <p className="text-2xl font-bold text-green-400">{marketing.total_signups}</p>
+                  </div>
+                  <div className="bg-gray-800 rounded-xl p-4 col-span-2 md:col-span-1">
+                    <p className="text-gray-400 text-xs">Kadar daftar</p>
+                    <p className="text-2xl font-bold text-yellow-400">
+                      {marketing.total_visits
+                        ? `${((marketing.total_signups / marketing.total_visits) * 100).toFixed(1)}%`
+                        : '—'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="bg-gray-800 rounded-xl p-6 overflow-x-auto">
+                  <h3 className="text-lg font-semibold mb-4">Mengikut Sumber</h3>
+                  {marketing.sources.length === 0 ? (
+                    <p className="text-gray-400 text-sm">Belum ada pelawat direkodkan dalam tempoh ini.</p>
+                  ) : (
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-gray-400 border-b border-gray-700">
+                          <th className="py-2 pr-4 font-medium">Sumber</th>
+                          <th className="py-2 pr-4 font-medium text-right">Pelawat</th>
+                          <th className="py-2 pr-4 font-medium text-right">Daftar</th>
+                          <th className="py-2 pr-4 font-medium text-right">Bayar</th>
+                          <th className="py-2 font-medium text-right">Kadar daftar</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {marketing.sources.map(s => (
+                          <tr key={s.source} className="border-b border-gray-700/50">
+                            <td className="py-2 pr-4">{s.source}</td>
+                            <td className="py-2 pr-4 text-right tabular-nums">{s.visits}</td>
+                            <td className="py-2 pr-4 text-right tabular-nums">{s.signups}</td>
+                            <td className="py-2 pr-4 text-right tabular-nums">{s.paid}</td>
+                            <td className="py-2 text-right tabular-nums">
+                              {s.signup_rate === null ? '—' : `${s.signup_rate}%`}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+
+                {marketing.campaigns.length > 0 && (
+                  <div className="bg-gray-800 rounded-xl p-6 overflow-x-auto">
+                    <h3 className="text-lg font-semibold mb-4">Kempen Teratas</h3>
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-gray-400 border-b border-gray-700">
+                          <th className="py-2 pr-4 font-medium">Kempen</th>
+                          <th className="py-2 pr-4 font-medium">Sumber</th>
+                          <th className="py-2 font-medium text-right">Pelawat</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {marketing.campaigns.map(c => (
+                          <tr key={`${c.source}/${c.campaign}`} className="border-b border-gray-700/50">
+                            <td className="py-2 pr-4">{c.campaign}</td>
+                            <td className="py-2 pr-4 text-gray-400">{c.source}</td>
+                            <td className="py-2 text-right tabular-nums">{c.visits}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         )}
 

@@ -79,8 +79,14 @@ export default function LandingHero() {
             href="/register"
             className="inline-block font-geist font-bold text-base text-ink-950 bg-volt-400 px-7 py-4 rounded-xl shadow-[0_0_0_1px_theme(colors.volt.500),0_0_30px_rgba(199,255,61,.4),0_20px_48px_rgba(199,255,61,.3)] hover:bg-volt-300 transition-colors tracking-tight"
           >
-            Mula Percuma — RM 5/bln →
+            Cuba Percuma →
           </Link>
+
+          {/* Says what "free" means before the visitor has to ask. */}
+          <p className="mt-4 font-geist text-sm text-ink-200 [text-shadow:0_1px_6px_rgba(0,0,0,.9)]">
+            Bina dan lihat website anda dulu, percuma. RM 5 sebulan hanya bila
+            anda mahu terbitkan.
+          </p>
 
           {/* Trust line */}
           <div className="flex flex-wrap gap-x-6 gap-y-2 mt-7 font-geist-mono text-[11px] text-ink-200 tracking-[.06em] [text-shadow:0_1px_6px_rgba(0,0,0,.9)]">

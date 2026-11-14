@@ -5,7 +5,7 @@ Combines all API endpoints
 
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import auth, websites, payments, templates, delivery, delivery_zones, menu_delivery, chat, subscription, scheduled_tasks, email_support, moderation, template_gallery, disputes, customers, penghantar_live, analytics, issue_reports, design_studio, site_qr, promo_kit, business_kit, counter_kit, hero_video, tiktok, wishes, promotions, website_versions, bookings
+from app.api.v1.endpoints import auth, websites, payments, templates, delivery, delivery_zones, menu_delivery, chat, subscription, scheduled_tasks, email_support, moderation, template_gallery, disputes, customers, penghantar_live, analytics, issue_reports, design_studio, site_qr, promo_kit, business_kit, counter_kit, hero_video, tiktok, wishes, promotions, website_versions, bookings, marketing
 from app.api.admin import repair as admin_repair
 from app.api.admin import make_good as admin_make_good
 from app.api.admin import unstick_generation as admin_unstick
@@ -33,6 +33,9 @@ api_router.include_router(customers.router, tags=["Customer Lookup"])
 # a prefix subscription_check_middleware already lock-protects. Ownership
 # and per-tier history clamping are enforced inside the router.
 api_router.include_router(analytics.router, tags=["Analytics"])
+
+# Marketing attribution for binaapp.my itself: /api/v1/marketing/*
+api_router.include_router(marketing.router, tags=["Marketing"])
 # Admin: structural repair of stored HTML (Item 5 follow-up). Endpoint
 # enforces role='admin' internally — mounted under the v1 prefix so the
 # full path is POST /api/v1/admin/repair-websites.

@@ -36,6 +36,10 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str = Field(..., min_length=8)
+    # First-touch marketing attribution captured by the browser (utm_*,
+    # ref, referrer, landing_path). Untrusted free text: normalised by
+    # services/marketing_attribution.py before it is stored.
+    attribution: Optional[Dict[str, Any]] = None
 
     @field_validator("email")
     @classmethod
