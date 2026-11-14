@@ -10,6 +10,7 @@ import { AppToaster, PopupHost } from '@/components/ui/popups'
 import { ServiceWorkerRegister } from '@/components/ServiceWorkerRegister'
 import ChatWidget from '@/components/ChatWidget'
 import { AuthProvider } from '@/components/AuthProvider'
+import AttributionCapture from '@/components/AttributionCapture'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -92,6 +93,7 @@ export default function RootLayout({
             {children}
           </AuthProvider>
         </Suspense>
+        <AttributionCapture />
         <ServiceWorkerRegister swPath="/sw.js" />
         <ChatWidget />
         <AppToaster />

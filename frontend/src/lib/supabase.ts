@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { getAttribution } from './attribution'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -368,6 +369,8 @@ export async function signUp(
       email,
       password,
       full_name: fullName,
+      // How this visitor first reached binaapp.my (null when unknown).
+      attribution: getAttribution(),
     }),
   })
 

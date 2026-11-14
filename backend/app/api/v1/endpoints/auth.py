@@ -103,6 +103,12 @@ async def register(user_data: UserCreate):
         # phone, business_name), do an UPDATE on profiles here — never an
         # INSERT, which would conflict with the trigger-created row.
 
+        # Record where this signup came from (migration 067). Best-effort:
+        # save_signup_attribution never raises, so a missing column or a DB
+        # hiccup cannot fail the registration.
+        from app.services.marketing_attribution import save_signup_attribution
+        await save_signup_attribution(user_id, user_data.attribution)
+
         # STEP 2: Create JWT token.
         # The account starts UNVERIFIED (profiles.email_verified defaults to
         # false via migration 045). We still issue the JWT so the user can log
