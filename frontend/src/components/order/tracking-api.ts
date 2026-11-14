@@ -30,6 +30,9 @@ interface BackendOrder {
   delivery_latitude?: number | null
   delivery_longitude?: number | null
   estimated_delivery_time?: number | null
+  order_type?: string | null
+  table_number?: string | null
+  discount_total?: number | string | null
 }
 
 interface BackendOrderItem {
@@ -100,6 +103,11 @@ export interface TrackedOrder {
   deliveryLatitude: number | null
   deliveryLongitude: number | null
   estimatedDeliveryTime: number | null
+  /** 'dine_in' = ordered from a table QR; no rider, map or delivery ETA. */
+  orderType: 'delivery' | 'dine_in'
+  tableNumber: string | null
+  /** Voucher + loyalty discount in RM (0 = none). */
+  discountTotal: number
 }
 
 export interface TrackedOrderItem {
@@ -164,6 +172,9 @@ function normalizeOrder(raw: BackendOrder): TrackedOrder {
     deliveryLatitude: numOrNull(raw.delivery_latitude),
     deliveryLongitude: numOrNull(raw.delivery_longitude),
     estimatedDeliveryTime: raw.estimated_delivery_time ?? null,
+    orderType: raw.order_type === 'dine_in' ? 'dine_in' : 'delivery',
+    tableNumber: raw.table_number ?? null,
+    discountTotal: num(raw.discount_total),
   }
 }
 

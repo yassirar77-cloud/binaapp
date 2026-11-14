@@ -83,7 +83,28 @@ interface OrdersMyResponse {
  *  we unwrap to `Order[]` so callers don't have to. */
 export async function getOrders(): Promise<Order[]> {
   const res = await authFetch<OrdersMyResponse>('/api/v1/delivery/orders/my');
-  return res?.orders ?? [];
+  return (res?.orders ?? []).map(withItems);
+}
+
+interface RawOrderItem {
+  item_name?: string;
+  quantity?: number;
+  unit_price?: number | string;
+}
+
+/** The endpoint returns line items as `order_items` (item_name/unit_price);
+ *  the UI reads `items` (name/price). Without this the item list — the one
+ *  thing a kitchen needs from a dine-in order — rendered as "Tiada item". */
+export function withItems(order: Order & { order_items?: RawOrderItem[] }): Order {
+  if (order.items?.length || !order.order_items?.length) return order;
+  return {
+    ...order,
+    items: order.order_items.map((it) => ({
+      name: it.item_name ?? 'Item',
+      quantity: Number(it.quantity) || 1,
+      price: Number(it.unit_price) || 0,
+    })),
+  };
 }
 
 /** GET /api/v1/websites/ returns an array with `business_name`; we normalize

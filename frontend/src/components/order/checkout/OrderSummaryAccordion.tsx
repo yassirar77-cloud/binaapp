@@ -9,8 +9,14 @@ interface OrderSummaryAccordionProps {
   items: CartItem[]
   subtotal: number
   deliveryFee: number
-  discount: number
+  /** RM off from the voucher code (0 = none). */
+  voucherDiscount: number
   promoCode: string | null
+  /** RM off from redeemed loyalty points (0 = none). */
+  pointsDiscount?: number
+  pointsUsed?: number
+  /** Table order: there is no delivery line at all. */
+  dineIn?: boolean
   total: number
   step?: number
 }
@@ -26,8 +32,11 @@ export function OrderSummaryAccordion({
   items,
   subtotal,
   deliveryFee,
-  discount,
+  voucherDiscount,
   promoCode,
+  pointsDiscount = 0,
+  pointsUsed = 0,
+  dineIn = false,
   total,
   step = 5,
 }: OrderSummaryAccordionProps) {
@@ -82,19 +91,31 @@ export function OrderSummaryAccordion({
               <span style={{ color: 'var(--fg-muted)' }}>Subjumlah</span>
               <span className="pr">RM {subtotal.toFixed(2)}</span>
             </div>
-            <div className="ord-line">
-              <span style={{ color: 'var(--fg-muted)' }}>Penghantaran</span>
-              <span className="pr">
-                {deliveryFee > 0 ? `RM ${deliveryFee.toFixed(2)}` : '—'}
-              </span>
-            </div>
-            {discount > 0 && (
+            {!dineIn && (
+              <div className="ord-line">
+                <span style={{ color: 'var(--fg-muted)' }}>Penghantaran</span>
+                <span className="pr">
+                  {deliveryFee > 0 ? `RM ${deliveryFee.toFixed(2)}` : '—'}
+                </span>
+              </div>
+            )}
+            {pointsDiscount > 0 && (
+              <div className="ord-line">
+                <span style={{ color: 'var(--ok)' }}>
+                  Mata ganjaran{pointsUsed ? ` (${pointsUsed} mata)` : ''}
+                </span>
+                <span className="pr" style={{ color: 'var(--ok)' }}>
+                  −RM {pointsDiscount.toFixed(2)}
+                </span>
+              </div>
+            )}
+            {voucherDiscount > 0 && (
               <div className="ord-line">
                 <span style={{ color: 'var(--ok)' }}>
                   Diskaun{promoCode ? ` (${promoCode})` : ''}
                 </span>
                 <span className="pr" style={{ color: 'var(--ok)' }}>
-                  −RM {discount.toFixed(2)}
+                  −RM {voucherDiscount.toFixed(2)}
                 </span>
               </div>
             )}

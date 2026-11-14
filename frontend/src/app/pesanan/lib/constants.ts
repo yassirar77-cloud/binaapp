@@ -56,6 +56,15 @@ export const TIMELINE_STEPS: ReadonlyArray<TimelineStep> = [
   { key: 'completed',  label: 'Selesai',   matches: ['delivered','completed'] },
 ];
 
+/** Dine-in orders skip the rider leg: ready goes straight to completed. */
+export const DINE_IN_TIMELINE_STEPS: ReadonlyArray<TimelineStep> = [
+  { key: 'pending',   label: 'Diterima',  matches: ['pending','confirmed','preparing','ready','delivered','completed'] },
+  { key: 'confirmed', label: 'Disahkan',  matches: ['confirmed','preparing','ready','delivered','completed'] },
+  { key: 'preparing', label: 'Disiapkan', matches: ['preparing','ready','delivered','completed'] },
+  { key: 'ready',     label: 'Dihidang',  matches: ['ready','delivered','completed'] },
+  { key: 'completed', label: 'Selesai',   matches: ['delivered','completed'] },
+];
+
 /** Tab definitions in display order. */
 export const TABS: ReadonlyArray<{ key: TabKey; label: string }> = [
   { key: 'semua',   label: 'Semua' },

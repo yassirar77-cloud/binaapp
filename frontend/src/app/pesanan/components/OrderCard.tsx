@@ -6,6 +6,7 @@
 // Action area is status-driven:
 //   pending              → Terima + Tolak
 //   confirmed            → Pilih Rider
+//   dine-in (table QR)   → one kitchen button per step instead of rider steps
 //   preparing | ready    → muted text + WA customer
 //   picked_up|delivering → muted text + WA rider + WA customer
 //   delivered|completed  → "Lihat" link
@@ -16,6 +17,7 @@ import type { KeyboardEvent, MouseEvent } from 'react';
 import type { Order, Rider, Website } from '../lib/types';
 import { statusMeta } from '../lib/constants';
 import { relTime } from '../lib/relTime';
+import { dineInNextStep, isDineIn, type DineInStep } from '../lib/dineIn';
 import StatusDot from './StatusDot';
 import RiderPickerDropdown from './RiderPickerDropdown';
 
@@ -26,9 +28,13 @@ interface Props {
   riderPhone?: string | null;
   selected: boolean;
   acceptingId: string | null;
+  /** Order whose dine-in step is being saved right now. */
+  advancingId: string | null;
   pickerOpen: boolean;
   allRiders: Rider[];
   onSelect: (order: Order) => void;
+  /** Move a dine-in order to its next kitchen step. */
+  onAdvance: (order: Order, step: DineInStep) => void;
   onAccept: (order: Order) => void;
   onReject: (order: Order) => void;
   onPickRider: (order: Order) => void;
@@ -53,9 +59,11 @@ export default function OrderCard({
   riderPhone,
   selected,
   acceptingId,
+  advancingId,
   pickerOpen,
   allRiders,
   onSelect,
+  onAdvance,
   onAccept,
   onReject,
   onPickRider,
@@ -67,6 +75,8 @@ export default function OrderCard({
   const shopName =
     website?.name || website?.business_name || 'kedai';
   const accepting = acceptingId === order.id;
+  const dineIn = isDineIn(order);
+  const dineStep = dineIn ? dineInNextStep(order.status) : null;
 
   const handleKey = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -103,6 +113,11 @@ export default function OrderCard({
           >
             {meta.short}
           </span>
+          {dineIn ? (
+            <span className="font-mono text-[10px] uppercase tracking-wider shrink-0 px-1.5 py-0.5 rounded bg-[#C7FF3D]/15 text-[#C7FF3D]">
+              Meja {order.table_number || '—'}
+            </span>
+          ) : null}
           {/* Mobile-only inline total — the dedicated items/total column
               hides under sm, but RM stays useful at-a-glance. */}
           <span className="sm:hidden ml-auto font-mono text-[11px] font-semibold text-[#C7FF3D] shrink-0">
@@ -150,7 +165,18 @@ export default function OrderCard({
           </>
         )}
 
-        {order.status === 'confirmed' && (
+        {dineStep && (
+          <button
+            type="button"
+            disabled={advancingId === order.id}
+            onClick={() => onAdvance(order, dineStep)}
+            className="inline-flex items-center justify-center h-9 min-h-[44px] sm:min-h-0 px-3 rounded-lg bg-[#C7FF3D] hover:bg-[#d8ff6b] active:bg-[#b5e633] text-[#0B0B15] font-geist text-xs font-semibold transition-colors disabled:opacity-60"
+          >
+            {advancingId === order.id ? 'Memproses…' : dineStep.label}
+          </button>
+        )}
+
+        {!dineIn && order.status === 'confirmed' && (
           <div className="relative">
             <button
               type="button"
@@ -177,7 +203,7 @@ export default function OrderCard({
           </div>
         )}
 
-        {(order.status === 'preparing' || order.status === 'ready') && (
+        {!dineIn && (order.status === 'preparing' || order.status === 'ready') && (
           <>
             <span className="hidden sm:inline font-geist text-[11px] text-white/50">
               Sedang diproses

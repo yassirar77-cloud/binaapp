@@ -43,6 +43,16 @@ export interface Order {
   rider_id: string | null;
   items: OrderItem[];
   notes: string;
+  /** 'dine_in' = ordered from a table QR (no delivery leg). Absent on
+   *  rows created before migration 064, which are all delivery. */
+  order_type?: 'delivery' | 'dine_in' | string;
+  table_number?: string | null;
+  /** Voucher discount in RM, already subtracted from total_amount. */
+  discount_amount?: number | null;
+  voucher_code?: string | null;
+  loyalty_points_redeemed?: number | null;
+  /** Loyalty-points discount in RM, already subtracted from total_amount. */
+  loyalty_discount?: number | null;
 }
 
 export interface Website {

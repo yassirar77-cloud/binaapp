@@ -61,6 +61,14 @@ export function OrderDetailsAccordion({ order, items }: OrderDetailsAccordionPro
               <span className="pr">RM {order.deliveryFee.toFixed(2)}</span>
             </div>
           )}
+          {order.discountTotal > 0 && (
+            <div className="det-row">
+              <span style={{ color: 'var(--ok)' }}>Diskaun</span>
+              <span className="pr" style={{ color: 'var(--ok)' }}>
+                −RM {order.discountTotal.toFixed(2)}
+              </span>
+            </div>
+          )}
           <div
             className="det-row"
             style={{ fontWeight: 500, paddingTop: 4 }}
@@ -72,11 +80,17 @@ export function OrderDetailsAccordion({ order, items }: OrderDetailsAccordionPro
           <div className="det-meta">
             <div>
               <div className="lbl">Pembayaran</div>
-              <div className="v">{paymentLabel(order.paymentMethod)}</div>
+              <div className="v">
+                {order.orderType === 'dine_in' ? 'Bayar di kaunter' : paymentLabel(order.paymentMethod)}
+              </div>
             </div>
             <div>
-              <div className="lbl">Alamat</div>
-              <div className="v">{order.deliveryAddress || '—'}</div>
+              <div className="lbl">{order.orderType === 'dine_in' ? 'Meja' : 'Alamat'}</div>
+              <div className="v">
+                {order.orderType === 'dine_in'
+                  ? order.tableNumber || '—'
+                  : order.deliveryAddress || '—'}
+              </div>
             </div>
           </div>
         </div>

@@ -99,6 +99,43 @@ Full write-up: **[docs/DESIGN_STUDIO_AND_QR.md](docs/DESIGN_STUDIO_AND_QR.md)**.
 
 ---
 
+## Part 1c — Shipped since: promotions, bookings, table ordering, version history
+
+All four need their migration run before they do anything; until then every
+existing flow behaves exactly as before (plain delivery orders write none of
+the new columns).
+
+| Feature | Migration | Backend | Merchant UI | Customer UI |
+|---|---|---|---|---|
+| **Voucher codes + loyalty points** | `063_vouchers_and_loyalty.sql` | `services/promo_engine.py`, `endpoints/promotions.py`, `POST /delivery/orders` | `/dashboard/promosi` | promo row in the cart, points switch at checkout |
+| **QR table ordering (dine-in)** | `064_dine_in_table_orders.sql` | `order_type` / `table_number` on `POST /delivery/orders`, dine-in status transitions | "Meja N" badge and kitchen buttons in `/pesanan` | `?meja=N` on the site → `/order/identify?r=…&meja=N` → table checkout and tracking |
+| **Booking engine** | `065_booking_engine.sql` | `services/booking_engine.py`, `booking_store.py`, `endpoints/bookings.py` | `/dashboard/tempahan` | `/tempah/{websiteId}` |
+| **Version history & undo** | `066_website_versions.sql` | `services/website_versions.py`, `endpoints/website_versions.py`, snapshot hooks in every page-write path | "Sejarah Versi" panel in the editor | — |
+
+Rules worth knowing before changing any of it:
+
+- **The server prices everything.** The cart used to show a hardcoded
+  `BINAAPP10` discount that the order endpoint never applied. Discounts now come
+  from `POST /promotions/quote` (a preview) and are recomputed by
+  `POST /delivery/orders`, which refuses the order with `VOUCHER_INVALID` /
+  `LOYALTY_INSUFFICIENT` rather than charge a total the customer was not shown.
+- **Limited things are claimed in SQL.** `claim_voucher`, `redeem_loyalty_points`
+  and `create_booking` lock before they count, so two simultaneous checkouts
+  cannot both take the last voucher use, the same points, or the last slot.
+- **Points are earned in a trigger** (`promo_on_order_status_change`) because
+  order status is written from several endpoints. Cancelling or rejecting an
+  order returns its points and its voucher use.
+- **A table marker expires.** The dine-in context is bound to one restaurant and
+  to three hours, and is dropped when the customer arrives without `?meja`, so
+  an old scan can never send a delivery customer's food to a table.
+
+Still open from these four: no per-site switch to turn dine-in off, no link from
+a published site to its booking page (the merchant shares it), no customer
+confirmation/reminder message for bookings, and voucher edit is limited to
+pause / resume / delete in the UI (the API accepts full edits).
+
+---
+
 ## Part 2 — Feature roadmap (prioritized)
 
 ### NOW — highest ROI, mostly unlocking things that already half-exist
@@ -116,16 +153,16 @@ Full write-up: **[docs/DESIGN_STUDIO_AND_QR.md](docs/DESIGN_STUDIO_AND_QR.md)**.
 - **Section-level editor**: drag-to-reorder/hide sections, inline WYSIWYG text/image
   edits in the preview iframe (saved via existing `PUT /websites/{id}`), per-section
   regenerate — so a typo or price fix never costs an AI credit or risks a redesign.
-  Add **undo/version history** (currently a bad regenerate is permanent).
+  ~~Undo/version history~~ ✅ **SHIPPED** (Part 1c).
 - ~~**Cheap theme patches instead of full regenerates**~~ ✅ **SHIPPED** as the
   Design Studio: `PATCH /websites/{id}/theme` rewrites the colour/typography
   tokens in the live page — no AI call, no credit, no content drift. What
   remains is routing the *typed* request ("tukar warna jadi merah" in the AI
   assistant box) into this path instead of the regenerate path, so the saving
   applies without the merchant having to find the picker.
-- **Real booking engine** for salon/clinic/services: staff calendars, slot
-  availability, deposits, WhatsApp/SMS reminders (today "booking" is just fields
-  prefilled into a WhatsApp message).
+- ~~**Real booking engine**~~ ✅ **SHIPPED** (services, opening hours, slot
+  capacity, customer booking page — see Part 1c). Still open: staff calendars,
+  deposits, WhatsApp/SMS reminders.
 - **Multi-page sites** (Home/Menu/About/Gallery/Policies with shared nav) — escapes
   the one-pager ceiling that caps perceived professionalism.
 - **Marketing suite**: voucher/discount engine, post-order review requests, Google

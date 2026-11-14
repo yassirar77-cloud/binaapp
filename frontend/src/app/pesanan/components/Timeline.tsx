@@ -11,7 +11,8 @@
 import { Fragment } from 'react';
 import { Check } from 'lucide-react';
 import type { Order, OrderStatus } from '../lib/types';
-import { TIMELINE_STEPS } from '../lib/constants';
+import { DINE_IN_TIMELINE_STEPS, TIMELINE_STEPS } from '../lib/constants';
+import { isDineIn } from '../lib/dineIn';
 
 interface Props {
   order: Order;
@@ -33,12 +34,13 @@ function formatHM(iso: string | null): string {
 
 export default function Timeline({ order }: Props) {
   const status = order.status as OrderStatus;
+  const steps = isDineIn(order) ? DINE_IN_TIMELINE_STEPS : TIMELINE_STEPS;
 
   return (
     <div className="flex items-start w-full">
-      {TIMELINE_STEPS.map((step, i) => {
+      {steps.map((step, i) => {
         const done = (step.matches as ReadonlyArray<string>).includes(status);
-        const nextStep = TIMELINE_STEPS[i + 1];
+        const nextStep = steps[i + 1];
         const nextDone = nextStep
           ? (nextStep.matches as ReadonlyArray<string>).includes(status)
           : false;
@@ -84,7 +86,7 @@ export default function Timeline({ order }: Props) {
                 </span>
               ) : null}
             </div>
-            {i < TIMELINE_STEPS.length - 1 ? (
+            {i < steps.length - 1 ? (
               <div
                 className="h-px shrink grow-0 mt-2.5"
                 style={{

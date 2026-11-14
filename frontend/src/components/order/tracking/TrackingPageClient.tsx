@@ -158,7 +158,8 @@ export function TrackingPageClient({ orderNumber }: TrackingPageClientProps) {
   if (!data) return null
 
   const { order, items, rider, riderLocation, etaMinutes } = data
-  const showMap = shouldShowMap(order.status)
+  const dineIn = order.orderType === 'dine_in'
+  const showMap = !dineIn && shouldShowMap(order.status)
   const hasDeliveryCoords = order.deliveryLatitude != null && order.deliveryLongitude != null
   const hasRiderCoords = riderLocation != null
   const hasMapCoords = hasDeliveryCoords || hasRiderCoords
@@ -169,11 +170,15 @@ export function TrackingPageClient({ orderNumber }: TrackingPageClientProps) {
     <>
       <TrackingHeader orderNumber={order.orderNumber} status={order.status} />
 
-      <ETAReadout status={order.status} etaMinutes={etaMinutes} />
+      <ETAReadout
+        status={order.status}
+        etaMinutes={etaMinutes}
+        table={dineIn ? order.tableNumber : null}
+      />
 
       {!cancelled && (
         <div className="tk-hero" style={{ paddingTop: 0, paddingBottom: 8 }}>
-          <ProgressSteps status={order.status} />
+          <ProgressSteps status={order.status} dineIn={dineIn} />
         </div>
       )}
 
@@ -191,7 +196,7 @@ export function TrackingPageClient({ orderNumber }: TrackingPageClientProps) {
             <Check size={20} strokeWidth={2.4} />
           </div>
           <div className="body">
-            <div className="nm">Pesanan sudah sampai!</div>
+            <div className="nm">{dineIn ? 'Pesanan selesai!' : 'Pesanan sudah sampai!'}</div>
             <div className="nt">Selamat menjamu selera 🍽️</div>
           </div>
         </div>
@@ -220,7 +225,7 @@ export function TrackingPageClient({ orderNumber }: TrackingPageClientProps) {
         </div>
       )}
 
-      {rider && (rider.phone || rider.name) && (
+      {!dineIn && rider && (rider.phone || rider.name) && (
         <RiderCard rider={rider} order={order} />
       )}
 

@@ -1,6 +1,8 @@
 'use client'
 
 import {
+  DINE_IN_STEPS,
+  dineInStepIndex,
   isDeliveredStatus,
   statusToStepIndex,
   VISUAL_STEPS,
@@ -10,6 +12,8 @@ interface ETAReadoutProps {
   status: string
   /** Backend `eta_minutes` from the tracking response. */
   etaMinutes: number | null
+  /** Table number for a dine-in order; null/undefined for delivery. */
+  table?: string | null
 }
 
 /**
@@ -23,11 +27,39 @@ interface ETAReadoutProps {
  * field. We DON'T compute it client-side per status — that would
  * fight with whatever the restaurant's delivery_settings say.
  */
-export function ETAReadout({ status, etaMinutes }: ETAReadoutProps) {
-  const stepIndex = statusToStepIndex(status)
-  const stepLabel = VISUAL_STEPS[stepIndex]?.label ?? 'Diterima'
+export function ETAReadout({ status, etaMinutes, table }: ETAReadoutProps) {
   const delivered = isDeliveredStatus(status)
   const cancelled = status === 'cancelled' || status === 'rejected'
+
+  // Dine-in: there is no arrival to estimate. The hero names the table and
+  // says, in words, where the kitchen is with the order.
+  if (table) {
+    const label = DINE_IN_STEPS[dineInStepIndex(status)]?.label ?? 'Diterima'
+    return (
+      <div className="tk-hero">
+        <div className="eta-label">Makan di kedai · Meja {table}</div>
+        <div className="eta-row">
+          {cancelled ? (
+            <span className="eta-time" style={{ color: 'var(--err)' }}>
+              Dibatalkan
+            </span>
+          ) : (
+            <span className="eta-time">{delivered ? 'Selesai 🎉' : label}</span>
+          )}
+        </div>
+        {!delivered && !cancelled && (
+          <div className="status-line">
+            {status === 'ready'
+              ? 'Pesanan anda sedang dihantar ke meja'
+              : 'Kami akan hantar ke meja anda sebaik sahaja siap'}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  const stepIndex = statusToStepIndex(status)
+  const stepLabel = VISUAL_STEPS[stepIndex]?.label ?? 'Diterima'
 
   return (
     <div className="tk-hero">

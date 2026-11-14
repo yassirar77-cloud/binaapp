@@ -164,11 +164,12 @@ export interface PlaceOrderPayload {
   customer_name: string
   customer_phone: string
   customer_email?: string
-  delivery_address: string
-  /** Required: server resolves the ring + fee from these. */
-  delivery_latitude: number
-  /** Required: server resolves the ring + fee from these. */
-  delivery_longitude: number
+  /** Ignored for dine-in: the server writes the table label here itself. */
+  delivery_address?: string
+  /** Required for delivery: server resolves the ring + fee from these. */
+  delivery_latitude?: number
+  /** Required for delivery: server resolves the ring + fee from these. */
+  delivery_longitude?: number
   delivery_notes?: string
   /**
    * The server ignores this field and recomputes the ring from
@@ -179,6 +180,16 @@ export interface PlaceOrderPayload {
   delivery_zone_id?: string
   items: OrderItemPayload[]
   payment_method: OrderPaymentMethod
+  /** 'dine_in' = ordered from a table QR: no address, zone or fee. */
+  order_type?: 'delivery' | 'dine_in'
+  table_number?: string
+  /**
+   * Promotions. The server validates the code and prices both itself, and
+   * rejects the order (VOUCHER_INVALID / LOYALTY_INSUFFICIENT) rather than
+   * charge a total the customer was not shown.
+   */
+  voucher_code?: string
+  redeem_points?: boolean
 }
 
 /** Slice of the OrderResponse the UI actually consumes. */

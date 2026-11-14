@@ -3,11 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import toast from 'react-hot-toast'
-import {
-  cartDiscount,
-  cartTotal,
-  useCartStore,
-} from '../cart-store'
+import { cartTotal, useCartStore } from '../cart-store'
 import {
   CoverageError,
   type CoveredZone,
@@ -19,11 +15,15 @@ import {
   type OrderPaymentMethod,
 } from '../checkout-api'
 import { useCustomerStore } from '../customer-store'
+import { clearPromoQuoteCache, usePromoQuote } from '../promo'
+import { useRestaurantStore, useTable } from '../restaurant-store'
 import { useRestaurant } from '../ThemeProvider'
 import { AddressSection, type AddressChoice } from './AddressSection'
 import { CheckoutHeader } from './CheckoutHeader'
 import { CoverageStatusSection } from './CoverageStatusSection'
 import { CustomerInfoSection } from './CustomerInfoSection'
+import { DineInSection } from './DineInSection'
+import { LoyaltySection } from './LoyaltySection'
 import { OrderSummaryAccordion } from './OrderSummaryAccordion'
 import { PaymentMethodSection } from './PaymentMethodSection'
 import { PlaceOrderCTA } from './PlaceOrderCTA'
@@ -50,6 +50,14 @@ import { PlaceOrderCTA } from './PlaceOrderCTA'
  *      /order/tracking/{order_number}.
  *   3. On failure, surface the error inline above the CTA — DO NOT
  *      clear the form, the customer can retry.
+ *
+ * Dine-in (arrived from a table QR — see restaurant-store): the address
+ * and coverage sections are replaced by the table card, there is no
+ * delivery fee, and the order is sent with order_type 'dine_in'.
+ *
+ * Promotions: every discount on this page comes from the server quote
+ * (promo.ts). The CTA is disabled while a quote is in flight so the
+ * customer can never confirm a total that is about to change.
  */
 export function CheckoutPageClient() {
   const router = useRouter()
@@ -64,7 +72,18 @@ export function CheckoutPageClient() {
   const cartRestaurantId = useCartStore((s) => s.restaurantId)
   const kitchenNotes = useCartStore((s) => s.kitchenNotes)
   const promoCode = useCartStore((s) => s.promoCode)
+  const redeemPoints = useCartStore((s) => s.redeemPoints)
+  const setRedeemPoints = useCartStore((s) => s.setRedeemPoints)
+  const clearPromoCode = useCartStore((s) => s.clearPromoCode)
   const clearCart = useCartStore((s) => s.clear)
+
+  // Dine-in table (null = normal delivery flow).
+  const table = useTable()
+  const clearTable = useRestaurantStore((s) => s.clearTable)
+  const dineIn = !!table
+
+  // Server-priced voucher + loyalty for this cart.
+  const promo = usePromoQuote({ withLoyalty: true })
 
   const [hydrated, setHydrated] = useState(false)
 
@@ -146,6 +165,7 @@ export function CheckoutPageClient() {
   //      Nominatim on every keystroke.
   useEffect(() => {
     if (!hydrated) return
+    if (dineIn) return  // no address to resolve at a table
     if (addressChoice !== 'saved') return
     const saved = customer?.address?.trim()
     if (!saved || saved.length < 4) return
@@ -184,7 +204,7 @@ export function CheckoutPageClient() {
       clearTimeout(timeoutId)
       controller.abort()
     }
-  }, [hydrated, addressChoice, customer?.address, pickedLatLng])
+  }, [hydrated, dineIn, addressChoice, customer?.address, pickedLatLng])
 
   // ---- Coverage check — fires whenever pickedLatLng changes.
   //      No coords → idle. Coords set → checking → covered/uncovered/error.
@@ -243,59 +263,94 @@ export function CheckoutPageClient() {
 
   // ---- Money math.
   const subtotal = useMemo(() => cartTotal(cartItems), [cartItems])
-  const discount = useMemo(() => cartDiscount(cartItems, promoCode), [cartItems, promoCode])
-  const deliveryFee = detectedZone?.fee ?? 0
-  const total = Math.max(0, subtotal - discount + deliveryFee)
+  const voucher = promo.quote?.voucher ?? null
+  const loyalty = promo.quote?.loyalty ?? null
+  const voucherDiscount = voucher?.valid ? voucher.discount : 0
+  const pointsDiscount = loyalty?.applied ? loyalty.redeemDiscount : 0
+  const discount = voucherDiscount + pointsDiscount
+  const deliveryFee = dineIn ? 0 : detectedZone?.fee ?? 0
+  const total = Math.max(0, subtotal - discount) + deliveryFee
   const minOrderShortfall =
-    detectedZone && detectedZone.minOrder > 0 && subtotal < detectedZone.minOrder
+    !dineIn && detectedZone && detectedZone.minOrder > 0 && subtotal < detectedZone.minOrder
       ? detectedZone.minOrder - subtotal
       : 0
 
   // ---- Validity for the place-order CTA.
   const resolvedAddress =
     addressChoice === 'saved' ? customer?.address ?? '' : newAddressText
+  const destinationValid = dineIn
+    ? true
+    : resolvedAddress.trim().length >= 8 &&
+      coverageStatus === 'covered' &&
+      !!detectedZone &&
+      !!pickedLatLng &&
+      minOrderShortfall === 0
   const valid =
     !!customer?.phone &&
     !!customer?.name?.trim() &&
-    resolvedAddress.trim().length >= 8 &&
-    coverageStatus === 'covered' &&
-    !!detectedZone &&
-    !!pickedLatLng &&
-    minOrderShortfall === 0 &&
+    destinationValid &&
+    !promo.loading &&
     paymentMethod === 'cod'
 
   // ---- Place the order.
   const handlePlace = async () => {
-    // valid already requires coverageStatus==='covered', detectedZone, and
-    // pickedLatLng — narrow them here so the payload types are happy.
-    if (!valid || placing || !customer || !pickedLatLng || !detectedZone) return
+    if (!valid || placing || !customer) return
+    // For delivery, `valid` already requires coverageStatus==='covered',
+    // detectedZone and pickedLatLng — narrow them so the payload types
+    // are happy.
+    if (!dineIn && (!pickedLatLng || !detectedZone)) return
     setPlacing(true)
     setPlaceError(null)
     try {
-      const placed = await placeOrder({
-        website_id: restaurant.websiteId,
-        customer_name: customer.name.trim(),
-        customer_phone: customer.phone,
-        delivery_address: resolvedAddress.trim(),
-        delivery_latitude: pickedLatLng.lat,
-        delivery_longitude: pickedLatLng.lng,
-        delivery_notes: [kitchenNotes, riderNotes].filter(Boolean).join(' · '),
-        // Server ignores this and recomputes from lat/lng — we send it so
-        // the mismatch-telemetry warning doesn't fire on our own traffic.
-        delivery_zone_id: detectedZone.id,
-        items: cartItems.map((c) => ({
-          menu_item_id: c.id,
-          quantity: c.qty,
-        })),
-        payment_method: paymentMethod,
-      })
+      const promoFields = {
+        // Only send a code the server has just confirmed for this cart.
+        voucher_code: voucher?.valid ? voucher.code : undefined,
+        redeem_points: !!loyalty?.applied,
+      }
+      const items = cartItems.map((c) => ({
+        menu_item_id: c.id,
+        quantity: c.qty,
+      }))
+      const placed = await placeOrder(
+        dineIn
+          ? {
+              website_id: restaurant.websiteId,
+              customer_name: customer.name.trim(),
+              customer_phone: customer.phone,
+              order_type: 'dine_in',
+              table_number: table ?? undefined,
+              delivery_notes: kitchenNotes,
+              items,
+              payment_method: paymentMethod,
+              ...promoFields,
+            }
+          : {
+              website_id: restaurant.websiteId,
+              customer_name: customer.name.trim(),
+              customer_phone: customer.phone,
+              delivery_address: resolvedAddress.trim(),
+              delivery_latitude: pickedLatLng!.lat,
+              delivery_longitude: pickedLatLng!.lng,
+              delivery_notes: [kitchenNotes, riderNotes].filter(Boolean).join(' · '),
+              // Server ignores this and recomputes from lat/lng — we send it so
+              // the mismatch-telemetry warning doesn't fire on our own traffic.
+              delivery_zone_id: detectedZone!.id,
+              items,
+              payment_method: paymentMethod,
+              ...promoFields,
+            }
+      )
 
-      // Persist customer name/address so future checkouts pre-fill.
-      updateCustomer({
-        id: customer.id,
-        name: customer.name.trim(),
-        address: resolvedAddress.trim(),
-      })
+      // The order spent a voucher use and/or points: cached quotes are stale.
+      clearPromoQuoteCache()
+
+      // Persist customer name (and, for delivery, the address) so future
+      // checkouts pre-fill. A table is not an address worth remembering.
+      updateCustomer(
+        dineIn
+          ? { id: customer.id, name: customer.name.trim() }
+          : { id: customer.id, name: customer.name.trim(), address: resolvedAddress.trim() }
+      )
 
       // Flag before clearing so the empty-cart guard doesn't redirect
       // to /order/menu — we're about to navigate to the tracking page.
@@ -306,14 +361,38 @@ export function CheckoutPageClient() {
       // not the UUID — see GET /api/v1/delivery/orders/{order_number}/track.
       router.replace(`/order/tracking/${encodeURIComponent(placed.order_number)}`)
     } catch (err) {
-      const msg =
+      let msg =
         err instanceof PlaceOrderError
           ? err.message
           : 'Gagal membuat pesanan. Sila cuba lagi.'
+      // The server refused a promotion we showed (voucher just ran out,
+      // points spent on another device). Drop it so the page re-prices,
+      // and tell the customer the total changed before they confirm again.
+      if (err instanceof PlaceOrderError && err.code === 'VOUCHER_INVALID') {
+        clearPromoQuoteCache()
+        clearPromoCode()
+        msg = `${msg}. Kod promo dibuang — sila semak jumlah baharu.`
+      } else if (err instanceof PlaceOrderError && err.code === 'LOYALTY_INSUFFICIENT') {
+        clearPromoQuoteCache()
+        setRedeemPoints(false)
+        msg = `${msg} Sila semak jumlah baharu.`
+      }
       setPlaceError(msg)
       setPlacing(false)
     }
   }
+
+  // ---- Section numbers. Sections come and go (dine-in drops address +
+  //      coverage, loyalty appears only when the merchant enabled it), so
+  //      the badges are counted rather than hardcoded.
+  const steps = (() => {
+    let n = dineIn ? 2 : 3 // customer (1) + table (2), or + address (2) + coverage (3)
+    const payment = ++n
+    const loyaltyStep = loyalty?.enabled ? ++n : n
+    const summary = ++n
+    const notes = ++n
+    return { payment, loyalty: loyaltyStep, summary, notes }
+  })()
 
   // ---- Render.
   // Don't show the form for users we're about to redirect.
@@ -338,65 +417,100 @@ export function CheckoutPageClient() {
       <div className="co-sections">
         <CustomerInfoSection customer={customer} onUpdate={updateCustomer} />
 
-        <AddressSection
-          customer={customer}
-          choice={addressChoice}
-          onChoiceChange={(c) => {
-            setAddressChoice(c)
-            // Switching choice invalidates any coords we resolved for
-            // the previous choice's text. The relevant useEffect will
-            // re-geocode (saved) or wait for "Semak alamat" (new).
-            setPickedLatLng(null)
-          }}
-          newAddressText={newAddressText}
-          onNewAddressChange={(t) => {
-            setNewAddressText(t)
-            // Clear lat/lng when the user manually edits the textarea.
-            if (pickedLatLng) setPickedLatLng(null)
-          }}
-          onGeolocated={({ address, latitude, longitude }) => {
-            setNewAddressText(address)
-            setPickedLatLng({ lat: latitude, lng: longitude })
-          }}
-        />
+        {dineIn && table ? (
+          <DineInSection
+            table={table}
+            onSwitchToDelivery={() => {
+              clearTable()
+              toast('Ditukar ke penghantaran', { icon: '🛵' })
+            }}
+          />
+        ) : (
+          <>
+            <AddressSection
+              customer={customer}
+              choice={addressChoice}
+              onChoiceChange={(c) => {
+                setAddressChoice(c)
+                // Switching choice invalidates any coords we resolved for
+                // the previous choice's text. The relevant useEffect will
+                // re-geocode (saved) or wait for "Semak alamat" (new).
+                setPickedLatLng(null)
+              }}
+              newAddressText={newAddressText}
+              onNewAddressChange={(t) => {
+                setNewAddressText(t)
+                // Clear lat/lng when the user manually edits the textarea.
+                if (pickedLatLng) setPickedLatLng(null)
+              }}
+              onGeolocated={({ address, latitude, longitude }) => {
+                setNewAddressText(address)
+                setPickedLatLng({ lat: latitude, lng: longitude })
+              }}
+            />
 
-        <CoverageStatusSection
-          status={coverageStatus}
-          zone={detectedZone}
-          subtotal={subtotal}
-          error={coverageError}
-        />
+            <CoverageStatusSection
+              status={coverageStatus}
+              zone={detectedZone}
+              subtotal={subtotal}
+              error={coverageError}
+            />
+          </>
+        )}
 
         <PaymentMethodSection
           selected={paymentMethod}
           onSelect={setPaymentMethod}
+          step={steps.payment}
+          dineIn={dineIn}
         />
+
+        {loyalty?.enabled && (
+          <LoyaltySection
+            loyalty={loyalty}
+            redeem={redeemPoints}
+            onRedeemChange={setRedeemPoints}
+            step={steps.loyalty}
+          />
+        )}
 
         <OrderSummaryAccordion
           items={cartItems}
           subtotal={subtotal}
           deliveryFee={deliveryFee}
-          discount={discount}
-          promoCode={promoCode}
+          voucherDiscount={voucherDiscount}
+          promoCode={voucher?.valid ? voucher.code : null}
+          pointsDiscount={pointsDiscount}
+          pointsUsed={loyalty?.applied ? loyalty.redeemablePoints : 0}
+          dineIn={dineIn}
           total={total}
+          step={steps.summary}
         />
 
-        {/* Optional rider notes */}
-        <div className="co-sec fade-up" style={{ animationDelay: '200ms' }}>
-          <div className="co-sec-head">
-            <h2>
-              <span className="num">6</span>
-              Nota untuk rider <span style={{ color: 'var(--fg-muted)', fontWeight: 400, fontSize: 12, marginLeft: 4 }}>(pilihan)</span>
-            </h2>
+        {promoCode && voucher && !voucher.valid && !promo.loading && (
+          <div className="promo-error" role="alert">
+            Kod {promoCode}: {voucher.message}. Diskaun tidak digunakan.
           </div>
-          <textarea
-            className="addr-textarea"
-            placeholder="cth: Pintu pagar bawah, ketuk dulu sebelum hantar…"
-            value={riderNotes}
-            onChange={(e) => setRiderNotes(e.target.value)}
-            aria-label="Nota untuk rider"
-          />
-        </div>
+        )}
+
+        {/* Optional rider notes — delivery only */}
+        {!dineIn && (
+          <div className="co-sec fade-up" style={{ animationDelay: '200ms' }}>
+            <div className="co-sec-head">
+              <h2>
+                <span className="num">{steps.notes}</span>
+                Nota untuk rider <span style={{ color: 'var(--fg-muted)', fontWeight: 400, fontSize: 12, marginLeft: 4 }}>(pilihan)</span>
+              </h2>
+            </div>
+            <textarea
+              className="addr-textarea"
+              placeholder="cth: Pintu pagar bawah, ketuk dulu sebelum hantar…"
+              value={riderNotes}
+              onChange={(e) => setRiderNotes(e.target.value)}
+              aria-label="Nota untuk rider"
+            />
+          </div>
+        )}
       </div>
 
       <PlaceOrderCTA

@@ -908,6 +908,45 @@ def _inject_widgets(html_content: str, website_id: str, business_type: str = "fo
   Pesan Delivery
 </a>'''
 
+    # Dine-in: the QR toolkit's table posters open this page with ?meja=<n>
+    # (qr_service.py). Carry the table into the order flow so the order is
+    # placed as dine-in for that table: no address, no delivery fee. A
+    # restaurant that prints table codes wants ordering even if it never
+    # turned delivery on, so the button is created when it is not there.
+    # The page is served from cache for every visitor, so this has to
+    # happen in the browser; the value is validated here and again by the
+    # order API (normalize_table_number).
+    table_order_script = ""
+    if subdomain:
+        table_target = f"https://www.{settings.MAIN_DOMAIN}/order/identify?r={subdomain}"
+        table_order_script = f'''
+<script id="binaapp-table-order">
+(function(){{
+  try {{
+    var meja = new URLSearchParams(window.location.search).get("meja") || "";
+    meja = meja.trim().toUpperCase();
+    if (!/^[A-Z0-9-]{{1,8}}$/.test(meja)) return;
+    var href = "{table_target}&meja=" + encodeURIComponent(meja);
+    var label = "Pesan dari Meja " + meja;
+    var btn = document.querySelector("a.binaapp-order-button");
+    if (btn) {{
+      btn.href = href;
+      for (var i = btn.childNodes.length - 1; i >= 0; i--) {{
+        var node = btn.childNodes[i];
+        if (node.nodeType === 3 && node.textContent.trim()) {{ node.textContent = " " + label; break; }}
+      }}
+    }} else {{
+      btn = document.createElement("a");
+      btn.className = "binaapp-order-button";
+      btn.href = href;
+      btn.textContent = label;
+      btn.style.cssText = "position:fixed;bottom:96px;right:24px;background:{brand_color};color:#fff;padding:14px 24px;border-radius:999px;text-decoration:none;font-family:system-ui,-apple-system,sans-serif;font-weight:500;font-size:14px;box-shadow:0 4px 12px rgba(0,0,0,0.15);z-index:999999;";
+      document.body.appendChild(btn);
+    }}
+  }} catch (e) {{}}
+}})();
+</script>'''
+
     # The strip above removes any generation-baked chat-widget.js tag (it may
     # carry a stale website_id), so the script MUST be re-injected here or the
     # chat widget never loads on served sites. Chat is not plan-gated — the
@@ -943,7 +982,7 @@ def _inject_widgets(html_content: str, website_id: str, business_type: str = "fo
 {float_stack_css}
 <div id="binaapp-widget-container" data-website-id="{website_id}"></div>
 <script>window.BINAAPP_WEBSITE_ID = "{website_id}";</script>
-{chat_script_html}{order_button_html}
+{chat_script_html}{order_button_html}{table_order_script}
 '''
 
     # Inject before </body> or at end

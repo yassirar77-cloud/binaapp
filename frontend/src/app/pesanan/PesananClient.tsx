@@ -25,6 +25,7 @@ import type {
   Website,
 } from './lib/types';
 import { POLL_INTERVAL_MS, statusMeta } from './lib/constants';
+import type { DineInStep } from './lib/dineIn';
 import TopBar from './components/TopBar';
 import TabBar from './components/TabBar';
 import FilterBar from './components/FilterBar';
@@ -62,6 +63,7 @@ export default function PesananClient() {
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
   /** Order id currently being marked completed via API. */
   const [completingId, setCompletingId] = useState<string | null>(null);
+  const [advancingId, setAdvancingId] = useState<string | null>(null);
   /** Order id whose RiderPickerDropdown is open. At most one open at a time;
    *  consumers (OrderCard / OrderDetailPanel) decide where to anchor. */
   const [ridersPickerOpenFor, setRidersPickerOpenFor] = useState<string | null>(
@@ -392,6 +394,26 @@ export default function PesananClient() {
     [refreshOrders, reportSuccess, reportError],
   );
 
+  /** Dine-in orders: one kitchen button per step (see lib/dineIn.ts). */
+  const handleAdvanceDineIn = useCallback(
+    async (order: Order, step: DineInStep) => {
+      setAdvancingId(order.id);
+      try {
+        await updateOrderStatus(order.id, step.next);
+        reportSuccess(`Pesanan #${order.order_number} ${step.done}`);
+        await refreshOrders();
+      } catch (e) {
+        reportError(
+          e,
+          `Gagal kemaskini pesanan #${order.order_number}. Sila cuba lagi.`,
+        );
+      } finally {
+        if (mountedRef.current) setAdvancingId(null);
+      }
+    },
+    [refreshOrders, reportSuccess, reportError],
+  );
+
   const handleClosePanel = useCallback(() => setSelectedOrderId(null), []);
 
   // Selected order object — null when no selection or when the selected order
@@ -517,9 +539,11 @@ export default function PesananClient() {
                     }
                     selected={selectedOrderId === o.id}
                     acceptingId={acceptingId}
+                    advancingId={advancingId}
                     pickerOpen={ridersPickerOpenFor === o.id}
                     allRiders={riders}
                     onSelect={handleSelectOrder}
+                    onAdvance={handleAdvanceDineIn}
                     onAccept={handleAcceptOrder}
                     onReject={handleRejectOrder}
                     onPickRider={handlePickRider}
@@ -538,6 +562,7 @@ export default function PesananClient() {
             rider={selectedRider}
             acceptingId={acceptingId}
             completingId={completingId}
+            advancingId={advancingId}
             pickerOpen={ridersPickerOpenFor === selectedOrder.id}
             allRiders={riders}
             variant={isMobile ? 'mobile' : 'desktop'}
@@ -546,6 +571,7 @@ export default function PesananClient() {
             onReject={handleRejectOrder}
             onPickRider={handlePickRider}
             onMarkCompleted={handleMarkCompleted}
+            onAdvance={handleAdvanceDineIn}
             onClosePicker={handleClosePicker}
             onAssignRider={handleAssignRider}
           />

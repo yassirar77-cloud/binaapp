@@ -1,7 +1,8 @@
 'use client';
 
-import { MapPin, Phone, User } from 'lucide-react';
+import { MapPin, Phone, User, UtensilsCrossed } from 'lucide-react';
 import type { Order } from '../lib/types';
+import { isDineIn } from '../lib/dineIn';
 import MapThumbnail from './MapThumbnail';
 
 interface Props {
@@ -44,6 +45,25 @@ export default function CustomerInfoCard({ order }: Props) {
         {order.customer_phone}
       </a>
 
+      {isDineIn(order) ? (
+        // Dine-in: the destination is a table, not an address — no map.
+        <div className="flex items-start gap-3 rounded-lg bg-[#C7FF3D]/[0.06] ring-1 ring-[#C7FF3D]/20 px-3 py-2.5">
+          <UtensilsCrossed size={15} strokeWidth={1.5} className="text-[#C7FF3D] shrink-0 mt-0.5" />
+          <div className="min-w-0">
+            <div className="font-geist font-semibold text-sm text-white">
+              Meja {order.table_number || '—'}
+            </div>
+            <div className="font-geist text-[11px] text-white/50">Makan di kedai</div>
+            {order.delivery_notes ? (
+              <div className="mt-1 font-geist text-[11px] text-white/60">
+                <span className="text-white/40">Nota: </span>
+                {order.delivery_notes}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : (
+      <>
       <div className="flex items-start gap-2 mb-3 text-xs font-geist text-white/75 leading-relaxed">
         <MapPin
           size={13}
@@ -62,6 +82,8 @@ export default function CustomerInfoCard({ order }: Props) {
       </div>
 
       <MapThumbnail addressLine={order.delivery_address} />
+      </>
+      )}
     </div>
   );
 }

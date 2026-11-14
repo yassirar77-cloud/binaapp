@@ -46,6 +46,33 @@ export const VISUAL_STEPS: VisualStep[] = [
   { id: 'delivered', label: 'Sampai' },
 ]
 
+/**
+ * Dine-in (table QR) orders have no rider leg: the kitchen marks the food
+ * ready and the order is completed when it is served. Four steps, the
+ * last one terminal.
+ */
+export const DINE_IN_STEPS: VisualStep[] = [
+  { id: 'received', label: 'Diterima' },
+  { id: 'preparing', label: 'Sedang disediakan' },
+  { id: 'ready', label: 'Sedia dihidang' },
+  { id: 'delivered', label: 'Selesai' },
+]
+
+/** Maps a backend status to its dine-in step index (0..3). */
+export function dineInStepIndex(status: BackendOrderStatus | string | null | undefined): number {
+  switch (status) {
+    case 'preparing':
+      return 1
+    case 'ready':
+      return 2
+    case 'delivered':
+    case 'completed':
+      return 3
+    default:
+      return 0
+  }
+}
+
 /** Maps a backend status to its visual step index (0..4). */
 export function statusToStepIndex(status: BackendOrderStatus | string | null | undefined): number {
   switch (status) {

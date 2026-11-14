@@ -2575,3 +2575,74 @@
   margin: 8px auto 0;
   flex-shrink: 0;
 }
+
+/* ---------------------------------------------------------------------
+   Dine-in (table QR) and loyalty points
+   --------------------------------------------------------------------- */
+.order-flow .dinein-banner {
+  display: flex; align-items: center; gap: 10px;
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: color-mix(in oklab, var(--brand-primary) 8%, white);
+  border: 1px solid color-mix(in oklab, var(--brand-primary) 24%, white);
+  font-size: 13px;
+  color: var(--fg-2);
+  line-height: 1.35;
+}
+.order-flow .dinein-banner .tbl {
+  flex-shrink: 0;
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  background: var(--brand-primary);
+  color: var(--brand-primary-fg);
+  font-weight: 600;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.order-flow .dinein-card {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 12px;
+  border: 1px solid var(--brand-primary);
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--brand-primary) 6%, white);
+}
+.order-flow .dinein-card .ic-wrap {
+  width: 36px; height: 36px;
+  border-radius: 9px;
+  background: var(--brand-primary);
+  color: var(--brand-primary-fg);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.order-flow .dinein-card .body { flex: 1; min-width: 0; }
+.order-flow .dinein-card .nm { font-size: 15px; font-weight: 600; color: var(--fg); }
+.order-flow .dinein-card .nt { font-size: 12px; color: var(--fg-muted); margin-top: 1px; }
+.order-flow .dinein-switch {
+  margin-top: 10px;
+  padding: 6px 0;
+  background: none; border: 0;
+  font: inherit; font-size: 12px;
+  color: var(--fg-muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.order-flow .dinein-switch:hover { color: var(--fg); }
+.order-flow .loyalty-balance {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--fg-2);
+  padding: 3px 9px;
+  border-radius: var(--r-pill);
+  background: var(--bg-muted);
+}
+.order-flow .loyalty-note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--fg-muted);
+}
+.order-flow .loyalty-note.earn { margin-top: 8px; color: var(--ok); }
+.order-flow .loyalty-note.earn b { font-weight: 600; }
+.order-flow .co-sections > .promo-error { margin: 0 4px; }

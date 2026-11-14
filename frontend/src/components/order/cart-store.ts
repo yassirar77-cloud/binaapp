@@ -22,27 +22,20 @@ import type { CartItem } from './types'
  * is the only line that needs to change.
  */
 
-/**
- * Stub promo code for v1. Real promo system lands later.
- * TODO(promo): Build real promo code system with backend validation.
- */
-const STUB_PROMO_CODE = 'BINAAPP10'
-const STUB_PROMO_PERCENT = 0.1
-const STUB_PROMO_MAX_DISCOUNT = 5
-
-export interface PromoApplyResult {
-  success: boolean
-  message: string
-}
-
 interface CartState {
   items: CartItem[]
   /** Website UUID this cart belongs to. Null until first set on menu mount. */
   restaurantId: string | null
   /** Free-text instructions for the kitchen, persisted with the cart. */
   kitchenNotes: string
-  /** Currently-applied promo code, or null. v1 only recognises BINAAPP10. */
+  /**
+   * Voucher code the customer applied, or null. The store only remembers
+   * the code: whether it is valid and what it is worth always comes from
+   * the server (see promo.ts).
+   */
   promoCode: string | null
+  /** Customer chose to spend their loyalty points on this order. */
+  redeemPoints: boolean
 
   /** Adds an item or merges qty if it already exists. */
   add: (item: Omit<CartItem, 'qty'>, qty?: number) => void
@@ -58,9 +51,10 @@ interface CartState {
   /** Bind the cart to a specific restaurant; called on menu page mount. */
   setRestaurantId: (id: string) => void
   setKitchenNotes: (notes: string) => void
-  /** Validate + apply a promo code. Returns user-facing message either way. */
-  applyPromoCode: (code: string) => PromoApplyResult
+  /** Remember a code the server has just confirmed as valid. */
+  setPromoCode: (code: string) => void
   clearPromoCode: () => void
+  setRedeemPoints: (on: boolean) => void
 }
 
 export const useCartStore = create<CartState>()(
@@ -70,6 +64,7 @@ export const useCartStore = create<CartState>()(
       restaurantId: null,
       kitchenNotes: '',
       promoCode: null,
+      redeemPoints: false,
       add: (item, qty = 1) =>
         set((state) => {
           const idx = state.items.findIndex((c) => c.id === item.id)
@@ -97,21 +92,14 @@ export const useCartStore = create<CartState>()(
           restaurantId: null,
           kitchenNotes: '',
           promoCode: null,
+          redeemPoints: false,
         }),
       setRestaurantId: (id) => set({ restaurantId: id }),
       setKitchenNotes: (notes) => set({ kitchenNotes: notes }),
-      applyPromoCode: (code) => {
-        const normalized = (code || '').trim().toUpperCase()
-        if (!normalized) {
-          return { success: false, message: 'Sila masukkan kod promo' }
-        }
-        if (normalized !== STUB_PROMO_CODE) {
-          return { success: false, message: 'Kod promo tidak sah' }
-        }
-        set({ promoCode: STUB_PROMO_CODE })
-        return { success: true, message: 'Kod promo digunakan' }
-      },
+      setPromoCode: (code) =>
+        set({ promoCode: (code || '').replace(/[\s-]/g, '').toUpperCase() || null }),
       clearPromoCode: () => set({ promoCode: null }),
+      setRedeemPoints: (on) => set({ redeemPoints: on }),
     }),
     {
       name: 'binaapp_cart',
@@ -122,6 +110,7 @@ export const useCartStore = create<CartState>()(
         restaurantId: state.restaurantId,
         kitchenNotes: state.kitchenNotes,
         promoCode: state.promoCode,
+        redeemPoints: state.redeemPoints,
       }),
     }
   )
@@ -132,39 +121,14 @@ export const useCartStore = create<CartState>()(
 export const cartCount = (items: CartItem[]): number =>
   items.reduce((s, i) => s + i.qty, 0)
 
-/** Subtotal = sum of items × price (NO discount applied). */
+/** Subtotal = sum of items × price. Discounts come from the server quote. */
 export const cartTotal = (items: CartItem[]): number =>
   items.reduce((s, i) => s + i.price * i.qty, 0)
-
-/**
- * Discount in RM. v1 only honors BINAAPP10 (10% off, capped at RM 5).
- * Returns 0 when no promo is applied or the code is unrecognised.
- */
-export function cartDiscount(items: CartItem[], promoCode: string | null): number {
-  if (promoCode !== STUB_PROMO_CODE) return 0
-  const subtotal = cartTotal(items)
-  const raw = subtotal * STUB_PROMO_PERCENT
-  return Math.min(raw, STUB_PROMO_MAX_DISCOUNT)
-}
-
-/**
- * Grand total = subtotal − discount.
- *
- * Delivery fee is NOT included here — it gets added on the checkout page
- * once the customer picks a delivery zone.
- */
-export function cartGrandTotal(items: CartItem[], promoCode: string | null): number {
-  return cartTotal(items) - cartDiscount(items, promoCode)
-}
 
 /* ----- Hook helpers ------------------------------------------------------ */
 
 export const useCartItems = () => useCartStore((s) => s.items)
 export const useCartCount = () => useCartStore((s) => cartCount(s.items))
 export const useCartTotal = () => useCartStore((s) => cartTotal(s.items))
-export const useCartDiscount = () =>
-  useCartStore((s) => cartDiscount(s.items, s.promoCode))
-export const useCartGrandTotal = () =>
-  useCartStore((s) => cartGrandTotal(s.items, s.promoCode))
 export const useKitchenNotes = () => useCartStore((s) => s.kitchenNotes)
 export const usePromoCode = () => useCartStore((s) => s.promoCode)

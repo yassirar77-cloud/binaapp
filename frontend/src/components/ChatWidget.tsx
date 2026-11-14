@@ -9,7 +9,7 @@ interface Message {
 }
 
 // Routes where BinaBot should NOT appear (customer-facing pages with their own chat)
-const HIDDEN_ROUTES = ['/delivery'];
+const HIDDEN_ROUTES = ['/delivery', '/tempah/'];
 
 export default function ChatWidget() {
     const pathname = usePathname();
