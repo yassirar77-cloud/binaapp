@@ -2,8 +2,8 @@
 Pydantic schemas for BinaApp Delivery System
 """
 
-from pydantic import BaseModel, Field, field_validator
-from typing import Optional, List, Dict, Any
+from pydantic import BaseModel, Field, field_validator, model_validator
+from typing import Optional, List, Dict, Any, Literal
 from datetime import datetime
 from enum import Enum
 from decimal import Decimal
@@ -213,6 +213,42 @@ class OrderItemResponse(BaseModel):
         from_attributes = True
 
 
+def normalize_customer_phone(raw) -> str:
+    """The one phone format orders are stored under (+60…). Loyalty points
+    and per-customer voucher limits are keyed on exactly this string."""
+    phone = str(raw or '').strip().replace(' ', '').replace('-', '')
+    if phone and not phone.startswith('+'):
+        phone = '+60' + phone.lstrip('0')  # Assume Malaysia
+    return phone
+
+
+def normalize_table_number(raw) -> str:
+    """Table label as printed on the QR poster: letters, digits, dash; max 8.
+
+    Returns '' for anything else, so a hand-edited ?meja= can never put
+    markup or a paragraph of text on the kitchen's order card.
+    """
+    table = '' if raw is None else str(raw).strip().upper()
+    if not table or len(table) > 8:
+        return ''
+    if not all(ch.isalnum() or ch == '-' for ch in table) or not table.isascii():
+        return ''
+    return table
+
+
+def dine_in_label(table: str) -> str:
+    return f'Makan di kedai · Meja {table}'
+
+
+def parse_dine_in_label(address) -> Optional[str]:
+    """The table from a dine-in address label, or None for a real address."""
+    prefix = 'Makan di kedai · Meja '
+    text = '' if address is None else str(address)
+    if not text.startswith(prefix):
+        return None
+    return normalize_table_number(text[len(prefix):]) or None
+
+
 class OrderCreate(BaseModel):
     website_id: str
     customer_name: str = ""
@@ -225,6 +261,37 @@ class OrderCreate(BaseModel):
     delivery_zone_id: Optional[str] = None
     items: List[OrderItemCreate] = Field(min_length=1)
     payment_method: PaymentMethod = PaymentMethod.COD
+    # Dine-in from a table QR (migration 064): no coordinates, zone or fee.
+    order_type: Literal['delivery', 'dine_in'] = 'delivery'
+    table_number: Optional[str] = None
+    # Promotions (migration 063). Both are validated and priced server-side.
+    voucher_code: Optional[str] = None
+    redeem_points: bool = False
+
+    @model_validator(mode='before')
+    @classmethod
+    def prepare_dine_in(cls, data):
+        """A dine-in order has no address; give it its table label so the
+        NOT NULL delivery_address column and older readers stay happy."""
+        if isinstance(data, dict) and data.get('order_type') == 'dine_in':
+            table = normalize_table_number(data.get('table_number'))
+            if not table:
+                raise ValueError('Nombor meja diperlukan untuk pesanan makan di kedai')
+            data = {**data, 'table_number': table, 'delivery_address': dine_in_label(table)}
+        return data
+
+    @field_validator('table_number', mode='before')
+    @classmethod
+    def clean_table_number(cls, v):
+        return normalize_table_number(v) or None
+
+    @field_validator('voucher_code', mode='before')
+    @classmethod
+    def clean_voucher_code(cls, v):
+        v = '' if v is None else str(v).strip()
+        if len(v) > 40:
+            raise ValueError('Kod promo tidak sah')
+        return v or None
 
     @field_validator('customer_name', 'customer_phone', 'customer_email', 'delivery_address', 'delivery_notes', mode='before')
     @classmethod
@@ -258,11 +325,7 @@ class OrderCreate(BaseModel):
         """Validate and format phone number"""
         if not v or not v.strip():
             raise ValueError('Nombor telefon diperlukan')
-        # Basic phone validation
-        phone = v.strip().replace(' ', '').replace('-', '')
-        if not phone.startswith('+'):
-            phone = '+60' + phone.lstrip('0')  # Assume Malaysia
-        return phone
+        return normalize_customer_phone(v)
 
 
 class OrderStatusUpdate(BaseModel):
@@ -337,6 +400,13 @@ class OrderResponse(BaseModel):
     estimated_prep_time: Optional[int]
     estimated_delivery_time: Optional[int]
     actual_delivery_time: Optional[int]
+    # Present once migrations 063/064 have run; defaults keep older rows valid.
+    order_type: Optional[str] = 'delivery'
+    table_number: Optional[str] = None
+    discount_amount: Optional[Decimal] = None
+    voucher_code: Optional[str] = None
+    loyalty_points_redeemed: Optional[int] = None
+    loyalty_discount: Optional[Decimal] = None
 
     class Config:
         from_attributes = True

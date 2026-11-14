@@ -1,11 +1,8 @@
 'use client'
 
-import {
-  useCartDiscount,
-  useCartGrandTotal,
-  useCartTotal,
-  usePromoCode,
-} from '../cart-store'
+import { useCartTotal, usePromoCode } from '../cart-store'
+import { usePromoQuote, voucherDiscountOf } from '../promo'
+import { useTable } from '../restaurant-store'
 
 /**
  * Summary block at the bottom of the cart sheet (above the checkout
@@ -19,9 +16,11 @@ import {
  */
 export function CartSummary() {
   const subtotal = useCartTotal()
-  const discount = useCartDiscount()
-  const total = useCartGrandTotal()
   const promoCode = usePromoCode()
+  const { quote } = usePromoQuote()
+  const discount = voucherDiscountOf(quote)
+  const total = Math.max(0, subtotal - discount)
+  const table = useTable()
 
   return (
     <div className="summary">
@@ -29,10 +28,17 @@ export function CartSummary() {
         <span>Subjumlah</span>
         <span className="v">RM {subtotal.toFixed(2)}</span>
       </div>
-      <div className="sum-row muted-fee">
-        <span>Yuran penghantaran</span>
-        <span className="v">Akan dihitung di checkout</span>
-      </div>
+      {table ? (
+        <div className="sum-row muted-fee">
+          <span>Makan di kedai</span>
+          <span className="v">Meja {table}</span>
+        </div>
+      ) : (
+        <div className="sum-row muted-fee">
+          <span>Yuran penghantaran</span>
+          <span className="v">Akan dihitung di checkout</span>
+        </div>
+      )}
       {discount > 0 && (
         <div className="sum-row discount">
           <span>Diskaun ({promoCode})</span>

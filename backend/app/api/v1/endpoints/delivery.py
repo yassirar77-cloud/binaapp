@@ -37,6 +37,7 @@ from app.models.delivery_schemas import (
     MenuItemResponse,
     OrderCreate,
     OrderResponse,
+    parse_dine_in_label,
     OrderStatus,
     OrderStatusUpdate,
     RiderLocationUpdate,
@@ -48,6 +49,7 @@ from app.models.delivery_schemas import (
     DeliverySettingsResponse,
     DeliverySettingsUpdate,
 )
+from app.services import promo_engine
 from app.utils.whatsapp import (
     notify_owner_new_order,
     notify_rider_assigned,
@@ -804,7 +806,11 @@ async def create_order(
         #    Delivery is the only flow supported in this PR — coordinates
         #    are required unconditionally. Pickup is a separately scoped
         #    feature for later.
-        if order.delivery_latitude is None or order.delivery_longitude is None:
+        is_dine_in = order.order_type == "dine_in"
+
+        if not is_dine_in and (
+            order.delivery_latitude is None or order.delivery_longitude is None
+        ):
             logger.warning(
                 f"[Order] REJECTED: missing coordinates for website {order.website_id}"
             )
@@ -816,48 +822,58 @@ async def create_order(
                 },
             )
 
-        lat = float(order.delivery_latitude)
-        lng = float(order.delivery_longitude)
+        if is_dine_in:
+            # Dine-in (table QR): no delivery leg, so no coordinates, zone,
+            # fee or zone minimum. The table label was validated by the
+            # schema and is already in order.delivery_address.
+            lat = lng = None
+            zone_id = None
+            delivery_fee = Decimal("0")
+            min_order_rm = Decimal("0")
+            estimated_delivery_min = None
+        else:
+            lat = float(order.delivery_latitude)
+            lng = float(order.delivery_longitude)
 
-        zone_lookup = await _db(supabase.rpc(
-            "find_zone_for_point",
-            {
-                "p_website_id": order.website_id,
-                "p_lat": lat,
-                "p_lng": lng,
-                "p_only_active": True,
-            },
-        ))
-        zone_rows = zone_lookup.data or []
-
-        if not zone_rows:
-            logger.info(
-                f"[Order] OUT_OF_COVERAGE for website {order.website_id} "
-                f"at ({lat}, {lng})"
-            )
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "error": "OUT_OF_COVERAGE",
-                    "message": "Maaf, lokasi anda di luar kawasan penghantaran",
+            zone_lookup = await _db(supabase.rpc(
+                "find_zone_for_point",
+                {
+                    "p_website_id": order.website_id,
+                    "p_lat": lat,
+                    "p_lng": lng,
+                    "p_only_active": True,
                 },
-            )
+            ))
+            zone_rows = zone_lookup.data or []
 
-        zone = zone_rows[0]
-        zone_id = str(zone["id"])
-        delivery_fee = Decimal(zone["fee_cents"]) / Decimal(100)
-        min_order_rm = Decimal(zone["min_order_cents"]) / Decimal(100)
-        estimated_delivery_min = zone.get("estimated_delivery_min")
+            if not zone_rows:
+                logger.info(
+                    f"[Order] OUT_OF_COVERAGE for website {order.website_id} "
+                    f"at ({lat}, {lng})"
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "error": "OUT_OF_COVERAGE",
+                        "message": "Maaf, lokasi anda di luar kawasan penghantaran",
+                    },
+                )
 
-        # Telemetry only: warn if the client submitted a zone_id and it
-        # doesn't match what the server resolved. Helps detect stale
-        # frontend caches or tampering. We ignore the submission either way.
-        if order.delivery_zone_id and order.delivery_zone_id != zone_id:
-            logger.warning(
-                f"[Order] delivery_zone_id mismatch: client submitted "
-                f"{order.delivery_zone_id}, server resolved {zone_id} for "
-                f"website {order.website_id} at ({lat}, {lng})"
-            )
+            zone = zone_rows[0]
+            zone_id = str(zone["id"])
+            delivery_fee = Decimal(zone["fee_cents"]) / Decimal(100)
+            min_order_rm = Decimal(zone["min_order_cents"]) / Decimal(100)
+            estimated_delivery_min = zone.get("estimated_delivery_min")
+
+            # Telemetry only: warn if the client submitted a zone_id and it
+            # doesn't match what the server resolved. Helps detect stale
+            # frontend caches or tampering. We ignore the submission either way.
+            if order.delivery_zone_id and order.delivery_zone_id != zone_id:
+                logger.warning(
+                    f"[Order] delivery_zone_id mismatch: client submitted "
+                    f"{order.delivery_zone_id}, server resolved {zone_id} for "
+                    f"website {order.website_id} at ({lat}, {lng})"
+                )
 
         # 3. Calculate order totals
         subtotal = Decimal("0")
@@ -888,7 +904,29 @@ async def create_order(
                 detail=f"Minimum pesanan untuk zon ini ialah RM{min_order_rm:.2f}",
             )
 
-        total_amount = subtotal + delivery_fee
+        # Promotions: only touched when the customer asked for one, so a
+        # plain order never depends on the promo tables (migration 063).
+        # Claimed BEFORE the order row is written; every failure path below
+        # hands the claim back via promo_engine.rollback.
+        promo = promo_engine.PromoResult()
+        if order.voucher_code or order.redeem_points:
+            try:
+                promo = await promo_engine.apply_to_order(
+                    supabase,
+                    _db,
+                    website_id=order.website_id,
+                    phone=order.customer_phone,
+                    subtotal=subtotal,
+                    voucher_code=order.voucher_code,
+                    redeem_points=order.redeem_points,
+                )
+            except promo_engine.PromoError as promo_err:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={"error": promo_err.code, "message": promo_err.message},
+                )
+
+        total_amount = max(subtotal - promo.total_discount, Decimal("0")) + delivery_fee
 
         # 4. Create order record (order_number auto-generated by trigger).
         #    delivery_zone_id, delivery_fee, estimated_delivery_time all
@@ -912,10 +950,25 @@ async def create_order(
             "estimated_prep_time": 30,  # Default 30 minutes
             "estimated_delivery_time": estimated_delivery_min,
         }
+        # New columns are only written when used, so delivery orders keep
+        # saving on a database that has not run migrations 063/064 yet.
+        if is_dine_in:
+            order_data["order_type"] = "dine_in"
+            order_data["table_number"] = order.table_number
+        if promo.applied:
+            order_data["discount_amount"] = float(promo.voucher_discount)
+            order_data["voucher_code"] = promo.voucher_code
+            order_data["loyalty_points_redeemed"] = promo.points_redeemed
+            order_data["loyalty_discount"] = float(promo.loyalty_discount)
 
-        order_response = await _db(supabase.table("delivery_orders").insert(order_data))
+        try:
+            order_response = await _db(supabase.table("delivery_orders").insert(order_data))
+        except Exception:
+            await promo_engine.rollback(supabase, _db, promo)
+            raise
 
         if not order_response.data:
+            await promo_engine.rollback(supabase, _db, promo)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to create order"
@@ -932,6 +985,7 @@ async def create_order(
             items_result = await _db(supabase.table("order_items").insert(order_items_data))
             if not items_result.data:
                 logger.error(f"❌ Failed to insert order items for order {order_id}")
+                await promo_engine.rollback(supabase, _db, promo)
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail="Failed to save order items. Please try again."
@@ -941,6 +995,7 @@ async def create_order(
             raise
         except Exception as items_error:
             logger.error(f"❌ Error inserting order items: {items_error}")
+            await promo_engine.rollback(supabase, _db, promo)
             # Try to rollback - delete the order if items failed
             try:
                 await _db(supabase.table("delivery_orders").delete().eq("id", order_id))
@@ -951,6 +1006,9 @@ async def create_order(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to save order items: {str(items_error)}"
             )
+
+        if promo.applied:
+            await promo_engine.attach_order(supabase, _db, promo, order_id)
 
         # 6. Register/Get customer
         customer = await get_or_create_customer(
@@ -1183,6 +1241,18 @@ async def track_order(
         ).eq("order_id", order_id).order("created_at"))
         status_history = history_response.data if history_response.data else []
 
+        dine_in_table = (
+            parse_dine_in_label(order.get("delivery_address"))
+            if not order.get("delivery_latitude")
+            else None
+        )
+        discount_total = round(max(
+            float(order.get("subtotal") or 0)
+            + float(order.get("delivery_fee") or 0)
+            - float(order.get("total_amount") or 0),
+            0.0,
+        ), 2)
+
         result = {
             "order": {
                 "id": order["id"],
@@ -1202,7 +1272,12 @@ async def track_order(
                 "website_id": order.get("website_id"),
                 "delivery_latitude": float(order.get("delivery_latitude")) if order.get("delivery_latitude") else None,
                 "delivery_longitude": float(order.get("delivery_longitude")) if order.get("delivery_longitude") else None,
-                "estimated_delivery_time": order.get("estimated_delivery_time")
+                "estimated_delivery_time": order.get("estimated_delivery_time"),
+                # Derived from columns this query already selects, so the
+                # tracking page keeps working before migrations 063/064.
+                "order_type": "dine_in" if dine_in_table else "delivery",
+                "table_number": dine_in_table,
+                "discount_total": discount_total,
             },
             "items": items,
             "status_history": status_history,
@@ -1443,6 +1518,25 @@ ALLOWED_ORDER_TRANSITIONS = {
     "rejected":   set(),
 }
 
+# Dine-in orders (table QR, migration 064) have no rider leg: the kitchen
+# marks the food ready and the order is completed when it is served.
+DINE_IN_ORDER_TRANSITIONS = {
+    "pending":   {"confirmed", "cancelled", "rejected"},
+    "confirmed": {"preparing", "ready", "cancelled"},
+    "preparing": {"ready", "cancelled"},
+    "ready":     {"completed", "cancelled"},
+    "completed": set(),
+    "cancelled": set(),
+    "rejected":  set(),
+}
+
+
+def allowed_order_transitions(order: dict) -> dict:
+    """The transition table that applies to this order's type."""
+    if (order or {}).get("order_type") == "dine_in":
+        return DINE_IN_ORDER_TRANSITIONS
+    return ALLOWED_ORDER_TRANSITIONS
+
 
 @router.put("/orders/{order_id}/status", response_model=OrderResponse)
 async def update_order_status(
@@ -1504,7 +1598,7 @@ async def update_order_status(
 
         # 3. Legal-transition check (idempotent no-op when unchanged).
         if new_status != current_status:
-            allowed = ALLOWED_ORDER_TRANSITIONS.get(current_status, set())
+            allowed = allowed_order_transitions(current_order).get(current_status, set())
             if new_status not in allowed:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,

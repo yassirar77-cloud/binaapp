@@ -3,6 +3,8 @@
 import { Bike, Check, ChefHat, ClipboardCheck, Package } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
+  DINE_IN_STEPS,
+  dineInStepIndex,
   statusToStepIndex,
   VISUAL_STEPS,
   type VisualStepId,
@@ -10,6 +12,8 @@ import {
 
 interface ProgressStepsProps {
   status: string
+  /** Table order: kitchen steps only, no delivery leg. */
+  dineIn?: boolean
 }
 
 /**
@@ -24,14 +28,14 @@ interface ProgressStepsProps {
  * (the 5th is the destination so its bar would have nothing to connect
  * to) — this is enforced via CSS `:last-child .step-bar { display: none }`.
  */
-export function ProgressSteps({ status }: ProgressStepsProps) {
-  const activeIndex = statusToStepIndex(status)
+export function ProgressSteps({ status, dineIn = false }: ProgressStepsProps) {
+  const activeIndex = dineIn ? dineInStepIndex(status) : statusToStepIndex(status)
 
   // The design only renders 4 steps in the prototype's hero strip
   // (received → preparing → ready → delivery). The fifth `delivered`
   // state replaces the entire hero with a celebration — see
   // ETAReadout. We follow the same convention.
-  const steps = VISUAL_STEPS.slice(0, 4)
+  const steps = dineIn ? DINE_IN_STEPS : VISUAL_STEPS.slice(0, 4)
 
   return (
     <div className="steps" role="list">

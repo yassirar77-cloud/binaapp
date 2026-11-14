@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { IdentifyForm } from './IdentifyForm'
-import { useRestaurantStore } from '../restaurant-store'
+import { normalizeTableNumber, useRestaurantStore, useTable } from '../restaurant-store'
 import type { ResolvedRestaurant } from '../restaurant-store'
 import { Spinner } from '../primitives'
 
@@ -29,6 +29,10 @@ export function IdentifyPageClient() {
   const subdomain = searchParams.get('r')
   const setRestaurant = useRestaurantStore((s) => s.setRestaurant)
   const stored = useRestaurantStore((s) => s.restaurant)
+  const setTable = useRestaurantStore((s) => s.setTable)
+  const clearTable = useRestaurantStore((s) => s.clearTable)
+  const table = useTable()
+  const mejaParam = searchParams.get('meja')
 
   const [phase, setPhase] = useState<Phase>(() => {
     // If no ?r= param, skip resolution entirely
@@ -75,6 +79,17 @@ export function IdentifyPageClient() {
     void resolve()
     return () => { cancelled = true }
   }, [subdomain, stored?.subdomain, setRestaurant])
+
+  // ---- Dine-in: a table QR arrives as ?r=<subdomain>&meja=<n>. Arriving
+  //      for a restaurant WITHOUT ?meja means the customer came through
+  //      the normal "Pesan Delivery" button, so any table left over from
+  //      an earlier visit is dropped.
+  useEffect(() => {
+    if (!subdomain || stored?.subdomain !== subdomain) return
+    const scanned = normalizeTableNumber(mejaParam)
+    if (scanned) setTable(scanned, stored.id)
+    else clearTable()
+  }, [subdomain, mejaParam, stored?.subdomain, stored?.id, setTable, clearTable])
 
   if (phase.kind === 'resolving') {
     return (
@@ -124,6 +139,12 @@ export function IdentifyPageClient() {
 
   return (
     <div className="phone-page">
+      {table && (
+        <div className="dinein-banner" role="status">
+          <span className="tbl">Meja {table}</span>
+          <span>Makan di kedai — pesanan dihantar terus ke meja anda</span>
+        </div>
+      )}
       <IdentifyForm />
     </div>
   )

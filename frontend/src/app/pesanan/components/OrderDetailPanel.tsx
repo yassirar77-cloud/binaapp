@@ -22,12 +22,15 @@ import Timeline from './Timeline';
 import CustomerInfoCard from './CustomerInfoCard';
 import RiderInfoCard from './RiderInfoCard';
 import RiderPickerDropdown from './RiderPickerDropdown';
+import { dineInNextStep, isDineIn, orderDiscount, type DineInStep } from '../lib/dineIn';
 
 interface Props {
   order: Order;
   rider: Rider | null;
   acceptingId: string | null;
   completingId: string | null;
+  /** Order whose dine-in step is being saved right now. */
+  advancingId: string | null;
   pickerOpen: boolean;
   allRiders: Rider[];
   /** desktop = inline flex item, slide-in from right.
@@ -38,6 +41,8 @@ interface Props {
   onReject: (order: Order) => void;
   onPickRider: (order: Order) => void;
   onMarkCompleted: (order: Order) => void;
+  /** Move a dine-in order to its next kitchen step. */
+  onAdvance: (order: Order, step: DineInStep) => void;
   onClosePicker: () => void;
   onAssignRider: (orderId: string, rider: Rider) => Promise<boolean>;
 }
@@ -57,6 +62,7 @@ export default function OrderDetailPanel({
   rider,
   acceptingId,
   completingId,
+  advancingId,
   pickerOpen,
   allRiders,
   variant,
@@ -65,12 +71,19 @@ export default function OrderDetailPanel({
   onReject,
   onPickRider,
   onMarkCompleted,
+  onAdvance,
   onClosePicker,
   onAssignRider,
 }: Props) {
   const meta = statusMeta(order.status);
   const accepting = acceptingId === order.id;
   const completing = completingId === order.id;
+  const dineIn = isDineIn(order);
+  const dineStep = dineIn ? dineInNextStep(order.status) : null;
+  const advancing = advancingId === order.id;
+  const voucherDiscount = Number(order.discount_amount) || 0;
+  const pointsDiscount = Number(order.loyalty_discount) || 0;
+  const hasDiscount = orderDiscount(order) > 0;
   const cancellationReason =
     order.status === 'cancelled' || order.status === 'rejected'
       ? extractCancellationReason(order.notes)
@@ -170,12 +183,29 @@ export default function OrderDetailPanel({
               RM {order.subtotal.toFixed(2)}
             </span>
           </div>
-          <div className="flex items-center justify-between text-xs font-geist text-white/55 py-1">
-            <span>Yuran Penghantaran</span>
-            <span className="font-mono text-white/80">
-              RM {order.delivery_fee.toFixed(2)}
-            </span>
-          </div>
+          {!dineIn && (
+            <div className="flex items-center justify-between text-xs font-geist text-white/55 py-1">
+              <span>Yuran Penghantaran</span>
+              <span className="font-mono text-white/80">
+                RM {order.delivery_fee.toFixed(2)}
+              </span>
+            </div>
+          )}
+          {hasDiscount && voucherDiscount > 0 && (
+            <div className="flex items-center justify-between text-xs font-geist text-emerald-300/90 py-1">
+              <span>Baucar{order.voucher_code ? ` (${order.voucher_code})` : ''}</span>
+              <span className="font-mono">−RM {voucherDiscount.toFixed(2)}</span>
+            </div>
+          )}
+          {hasDiscount && pointsDiscount > 0 && (
+            <div className="flex items-center justify-between text-xs font-geist text-emerald-300/90 py-1">
+              <span>
+                Mata ganjaran
+                {order.loyalty_points_redeemed ? ` (${order.loyalty_points_redeemed} mata)` : ''}
+              </span>
+              <span className="font-mono">−RM {pointsDiscount.toFixed(2)}</span>
+            </div>
+          )}
           <div className="border-t border-white/[0.06] mt-2 pt-2 flex items-center justify-between">
             <span className="font-geist text-sm font-semibold text-white">
               Jumlah
@@ -186,7 +216,7 @@ export default function OrderDetailPanel({
           </div>
           {order.payment_method ? (
             <div className="mt-1 text-[10px] uppercase tracking-wider font-mono text-white/35">
-              Bayaran: {order.payment_method}
+              Bayaran: {dineIn ? 'di kaunter' : order.payment_method}
             </div>
           ) : null}
         </section>
@@ -230,7 +260,18 @@ export default function OrderDetailPanel({
           </div>
         )}
 
-        {order.status === 'confirmed' && (
+        {dineStep && (
+          <button
+            type="button"
+            disabled={advancing}
+            onClick={() => onAdvance(order, dineStep)}
+            className="w-full inline-flex items-center justify-center h-11 px-3 rounded-lg bg-[#C7FF3D] hover:bg-[#d8ff6b] active:bg-[#b5e633] text-[#0B0B15] font-geist text-sm font-semibold transition-colors disabled:opacity-60"
+          >
+            {advancing ? 'Memproses…' : dineStep.label}
+          </button>
+        )}
+
+        {!dineIn && order.status === 'confirmed' && (
           <div className="relative">
             <button
               type="button"
@@ -257,7 +298,8 @@ export default function OrderDetailPanel({
           </div>
         )}
 
-        {(order.status === 'preparing' ||
+        {!dineIn &&
+          (order.status === 'preparing' ||
           order.status === 'ready' ||
           order.status === 'picked_up' ||
           order.status === 'delivering') && (

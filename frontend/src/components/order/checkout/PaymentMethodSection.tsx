@@ -8,6 +8,8 @@ interface PaymentMethodSectionProps {
   selected: OrderPaymentMethod
   onSelect: (method: OrderPaymentMethod) => void
   step?: number
+  /** Ordering from a table: the customer pays at the counter, not a rider. */
+  dineIn?: boolean
 }
 
 /**
@@ -24,6 +26,7 @@ export function PaymentMethodSection({
   selected,
   onSelect,
   step = 4,
+  dineIn = false,
 }: PaymentMethodSectionProps) {
   return (
     <div className="co-sec fade-up" style={{ animationDelay: '120ms' }}>
@@ -43,8 +46,10 @@ export function PaymentMethodSection({
           <Wallet size={18} strokeWidth={2} aria-hidden="true" />
         </div>
         <div className="body">
-          <div className="nm">Bayar tunai semasa hantar</div>
-          <div className="nt">Sediakan duit pas — paling popular</div>
+          <div className="nm">{dineIn ? 'Bayar di kaunter' : 'Bayar tunai semasa hantar'}</div>
+          <div className="nt">
+            {dineIn ? 'Bayar terus kepada kedai selepas makan' : 'Sediakan duit pas — paling popular'}
+          </div>
         </div>
         <div className="radio-circle" />
       </button>

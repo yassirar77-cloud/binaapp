@@ -25,6 +25,8 @@ export const DASHBOARD_NAV_ITEMS: readonly DashboardNavItem[] = [
   { label: 'Penghantaran', href: '/dashboard/penghantaran' },
   { label: 'Penghantar Live', href: '/dashboard/penghantar-live', requiresRiders: true },
   { label: 'Menu', href: '/menu-designer' },
+  { label: 'Tempahan', href: '/dashboard/tempahan' },
+  { label: 'Promosi', href: '/dashboard/promosi' },
   { label: 'Analitik', href: '/dashboard/analitik' },
 ]
 

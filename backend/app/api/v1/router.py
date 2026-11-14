@@ -5,7 +5,7 @@ Combines all API endpoints
 
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import auth, websites, payments, templates, delivery, delivery_zones, menu_delivery, chat, subscription, scheduled_tasks, email_support, moderation, template_gallery, disputes, customers, penghantar_live, analytics, issue_reports, design_studio, site_qr, promo_kit, business_kit, counter_kit, hero_video, tiktok, wishes
+from app.api.v1.endpoints import auth, websites, payments, templates, delivery, delivery_zones, menu_delivery, chat, subscription, scheduled_tasks, email_support, moderation, template_gallery, disputes, customers, penghantar_live, analytics, issue_reports, design_studio, site_qr, promo_kit, business_kit, counter_kit, hero_video, tiktok, wishes, promotions, website_versions, bookings
 from app.api.admin import repair as admin_repair
 from app.api.admin import make_good as admin_make_good
 from app.api.admin import unstick_generation as admin_unstick
@@ -82,3 +82,18 @@ api_router.include_router(tiktok.router, tags=["Social: TikTok"])
 
 # mysyg.com surprise wishes (no login; pay per wish via ToyyibPay)
 api_router.include_router(wishes.router, tags=["mysyg Wishes"])
+
+# Promotions — voucher codes and loyalty points for customer orders. Owner
+# CRUD plus a public, rate-limited quote; the order endpoint re-validates
+# everything itself. Paths: /api/v1/promotions/*.
+api_router.include_router(promotions.router, tags=["Promotions"])
+
+# Version history — snapshots taken before every save/regenerate/theme/
+# contact/hero-video write, with preview and credit-free restore.
+# Paths: /api/v1/websites/{id}/versions[...].
+api_router.include_router(website_versions.router, prefix="/websites", tags=["Version History"])
+
+# Booking engine — real appointment slots for salons/clinics/services.
+# Owner CRUD under /bookings/admin/{website_id}/..., customer flow (no
+# login, rate-limited) under /bookings/public/{website_id}/....
+api_router.include_router(bookings.router, tags=["Booking Engine"])

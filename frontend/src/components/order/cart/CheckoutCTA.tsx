@@ -3,7 +3,8 @@
 import { ArrowRight } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { Button } from '../primitives'
-import { useCartCount, useCartGrandTotal } from '../cart-store'
+import { useCartCount, useCartTotal } from '../cart-store'
+import { usePromoQuote, voucherDiscountOf } from '../promo'
 
 /**
  * Sticky bottom button. Routes to /order/checkout (PR 5 territory —
@@ -16,7 +17,9 @@ import { useCartCount, useCartGrandTotal } from '../cart-store'
  */
 export function CheckoutCTA() {
   const router = useRouter()
-  const total = useCartGrandTotal()
+  const subtotal = useCartTotal()
+  const { quote } = usePromoQuote()
+  const total = Math.max(0, subtotal - voucherDiscountOf(quote))
   const count = useCartCount()
 
   return (

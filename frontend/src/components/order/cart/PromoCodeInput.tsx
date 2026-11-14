@@ -4,7 +4,15 @@ import { Tag } from 'lucide-react'
 import { useState } from 'react'
 import toast from 'react-hot-toast'
 import { Button, Input } from '../primitives'
-import { useCartStore, usePromoCode } from '../cart-store'
+import { cartTotal, useCartStore, usePromoCode } from '../cart-store'
+import { useCustomerStore } from '../customer-store'
+import {
+  fetchPromoQuote,
+  normalizePromoCode,
+  PromoQuoteError,
+  usePromoQuote,
+} from '../promo'
+import { useRestaurant } from '../ThemeProvider'
 
 /**
  * Three visual states:
@@ -12,25 +20,38 @@ import { useCartStore, usePromoCode } from '../cart-store'
  *   2. expanded   — input + "Guna" button
  *   3. applied    — green-tinted card with code + remove link
  *
- * Stub-only for v1 — the only valid code is BINAAPP10 (10% off, capped
- * at RM 5). Real validation lands later: see TODO(promo) in cart-store.
+ * A code is only remembered after the server confirms it for this cart.
+ * It is re-checked whenever the cart changes: if it stops qualifying
+ * (say the subtotal drops under the voucher's minimum) the row says why
+ * and the discount line disappears, so the cart never shows a discount
+ * the order will not get.
  */
 export function PromoCodeInput() {
+  const restaurant = useRestaurant()
   const promoCode = usePromoCode()
-  const applyPromoCode = useCartStore((s) => s.applyPromoCode)
+  const setPromoCode = useCartStore((s) => s.setPromoCode)
   const clearPromoCode = useCartStore((s) => s.clearPromoCode)
+  const subtotal = useCartStore((s) => cartTotal(s.items))
+  const phone = useCustomerStore((s) => s.customer?.phone ?? '')
+  const { quote, loading } = usePromoQuote()
 
   const [expanded, setExpanded] = useState(false)
   const [draft, setDraft] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [checking, setChecking] = useState(false)
 
   // ---- Applied state.
   if (promoCode) {
+    const voucher = quote?.voucher
+    const stale = !loading && !!voucher && !voucher.valid
     return (
-      <div className="promo-row applied">
+      <div className={stale ? 'promo-row' : 'promo-row applied'}>
         <Tag className="ic" size={16} aria-hidden="true" />
         <span>
-          <span className="b">{promoCode}</span> · 10% diskaun (max RM 5)
+          <span className="b">{promoCode}</span>
+          {loading && ' · Menyemak…'}
+          {!loading && voucher?.valid && ` · ${voucher.summary}`}
+          {stale && ` · ${voucher.message}`}
         </span>
         <button
           type="button"
@@ -65,15 +86,34 @@ export function PromoCodeInput() {
   }
 
   // ---- Expanded input state.
-  const handleApply = () => {
-    const result = applyPromoCode(draft)
-    if (result.success) {
-      setDraft('')
-      setError(null)
-      setExpanded(false)
-      toast.success(result.message, { duration: 2200 })
-    } else {
-      setError(result.message)
+  const handleApply = async () => {
+    const code = normalizePromoCode(draft)
+    if (!code || checking) return
+    setChecking(true)
+    setError(null)
+    try {
+      const result = await fetchPromoQuote({
+        websiteId: restaurant.websiteId,
+        subtotal,
+        phone,
+        voucherCode: code,
+      })
+      if (result.voucher?.valid) {
+        setPromoCode(code)
+        setDraft('')
+        setExpanded(false)
+        toast.success(result.voucher.message || 'Kod promo digunakan', { duration: 2200 })
+      } else {
+        setError(result.voucher?.message || 'Kod promo tidak sah')
+      }
+    } catch (err) {
+      setError(
+        err instanceof PromoQuoteError
+          ? err.message
+          : 'Tidak dapat menyemak kod. Sila cuba lagi.'
+      )
+    } finally {
+      setChecking(false)
     }
   }
 
@@ -89,10 +129,10 @@ export function PromoCodeInput() {
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
               e.preventDefault()
-              handleApply()
+              void handleApply()
             }
           }}
-          placeholder="BINAAPP10"
+          placeholder="Kod promo"
           autoFocus
           aria-label="Kod promo"
           autoCapitalize="characters"
@@ -101,11 +141,11 @@ export function PromoCodeInput() {
         />
         <Button
           size="pill"
-          onClick={handleApply}
-          disabled={draft.trim().length === 0}
+          onClick={() => void handleApply()}
+          disabled={checking || normalizePromoCode(draft).length === 0}
           className="btn-pill"
         >
-          Guna
+          {checking ? 'Menyemak…' : 'Guna'}
         </Button>
       </div>
       {error && (
