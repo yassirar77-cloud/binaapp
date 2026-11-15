@@ -1,5 +1,6 @@
 import type { MetadataRoute } from 'next';
 import { SEO_PAGES } from '@/lib/landing/seoPages';
+import { SITE_URL } from '@/lib/site';
 
 /**
  * Sitemap for binaapp.my — Next.js App Router convention.
@@ -26,7 +27,7 @@ import { SEO_PAGES } from '@/lib/landing/seoPages';
  * when the project upgrades to Next 14.2+.
  */
 export default function sitemap(): MetadataRoute.Sitemap {
-  const baseUrl = 'https://binaapp.my';
+  const baseUrl = SITE_URL;
   const legalEffectiveDate = new Date('2026-05-21T00:00:00+08:00');
 
   const legalLanguages = (bmPath: string, enPath: string) => ({

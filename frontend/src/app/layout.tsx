@@ -10,6 +10,7 @@ import { AppToaster, PopupHost } from '@/components/ui/popups'
 import { ServiceWorkerRegister } from '@/components/ServiceWorkerRegister'
 import ChatWidget from '@/components/ChatWidget'
 import { AuthProvider } from '@/components/AuthProvider'
+import { SITE_URL } from '@/lib/site'
 import AttributionCapture from '@/components/AttributionCapture'
 
 const inter = Inter({ subsets: ['latin'] })
@@ -20,7 +21,10 @@ export const metadata: Metadata = {
   // Without this Next.js emits relative URLs in <link rel="canonical">
   // and <link rel="alternate" hreflang> tags, which work but are a
   // weaker SEO signal than absolute URLs.
-  metadataBase: new URL('https://binaapp.my'),
+  // Must be the host that actually serves the pages. binaapp.my redirects
+  // to www.binaapp.my, so a non-www base made every canonical tag point at
+  // a redirect and Search Console could not fetch the sitemap.
+  metadataBase: new URL(SITE_URL),
   title: 'BinaApp - AI Website Builder Malaysia',
   description: 'Bina website perniagaan dengan AI dalam 60 saat',
   manifest: '/manifest.json',
