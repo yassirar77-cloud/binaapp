@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://binaapp.my/sitemap.xml
+Sitemap: https://www.binaapp.my/sitemap.xml
