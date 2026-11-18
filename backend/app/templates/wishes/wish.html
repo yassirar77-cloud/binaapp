@@ -4,131 +4,235 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="strict-origin">
 <title>__OG_TITLE__</title>
 <meta property="og:title" content="__OG_TITLE__">
 <meta property="og:description" content="Tekan untuk buka kejutan ini.">
 <meta property="og:type" content="website">
-<meta name="theme-color" content="#2A1030">
+<meta property="og:image" content="__OG_IMAGE__">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#1C0A22">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Pinyon+Script&family=Plus+Jakarta+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..600;1,9..144,400..500&family=Pinyon+Script&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  :root {
-    --plum-night: #2A1030;
-    --plum: #4A1A3F;
-    --gold: #E3B65C;
-    --gold-soft: rgba(227, 182, 92, .38);
-    --rose: #F2C4CC;
-    --pearl: #FFF8F3;
-    --ink: #3A1534;
+/*__BASE_CSS__*/
+
+  html, body { min-height: 100%; }
+  body { overflow-x: hidden; background-attachment: fixed; }
+  main { position: relative; z-index: 1; max-width: 480px; margin: 0 auto; padding: 0 20px; text-align: center; }
+
+  /* Ambient: a few slow stars behind everything */
+  .stars { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
+  .stars i { position: absolute; width: 3px; height: 3px; border-radius: 50%; background: var(--gold-hi); opacity: .0; box-shadow: 0 0 8px 1px rgba(246, 223, 168, .55); }
+  @media (prefers-reduced-motion: no-preference) {
+    .stars i { animation: twinkle var(--d, 5s) ease-in-out var(--delay, 0s) infinite; }
   }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; min-height: 100%; }
-  body {
-    background: radial-gradient(120% 80% at 50% 0%, var(--plum) 0%, var(--plum-night) 62%);
-    color: var(--pearl);
-    font-family: "Plus Jakarta Sans", system-ui, sans-serif;
-    font-size: 16px;
-    line-height: 1.6;
-    -webkit-font-smoothing: antialiased;
-    overflow-x: hidden;
-  }
-  .script { font-family: "Pinyon Script", "Brush Script MT", cursive; font-weight: 400; color: var(--gold); line-height: 1.1; }
-  main { max-width: 480px; margin: 0 auto; padding: 0 20px 48px; text-align: center; }
+  @media (prefers-reduced-motion: reduce) { .stars i { opacity: .35; } }
+  @keyframes twinkle { 0%, 100% { opacity: 0; transform: scale(.6); } 50% { opacity: var(--o, .7); transform: scale(1); } }
+  #burst { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 30; }
+
+  .preview-bar { position: sticky; top: 0; z-index: 20; padding: 9px 16px calc(9px); background: var(--gold); color: #2A1030; font-size: 13px; font-weight: 600; text-align: center; }
 
   /* ---------- Closed: the gift ---------- */
-  #closed { min-height: 100svh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 32px 0; }
-  #closed .lead { margin: 0; font-size: 17px; color: var(--rose); }
-  #closed h1 { margin: 0 0 28px; font-size: clamp(56px, 18vw, 84px); overflow-wrap: anywhere; }
-  .gift { position: relative; width: 210px; height: 210px; border: 0; padding: 0; background: none; cursor: pointer; -webkit-tap-highlight-color: transparent; }
-  .gift:focus-visible { outline: 2px solid var(--gold); outline-offset: 10px; border-radius: 12px; }
-  .box, .lid {
-    position: absolute; left: 50%;
-    background:
-      repeating-linear-gradient(45deg, transparent 0 11px, var(--gold-soft) 11px 12px),
-      repeating-linear-gradient(-45deg, transparent 0 11px, var(--gold-soft) 11px 12px),
-      linear-gradient(160deg, #6B2457, #4A1A3F);
-    box-shadow: inset 0 0 0 2px rgba(227, 182, 92, .7);
+  #closed { min-height: 100svh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 0 48px; transition: opacity .5s, transform .6s var(--ease); }
+  #closed.leaving { opacity: 0; transform: scale(1.04); }
+  #closed .lead { color: var(--soft); }
+  #closed h1 { margin: 10px 0 2px; max-width: 100%; font-size: clamp(60px, 19vw, 92px); color: var(--gold); overflow-wrap: anywhere; text-shadow: 0 0 34px rgba(227, 182, 92, .28); }
+  #closed .from { font-size: 15px; color: var(--pearl-dim); }
+  #closed .from b { font-weight: 600; color: var(--pearl); }
+  button.gift { margin: 54px 0 0; padding: 0; border: 0; background: none; cursor: pointer; font-size: 21px; -webkit-tap-highlight-color: transparent; }
+  button.gift:focus-visible { outline: 2px solid var(--gold); outline-offset: 14px; border-radius: 16px; }
+  button.gift[disabled] { cursor: default; }
+  .tap { display: inline-flex; align-items: center; gap: 10px; margin-top: 40px; padding: 11px 20px; border-radius: 999px; background: rgba(255, 248, 243, .07); box-shadow: inset 0 0 0 1px var(--gold-line); font-size: 15px; font-weight: 500; color: var(--pearl); }
+  .tap .dot { position: relative; width: 8px; height: 8px; border-radius: 50%; background: var(--gold); }
+  @media (prefers-reduced-motion: no-preference) {
+    .tap .dot::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: var(--gold); animation: ping 1.8s ease-out infinite; }
   }
-  .box { bottom: 0; width: 170px; height: 132px; transform: translateX(-50%); border-radius: 4px 4px 10px 10px; }
-  .lid { bottom: 126px; width: 190px; height: 40px; transform: translateX(-50%); border-radius: 6px; z-index: 2; transition: transform .7s cubic-bezier(.2, .9, .3, 1.2), opacity .7s; }
-  .band-v { position: absolute; left: 50%; top: 0; bottom: 0; width: 22px; transform: translateX(-50%); background: var(--gold); }
-  .band-h { position: absolute; left: 0; right: 0; top: 50%; height: 20px; transform: translateY(-50%); background: var(--gold); }
-  .lid .band-v { width: 24px; }
-  .bow { position: absolute; left: 50%; top: -30px; width: 0; height: 0; }
-  .bow::before, .bow::after {
-    content: ""; position: absolute; top: 0; width: 44px; height: 32px;
-    border: 7px solid var(--gold); border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
-  }
-  .bow::before { right: 2px; transform: rotate(-22deg); }
-  .bow::after { left: 2px; transform: rotate(22deg); }
-  .gift { animation: sway 3.2s ease-in-out infinite; transform-origin: 50% 100%; }
-  @keyframes sway { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(-2.5deg); } 75% { transform: rotate(2deg); } }
-  .gift.opening { animation: none; }
-  .gift.opening .lid { transform: translate(-50%, -120px) rotate(-18deg); opacity: 0; }
-  .hint { margin-top: 30px; color: var(--rose); font-size: 15px; }
+  @keyframes ping { to { transform: scale(3.4); opacity: 0; } }
+
+  /* Sealed until a set time */
+  .seal { position: absolute; left: 50%; bottom: 1.95em; z-index: 3; width: 2.5em; height: 2.5em; transform: translateX(-50%); border-radius: 50%; display: grid; place-items: center; background: linear-gradient(180deg, var(--gold-hi), var(--gold-deep)); color: #2A1030; box-shadow: 0 .2em .5em rgba(0, 0, 0, .4); }
+  .seal svg { width: 1.2em; height: 1.2em; }
+  .lock { margin-top: 38px; width: 100%; }
+  .lock .when { margin-bottom: 16px; font-size: 15px; color: var(--soft); }
+  .lock .when b { display: block; margin-top: 2px; font: 500 19px/1.3 var(--serif); color: var(--pearl); }
+  .count { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; max-width: 340px; margin: 0 auto; }
+  .count div { padding: 12px 4px 10px; border-radius: 14px; background: rgba(255, 248, 243, .06); box-shadow: inset 0 0 0 1px var(--gold-line); }
+  .count b { display: block; font: 500 30px/1 var(--serif); font-variant-numeric: tabular-nums; color: var(--gold); }
+  .count span { display: block; margin-top: 6px; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--pearl-dim); }
+  .lock .note { margin-top: 16px; font-size: 14px; color: var(--pearl-dim); }
 
   /* ---------- Open: the wish ---------- */
-  #open { display: none; padding-top: 40px; }
-  #open.shown { display: block; animation: rise .9s ease-out both; }
-  @keyframes rise { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
-  .occasion { margin: 0; font-size: 18px; font-weight: 500; color: var(--rose); }
-  #open h2 { margin: 0 0 24px; font-size: clamp(60px, 19vw, 92px); overflow-wrap: anywhere; }
+  #open { display: none; padding: 44px 0 56px; }
+  #open.shown { display: block; }
+  @media (prefers-reduced-motion: no-preference) {
+    #open.shown > * { animation: rise .9s var(--ease) both; }
+    #open.shown > :nth-child(2) { animation-delay: .12s; }
+    #open.shown > :nth-child(3) { animation-delay: .28s; }
+    #open.shown > :nth-child(4) { animation-delay: .4s; }
+    #open.shown > :nth-child(n+5) { animation-delay: .55s; }
+  }
+  @keyframes rise { from { opacity: 0; transform: translateY(22px); } to { opacity: 1; transform: none; } }
+  .occasion { display: inline-flex; align-items: center; gap: 8px; padding: 7px 16px; border-radius: 999px; background: rgba(255, 248, 243, .07); box-shadow: inset 0 0 0 1px var(--gold-line); font-size: 14px; font-weight: 500; color: var(--soft); }
+  #open h2 { margin: 14px 0 26px; font-size: clamp(64px, 20vw, 96px); color: var(--gold); overflow-wrap: anywhere; text-shadow: 0 0 34px rgba(227, 182, 92, .28); }
 
-  .film { position: relative; margin: 0 auto; width: min(100%, 360px); aspect-ratio: 9 / 16; border-radius: 22px; overflow: hidden; background: #1a0a1e; box-shadow: 0 0 0 1px var(--gold-soft), 0 24px 60px rgba(0, 0, 0, .45); }
+  .film { position: relative; margin: 0 auto; width: min(100%, 350px); aspect-ratio: 9 / 16; border-radius: 26px; overflow: hidden; background: #120616; box-shadow: 0 0 0 1px var(--gold-line), 0 0 0 7px rgba(255, 248, 243, .04), 0 30px 70px -10px rgba(0, 0, 0, .65), 0 0 90px -20px var(--glow); }
   .film video, .film img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .film img.drift { animation: drift 14s ease-in-out infinite alternate; }
+  .film video { cursor: pointer; }
+  @media (prefers-reduced-motion: no-preference) { .film img.drift { animation: drift 14s ease-in-out infinite alternate; } }
   @keyframes drift { from { transform: scale(1); } to { transform: scale(1.12) translateY(-2%); } }
-  .sound { position: absolute; right: 12px; bottom: 12px; min-width: 44px; height: 44px; padding: 0 14px; border-radius: 22px; border: 0; background: rgba(42, 16, 48, .72); color: var(--pearl); font: 500 14px "Plus Jakarta Sans", sans-serif; cursor: pointer; backdrop-filter: blur(6px); }
-  .sound:focus-visible, .again:focus-visible, .make a:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
-  .pending { position: absolute; left: 12px; right: 12px; bottom: 12px; padding: 10px 14px; border-radius: 14px; background: rgba(42, 16, 48, .78); font-size: 14px; color: var(--pearl); }
+  .sound { position: absolute; right: 12px; bottom: 12px; display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 14px; border-radius: 22px; border: 0; background: rgba(20, 8, 24, .66); color: var(--pearl); font: 500 14px var(--sans); cursor: pointer; -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+  .sound svg { width: 18px; height: 18px; }
+  .sound:focus-visible, .pill:focus-visible, .react button:focus-visible, .lb button:focus-visible, .polaroid:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
+  .pending { position: absolute; left: 12px; right: 12px; bottom: 12px; padding: 11px 14px; border-radius: 14px; background: rgba(20, 8, 24, .74); font-size: 14px; color: var(--pearl); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+  .film-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 18px; }
+  .pill { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 18px; border-radius: 999px; border: 0; background: rgba(255, 248, 243, .06); box-shadow: inset 0 0 0 1px var(--gold-line); color: var(--gold-hi); font: 500 14px var(--sans); text-decoration: none; cursor: pointer; }
+  .pill svg { width: 16px; height: 16px; }
 
-  .letter { margin: 36px auto 0; padding: 28px 24px 24px; max-width: 420px; background: var(--pearl); color: var(--ink); border-radius: 4px; text-align: left; font-size: 17px; line-height: 1.75; white-space: pre-line; overflow-wrap: anywhere; box-shadow: 0 18px 40px rgba(0, 0, 0, .35); position: relative; }
-  .letter::before { content: ""; position: absolute; inset: 7px; border: 1px solid rgba(227, 182, 92, .55); border-radius: 2px; pointer-events: none; }
-  .signoff { margin: 18px 0 0; text-align: right; white-space: normal; }
-  .signoff .from { display: block; font-size: 14px; color: #8a5a7c; }
-  .signoff .script { font-size: 40px; color: var(--plum); }
+  /* The letter */
+  .letter { position: relative; margin: 40px auto 0; padding: 40px 28px 30px; max-width: 420px; background: linear-gradient(180deg, #FFFBF7, #FBEFE6); color: var(--ink); border-radius: 6px; text-align: left; box-shadow: 0 24px 50px -12px rgba(0, 0, 0, .55); }
+  .letter::before { content: ""; position: absolute; inset: 8px; border: 1px solid rgba(184, 134, 46, .45); border-radius: 3px; pointer-events: none; }
+  .letter .orn { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 0 0 20px; color: var(--gold-deep); font-size: 18px; line-height: 1; }
+  .letter .orn::before, .letter .orn::after { content: ""; width: 44px; height: 1px; background: currentColor; opacity: .5; }
+  .letter .body { font: 400 18px/1.75 var(--serif); white-space: pre-line; overflow-wrap: anywhere; }
+  .signoff { margin-top: 24px; text-align: right; }
+  .signoff .from { display: block; font: italic 400 15px var(--serif); color: var(--ink-soft); }
+  .signoff .script { display: block; margin-top: 2px; font-size: 44px; color: #4A1A3F; overflow-wrap: anywhere; }
 
-  .photos { margin: 36px -20px 0; padding: 0 20px 6px; display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory; }
-  .photos img { flex: 0 0 auto; width: 62%; max-width: 260px; aspect-ratio: 4 / 5; object-fit: cover; border-radius: 14px; scroll-snap-align: center; border: 1px solid var(--gold-soft); }
-  .photos:empty { display: none; }
+  /* Photos */
+  .memories { margin-top: 52px; }
+  .memories:has(.photos:empty) { display: none; }
+  .memories h3, .reply h3 { font: 500 24px/1.2 var(--serif); color: var(--pearl); }
+  .photos { display: flex; gap: 16px; margin: 20px -20px 0; padding: 12px 24px 26px; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; }
+  .photos::-webkit-scrollbar { display: none; }
+  .polaroid { flex: 0 0 auto; width: 64%; max-width: 250px; padding: 9px 9px 30px; border: 0; background: #FFFBF7; border-radius: 3px; scroll-snap-align: center; box-shadow: 0 16px 34px -10px rgba(0, 0, 0, .6); cursor: zoom-in; transition: transform .25s var(--ease); }
+  .polaroid:nth-child(odd) { transform: rotate(-2.2deg); }
+  .polaroid:nth-child(even) { transform: rotate(1.8deg); }
+  .polaroid:hover { transform: rotate(0) scale(1.02); }
+  .polaroid img { display: block; width: 100%; aspect-ratio: 4 / 5; object-fit: cover; background: #e9dcd6; }
 
-  .again { margin-top: 32px; background: none; border: 1px solid var(--gold-soft); color: var(--gold); border-radius: 22px; padding: 10px 20px; font: 500 15px "Plus Jakarta Sans", sans-serif; cursor: pointer; }
-  .make { margin-top: 48px; font-size: 14px; color: rgba(255, 248, 243, .62); }
-  .make a { color: var(--gold); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+  /* Reply */
+  .reply { margin: 44px auto 0; padding: 26px 20px 22px; max-width: 420px; border-radius: 22px; background: rgba(255, 248, 243, .055); box-shadow: inset 0 0 0 1px var(--gold-line); }
+  .reply .sub { margin-top: 6px; font-size: 15px; color: var(--pearl-dim); }
+  .react { display: flex; justify-content: center; gap: 8px; margin: 18px 0 14px; }
+  .react button { width: 54px; height: 54px; border-radius: 50%; border: 0; background: rgba(255, 248, 243, .07); box-shadow: inset 0 0 0 1px var(--gold-line); font-size: 26px; line-height: 1; cursor: pointer; transition: transform .2s var(--ease), background-color .2s, box-shadow .2s; }
+  .react button[aria-pressed="true"] { background: rgba(227, 182, 92, .22); box-shadow: inset 0 0 0 2px var(--gold); transform: scale(1.14); }
+  .reply textarea { display: block; width: 100%; min-height: 92px; padding: 13px 14px; border: 0; border-radius: 14px; background: rgba(255, 248, 243, .94); color: var(--ink); font: 400 16px/1.5 var(--sans); resize: vertical; }
+  .reply textarea:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+  .reply .btn { margin-top: 12px; }
+  .reply .msg { min-height: 1.4em; margin-top: 10px; font-size: 14px; color: var(--soft); }
+  .reply .sent { padding: 6px 0 2px; }
+  .reply .sent .big { font-size: 44px; line-height: 1; }
+  .reply .sent p { margin-top: 10px; font: 500 20px/1.3 var(--serif); }
+  .linkish { margin-top: 12px; padding: 6px; border: 0; background: none; color: var(--gold); font: 500 14px var(--sans); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 
-  #petals { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
+  .make { margin-top: 56px; padding-top: 30px; border-top: 1px solid var(--gold-faint); }
+  .make p { margin-bottom: 14px; font: 400 19px/1.4 var(--serif); color: var(--pearl); }
+  .make small { display: block; margin-top: 18px; font-size: 13px; color: var(--pearl-dim); }
+  .make .script { font-size: 26px; color: var(--gold); }
+
+  /* Lightbox */
+  .lb { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 20px; background: rgba(12, 4, 15, .92); }
+  .lb img { max-width: 100%; max-height: 84svh; border-radius: 8px; box-shadow: 0 30px 80px rgba(0, 0, 0, .7); }
+  .lb button { position: absolute; width: 46px; height: 46px; border-radius: 50%; border: 0; background: rgba(255, 248, 243, .12); color: var(--pearl); font-size: 22px; line-height: 1; cursor: pointer; }
+  .lb .x { top: 16px; right: 16px; }
+  .lb .prev { left: 12px; top: 50%; transform: translateY(-50%); }
+  .lb .next { right: 12px; top: 50%; transform: translateY(-50%); }
 
   @media (prefers-reduced-motion: reduce) {
-    .gift, .film img.drift { animation: none; }
-    #open.shown { animation: none; }
-    .lid { transition: opacity .2s; }
+    .gift .lid { transition: opacity .2s; }
+    #closed { transition: none; }
   }
 </style>
 </head>
-<body>
-<canvas id="petals" aria-hidden="true"></canvas>
+<body class="night" data-theme="__THEME__">
+<div class="stars" id="stars" aria-hidden="true"></div>
+<canvas id="burst" aria-hidden="true"></canvas>
+<div class="preview-bar" id="previewBar" hidden></div>
 <main>
   <section id="closed">
-    <p class="lead">Ada kejutan untuk</p>
+    <p class="lead eyebrow">Ada kejutan untuk</p>
     <h1 class="script" id="toName"></h1>
-    <button class="gift" id="gift" type="button" aria-label="Buka kejutan">
-      <span class="lid"><span class="band-v"></span><span class="bow"></span></span>
-      <span class="box"><span class="band-v"></span><span class="band-h"></span></span>
+    <p class="from">daripada <b id="fromName"></b></p>
+    <button class="gift idle" id="gift" type="button" aria-label="Buka kejutan">
+      <span class="halo"></span><span class="floor"></span>
+      <span class="lid"><span class="rv"></span><span class="knot"></span><span class="bow"></span></span>
+      <span class="body"><span class="rv"></span><span class="rh"></span></span>
+      <span class="seal" id="seal" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+      </span>
     </button>
-    <p class="hint">Tekan kotak untuk buka</p>
+    <div class="tap" id="tap"><span class="dot"></span>Tekan kotak untuk buka</div>
+    <div class="lock" id="lock" hidden>
+      <p class="when">Kejutan ini boleh dibuka pada<b id="lockWhen"></b></p>
+      <div class="count" role="timer" aria-live="off">
+        <div><b id="cdD">0</b><span>Hari</span></div>
+        <div><b id="cdH">00</b><span>Jam</span></div>
+        <div><b id="cdM">00</b><span>Minit</span></div>
+        <div><b id="cdS">00</b><span>Saat</span></div>
+      </div>
+      <p class="note">Simpan pautan ini dan datang semula nanti.</p>
+    </div>
   </section>
 
-  <section id="open" aria-live="polite">
+  <section id="open">
     <p class="occasion" id="occasion"></p>
     <h2 class="script" id="toName2"></h2>
-    <div class="film" id="film"></div>
-    <div class="letter" id="letter"></div>
-    <div class="photos" id="photos"></div>
-    <button class="again" id="again" type="button">Main semula video</button>
-    <p class="make">Nak buat kejutan macam ni? <a href="__CREATOR_URL__">Buat di mysyg.com</a></p>
+    <div>
+      <div class="film" id="film"></div>
+      <div class="film-actions" id="filmActions">
+        <button class="pill" id="again" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
+          Main semula
+        </button>
+        <a class="pill" id="save" target="_blank" rel="noopener" hidden>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v12M7 11l5 5 5-5M5 20h14"/></svg>
+          Simpan video
+        </a>
+      </div>
+    </div>
+    <article class="letter">
+      <div class="orn" aria-hidden="true">❦</div>
+      <div class="body" id="letterBody"></div>
+      <p class="signoff"><span class="from">Dengan sayang,</span><span class="script" id="signName"></span></p>
+    </article>
+    <section class="memories">
+      <h3>Kenangan kita</h3>
+      <div class="photos" id="photos"></div>
+    </section>
+    <section class="reply" id="reply" aria-live="polite">
+      <div id="replyForm">
+        <h3>Balas kejutan ini</h3>
+        <p class="sub" id="replySub"></p>
+        <div class="react" id="react" role="group" aria-label="Pilih reaksi"></div>
+        <label class="sr" for="replyText">Balasan anda</label>
+        <textarea id="replyText" maxlength="300" placeholder="Tulis sesuatu untuk dia… (pilihan)"></textarea>
+        <button class="btn btn-gold btn-block" id="replySend" type="button">Hantar balasan</button>
+        <p class="msg" id="replyMsg" role="status"></p>
+      </div>
+      <div class="sent" id="replySent" hidden>
+        <div class="big" id="sentEmoji">💌</div>
+        <p id="sentText"></p>
+        <button class="linkish" id="replyAgain" type="button">Tukar balasan</button>
+      </div>
+    </section>
+    <footer class="make">
+      <p>Nak buat kejutan macam ni untuk orang tersayang?</p>
+      <a class="btn btn-ghost" href="__CREATOR_URL__" rel="noreferrer">Buat kejutan saya</a>
+      <small><span class="script">mysyg</span></small>
+    </footer>
   </section>
 </main>
+
+<div class="lb" id="lb" hidden role="dialog" aria-modal="true" aria-label="Gambar">
+  <button class="x" id="lbX" type="button" aria-label="Tutup">×</button>
+  <button class="prev" id="lbPrev" type="button" aria-label="Gambar sebelum">‹</button>
+  <img id="lbImg" alt="">
+  <button class="next" id="lbNext" type="button" aria-label="Gambar seterusnya">›</button>
+</div>
 
 <script id="wish-data" type="application/json">__WISH_JSON__</script>
 <script>
@@ -136,42 +240,79 @@
   var data = JSON.parse(document.getElementById('wish-data').textContent);
   var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   var $ = function (id) { return document.getElementById(id); };
+  var previewToken = new URLSearchParams(location.search).get('pratonton') || '';
+  var api = '/api/v1/wishes/public/' + encodeURIComponent(data.slug);
+  var opened = false;
 
-  $('toName').textContent = data.recipient_name;
-  $('toName2').textContent = data.recipient_name;
-  $('occasion').textContent = data.title + ' ' + data.emoji;
+  var PALETTES = {
+    birthday: ['#E3B65C', '#F2C4CC', '#FFF8F3', '#C9953F', '#F6DFA8'],
+    anniversary: ['#E3B65C', '#F4C9C4', '#FFF8F3', '#D9546E'],
+    love: ['#FF9DB8', '#FFC9D8', '#E3B65C', '#FFF8F3'],
+    raya: ['#E3B65C', '#8FD9B6', '#FFF8F3', '#F6DFA8'],
+    sorry: ['#CCD9F3', '#E3B65C', '#FFF8F3', '#F2C4CC'],
+    thanks: ['#F5C542', '#F7DFB6', '#FFF8F3', '#E3B65C'],
+    congrats: ['#E3B65C', '#F6DFA8', '#9EA4FF', '#FFF8F3', '#F2C4CC']
+  };
 
-  // The letter: message, then the sender's signature. textContent only.
-  var letter = $('letter');
-  letter.appendChild(document.createTextNode(data.message));
-  var sign = document.createElement('p');
-  sign.className = 'signoff';
-  var from = document.createElement('span');
-  from.className = 'from';
-  from.textContent = 'Dengan sayang,';
-  var name = document.createElement('span');
-  name.className = 'script';
-  name.textContent = data.sender_name;
-  sign.appendChild(from);
-  sign.appendChild(name);
-  letter.appendChild(sign);
+  // ---------- ambient stars ----------
+  (function () {
+    var box = $('stars');
+    for (var i = 0; i < 26; i++) {
+      var s = document.createElement('i');
+      s.style.left = (Math.random() * 100) + '%';
+      s.style.top = (Math.random() * 100) + '%';
+      s.style.setProperty('--d', (3.5 + Math.random() * 5) + 's');
+      s.style.setProperty('--delay', (-Math.random() * 8) + 's');
+      s.style.setProperty('--o', (0.35 + Math.random() * 0.5).toFixed(2));
+      if (i % 4 === 0) { s.style.width = s.style.height = '2px'; }
+      box.appendChild(s);
+    }
+  })();
 
-  var photos = data.photo_urls || [];
-  photos.forEach(function (url, i) {
-    var img = document.createElement('img');
-    img.src = url;
-    img.alt = 'Gambar ' + (i + 1);
-    img.loading = 'lazy';
-    $('photos').appendChild(img);
-  });
+  // ---------- fill (textContent only: every string here came from a person) ----------
+  function fill() {
+    $('toName').textContent = data.recipient_name;
+    $('toName2').textContent = data.recipient_name;
+    $('fromName').textContent = data.sender_name;
+    $('occasion').textContent = data.emoji + '  ' + data.title;
+    $('letterBody').textContent = data.message || '';
+    $('signName').textContent = data.sender_name;
+    $('replySub').textContent = data.sender_name + ' akan nampak balasan anda.';
 
+    var box = $('photos');
+    box.textContent = '';
+    (data.photo_urls || []).forEach(function (url, i) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'polaroid';
+      b.setAttribute('aria-label', 'Besarkan gambar ' + (i + 1));
+      var img = document.createElement('img');
+      img.src = url;
+      img.alt = 'Gambar ' + (i + 1);
+      img.loading = 'lazy';
+      b.appendChild(img);
+      b.addEventListener('click', function () { showPhoto(i); });
+      box.appendChild(b);
+    });
+  }
+
+  // ---------- film ----------
   var video = null;
   var soundBtn = null;
+  var ICON_ON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg>';
+  var ICON_OFF = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="m16 9 5 6M21 9l-5 6"/></svg>';
+
+  function downloadUrl(url) {
+    // Cloudinary serves the same file as a download with fl_attachment.
+    return /res\.cloudinary\.com\/.+\/upload\//.test(url) ? url.replace('/upload/', '/upload/fl_attachment/') : url;
+  }
 
   function buildFilm() {
     var film = $('film');
-    film.innerHTML = '';
+    film.textContent = '';
     video = null;
+    soundBtn = null;
+    var photos = data.photo_urls || [];
     if (data.video_url) {
       video = document.createElement('video');
       video.src = data.video_url;
@@ -180,6 +321,7 @@
       video.playsInline = true;
       video.loop = true;
       video.preload = 'auto';
+      video.addEventListener('click', function () { if (video.paused) video.play(); else video.pause(); });
       film.appendChild(video);
       if (data.has_music) {
         soundBtn = document.createElement('button');
@@ -192,12 +334,14 @@
         });
         film.appendChild(soundBtn);
       }
-      $('again').style.display = '';
+      $('again').hidden = false;
+      $('save').hidden = false;
+      $('save').href = downloadUrl(data.video_url);
     } else {
       var img = document.createElement('img');
       img.src = photos[0] || '';
       img.alt = '';
-      if (!reduce) img.className = 'drift';
+      img.className = 'drift';
       film.appendChild(img);
       if (data.video_pending) {
         var note = document.createElement('div');
@@ -205,12 +349,15 @@
         note.textContent = 'Video sedang disiapkan. Ia akan muncul di sini sekejap lagi.';
         film.appendChild(note);
       }
-      $('again').style.display = 'none';
+      $('again').hidden = true;
+      $('save').hidden = true;
     }
   }
 
   function setSoundLabel() {
-    if (soundBtn && video) soundBtn.textContent = video.muted ? 'Bunyi: tutup' : 'Bunyi: buka';
+    if (!soundBtn || !video) return;
+    soundBtn.innerHTML = (video.muted ? ICON_OFF : ICON_ON);
+    soundBtn.appendChild(document.createTextNode(video.muted ? 'Buka bunyi' : 'Bunyi'));
   }
 
   function playVideo() {
@@ -222,101 +369,262 @@
       p.catch(function () {
         // Autoplay with sound refused: play muted, let the button unmute.
         video.muted = true;
-        video.play();
+        video.play().catch(function () {});
         setSoundLabel();
       });
     }
     setSoundLabel();
   }
 
-  // Gold petals burst from the box. One orchestrated moment, then gone.
+  // ---------- the burst: petals and confetti from the box, once ----------
   function burst(originX, originY) {
     if (reduce) return;
-    var canvas = $('petals');
+    var canvas = $('burst');
     var ctx = canvas.getContext('2d');
-    var dpr = window.devicePixelRatio || 1;
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
     canvas.width = innerWidth * dpr;
     canvas.height = innerHeight * dpr;
-    ctx.scale(dpr, dpr);
-    var colors = ['#E3B65C', '#F2C4CC', '#FFF8F3', '#C9953F'];
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    var colors = PALETTES[data.theme] || PALETTES.birthday;
     var parts = [];
-    for (var i = 0; i < 90; i++) {
-      var angle = -Math.PI / 2 + (Math.random() - 0.5) * 2.2;
-      var speed = 6 + Math.random() * 9;
+    for (var i = 0; i < 130; i++) {
+      var angle = -Math.PI / 2 + (Math.random() - 0.5) * 2.4;
+      var speed = 5 + Math.random() * 12;
       parts.push({
         x: originX, y: originY,
         vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
-        r: 4 + Math.random() * 6, rot: Math.random() * 6, vr: (Math.random() - 0.5) * 0.3,
+        r: 3.5 + Math.random() * 6, rot: Math.random() * 6, vr: (Math.random() - 0.5) * 0.35,
+        wob: Math.random() * 6, shape: i % 3,
         c: colors[i % colors.length]
       });
     }
+    var LIFE = 3200;
     var start = performance.now();
+    // Wipe the whole bitmap, not "the viewport": on a phone the viewport
+    // changes size mid-animation (the address bar slides away) and a wipe
+    // measured in today's pixels leaves streaks at the edges.
+    function wipe() {
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.restore();
+    }
     (function frame(now) {
       var t = now - start;
-      ctx.clearRect(0, 0, innerWidth, innerHeight);
+      wipe();
       parts.forEach(function (p) {
-        p.vy += 0.22; p.vx *= 0.99; p.x += p.vx; p.y += p.vy; p.rot += p.vr;
+        p.vy += 0.2; p.vx *= 0.988; p.vy *= 0.992;
+        p.x += p.vx + Math.sin(t / 220 + p.wob) * 0.6; p.y += p.vy; p.rot += p.vr;
         ctx.save();
         ctx.translate(p.x, p.y);
         ctx.rotate(p.rot);
-        ctx.globalAlpha = Math.max(0, 1 - t / 2600);
+        ctx.globalAlpha = Math.max(0, Math.min(1, (LIFE - t) / 900));
         ctx.fillStyle = p.c;
-        ctx.beginPath();
-        ctx.ellipse(0, 0, p.r, p.r * 0.55, 0, 0, Math.PI * 2);
-        ctx.fill();
+        if (p.shape === 0) { ctx.fillRect(-p.r, -p.r * 0.35, p.r * 2, p.r * 0.7); }
+        else { ctx.beginPath(); ctx.ellipse(0, 0, p.r, p.r * (p.shape === 1 ? 0.55 : 1) * 0.9, 0, 0, Math.PI * 2); ctx.fill(); }
         ctx.restore();
       });
-      if (t < 2600) requestAnimationFrame(frame);
-      else ctx.clearRect(0, 0, innerWidth, innerHeight);
+      if (t < LIFE) requestAnimationFrame(frame);
+      else wipe();
     })(start);
   }
 
-  buildFilm();
-
-  $('gift').addEventListener('click', function () {
+  // ---------- opening ----------
+  function openGift() {
     var gift = $('gift');
-    if (gift.classList.contains('opening')) return;
-    gift.classList.add('opening');
+    if (opened || data.locked) return;
+    opened = true;
+    gift.classList.remove('idle');
+    gift.classList.add('open');
     var rect = gift.getBoundingClientRect();
-    burst(rect.left + rect.width / 2, rect.top + 30);
+    burst(rect.left + rect.width / 2, rect.top + rect.height * 0.3);
+    if (navigator.vibrate) { try { navigator.vibrate(18); } catch (e) {} }
     // Start playback inside the tap so the browser allows sound.
     playVideo();
+    // The sender looking at their own gift is not the recipient opening it.
+    if (!data.preview) {
+      fetch(api + '/open', { method: 'POST', keepalive: true }).catch(function () {});
+    }
+    setTimeout(function () { $('closed').classList.add('leaving'); }, reduce ? 0 : 520);
     setTimeout(function () {
       $('closed').style.display = 'none';
       $('open').classList.add('shown');
       window.scrollTo(0, 0);
       if (video && video.paused) playVideo();
-    }, reduce ? 50 : 750);
-  });
-
+    }, reduce ? 60 : 980);
+  }
+  $('gift').addEventListener('click', openGift);
   $('again').addEventListener('click', playVideo);
 
-  // Still rendering? Check every 20 s and swap the clip in when it lands.
-  if (data.video_pending) {
-    var timer = setInterval(function () {
-      fetch('/api/v1/wishes/public/' + encodeURIComponent(data.slug))
+  // ---------- sealed until a set time ----------
+  var lockTimer = null;
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  function whenText(date) {
+    try {
+      return date.toLocaleString('ms-MY', { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' });
+    } catch (e) { return date.toLocaleString(); }
+  }
+  function applyLock() {
+    var locked = !!data.locked;
+    $('seal').hidden = !locked;
+    $('lock').hidden = !locked;
+    $('tap').hidden = locked;
+    $('gift').disabled = locked;
+    $('gift').classList.toggle('idle', !locked && !opened);
+    $('gift').setAttribute('aria-label', locked ? 'Kejutan ini belum boleh dibuka' : 'Buka kejutan');
+    clearInterval(lockTimer);
+    if (!locked) return;
+    var at = new Date(data.unlock_at);
+    $('lockWhen').textContent = whenText(at);
+    function tick() {
+      var left = Math.max(0, at.getTime() - Date.now());
+      var s = Math.floor(left / 1000);
+      $('cdD').textContent = Math.floor(s / 86400);
+      $('cdH').textContent = pad(Math.floor(s % 86400 / 3600));
+      $('cdM').textContent = pad(Math.floor(s % 3600 / 60));
+      $('cdS').textContent = pad(s % 60);
+      if (left <= 0) { clearInterval(lockTimer); unlockNow(0); }
+    }
+    tick();
+    lockTimer = setInterval(tick, 1000);
+  }
+  // The content was never sent to this page. Ask for it now that it is time.
+  function unlockNow(tries) {
+    fetch(api).then(function (r) { return r.ok ? r.json() : null; }).then(function (fresh) {
+      if (fresh && !fresh.locked) {
+        data = fresh;
+        fill();
+        buildFilm();
+        applyLock();
+        startPendingPoll();
+      } else if (tries < 5) {
+        setTimeout(function () { unlockNow(tries + 1); }, 2500);
+      }
+    }).catch(function () { if (tries < 5) setTimeout(function () { unlockNow(tries + 1); }, 2500); });
+  }
+
+  // ---------- video still rendering: swap it in when it lands ----------
+  var pendingTimer = null;
+  function startPendingPoll() {
+    clearInterval(pendingTimer);
+    if (!data.video_pending) return;
+    pendingTimer = setInterval(function () {
+      fetch(api + (previewToken ? '?t=' + encodeURIComponent(previewToken) : ''))
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (fresh) {
-          if (!fresh) return;
+          if (!fresh || fresh.locked) return;
           if (fresh.video_url) {
             data.video_url = fresh.video_url;
             data.poster_url = fresh.poster_url;
             data.video_pending = false;
-            clearInterval(timer);
+            clearInterval(pendingTimer);
             buildFilm();
             if ($('open').classList.contains('shown')) {
               video.muted = true;
-              video.play();
+              video.play().catch(function () {});
               setSoundLabel();
             }
           } else if (!fresh.video_pending) {
             data.video_pending = false;
-            clearInterval(timer);
+            clearInterval(pendingTimer);
             buildFilm();
           }
         })
         .catch(function () {});
     }, 20000);
+  }
+
+  // ---------- photos, larger ----------
+  var lbIndex = 0;
+  var lbReturn = null;
+  function showPhoto(i) {
+    var photos = data.photo_urls || [];
+    if (!photos.length) return;
+    lbIndex = (i + photos.length) % photos.length;
+    if ($('lb').hidden) lbReturn = document.activeElement;
+    $('lbImg').src = photos[lbIndex];
+    $('lbImg').alt = 'Gambar ' + (lbIndex + 1) + ' daripada ' + photos.length;
+    $('lbPrev').hidden = $('lbNext').hidden = photos.length < 2;
+    $('lb').hidden = false;
+    $('lbX').focus();
+  }
+  function closePhoto() {
+    $('lb').hidden = true;
+    if (lbReturn && lbReturn.focus) lbReturn.focus();
+  }
+  $('lbX').addEventListener('click', closePhoto);
+  $('lbPrev').addEventListener('click', function () { showPhoto(lbIndex - 1); });
+  $('lbNext').addEventListener('click', function () { showPhoto(lbIndex + 1); });
+  $('lb').addEventListener('click', function (e) { if (e.target === $('lb')) closePhoto(); });
+  document.addEventListener('keydown', function (e) {
+    if ($('lb').hidden) return;
+    if (e.key === 'Escape') closePhoto();
+    if (e.key === 'ArrowLeft') showPhoto(lbIndex - 1);
+    if (e.key === 'ArrowRight') showPhoto(lbIndex + 1);
+  });
+
+  // ---------- the reply ----------
+  var picked = null;
+  Object.keys(data.reactions || {}).forEach(function (key) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = data.reactions[key];
+    b.setAttribute('aria-pressed', 'false');
+    b.setAttribute('aria-label', key);
+    b.addEventListener('click', function () {
+      picked = picked === key ? null : key;
+      Array.prototype.forEach.call($('react').children, function (el) {
+        el.setAttribute('aria-pressed', el === b && picked ? 'true' : 'false');
+      });
+    });
+    $('react').appendChild(b);
+  });
+  function showSent(emoji) {
+    $('sentEmoji').textContent = emoji || '💌';
+    $('sentText').textContent = 'Balasan anda sudah sampai kepada ' + data.sender_name + '.';
+    $('replyForm').hidden = true;
+    $('replySent').hidden = false;
+  }
+  $('replyAgain').addEventListener('click', function () {
+    $('replySent').hidden = true;
+    $('replyForm').hidden = false;
+  });
+  $('replySend').addEventListener('click', function () {
+    var text = $('replyText').value.trim();
+    var msg = $('replyMsg');
+    if (!picked && !text) { msg.textContent = 'Pilih satu reaksi atau tulis sesuatu dahulu.'; return; }
+    if (data.preview) { msg.textContent = 'Ini pratonton anda, jadi balasan tidak dihantar.'; return; }
+    var btn = $('replySend');
+    btn.disabled = true;
+    msg.textContent = '';
+    fetch(api + '/reply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reaction: picked, text: text })
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (body) { return { ok: r.ok, body: body }; });
+    }).then(function (res) {
+      btn.disabled = false;
+      if (!res.ok) { msg.textContent = (res.body && res.body.detail) || 'Balasan tidak dapat dihantar. Cuba lagi.'; return; }
+      showSent(picked ? data.reactions[picked] : '');
+    }).catch(function () {
+      btn.disabled = false;
+      msg.textContent = 'Tiada sambungan. Cuba lagi sebentar.';
+    });
+  });
+
+  // ---------- go ----------
+  fill();
+  buildFilm();
+  applyLock();
+  startPendingPoll();
+  if (data.replied && !data.preview) showSent('');
+  if (data.preview) {
+    var bar = $('previewBar');
+    bar.textContent = data.sealed_until
+      ? 'Pratonton anda. Penerima hanya boleh buka pada ' + whenText(new Date(data.sealed_until)) + '.'
+      : 'Pratonton anda. Ini yang penerima akan nampak.';
+    bar.hidden = false;
   }
 })();
 </script>

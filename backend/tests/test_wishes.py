@@ -418,3 +418,241 @@ def test_status_needs_the_token(table):
     assert client.get(f"/api/v1/wishes/{row['id']}/status?t=wrong").status_code == 404
     ok = client.get(f"/api/v1/wishes/{row['id']}/status?t=tok")
     assert ok.status_code == 200 and ok.json()["url"] == "https://aisyah.mysyg.com"
+
+
+# ---------------------------------------------------------------------------
+# Sealed gifts (unlock_at), opens and replies — migration 069
+# ---------------------------------------------------------------------------
+
+
+def _ahead(**delta):
+    return (datetime.now(timezone.utc) + timedelta(**delta)).isoformat()
+
+
+def test_parse_unlock_at():
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    assert W.parse_unlock_at("", now) is None
+    assert W.parse_unlock_at("2025-12-31T00:00:00Z", now) is None  # already past = open now
+    got = W.parse_unlock_at("2026-01-02T08:00:00+08:00", now)
+    assert got == datetime(2026, 1, 2, 0, 0, tzinfo=timezone.utc)
+    with pytest.raises(ValueError):
+        W.parse_unlock_at("esok pagi", now)
+    with pytest.raises(ValueError):
+        W.parse_unlock_at("2027-01-01T00:00:00Z", now)  # further than MAX_UNLOCK_AHEAD
+
+
+def test_sealed_gift_withholds_everything(table):
+    row = table.add(slug="aisyah", status="ready", video_url="https://cdn/v.mp4",
+                    poster_url="https://cdn/v.jpg", message="Rahsia besar", unlock_at=_ahead(hours=5))
+    view = W.public_view(row)
+    assert view["locked"] is True and view["unlock_at"]
+    assert view["message"] == "" and view["photo_urls"] == []
+    assert view["video_url"] is None and view["poster_url"] is None
+    assert view["recipient_name"] == "Aisyah"  # the box still says who it is for
+
+    # ...including in the page source the recipient is served.
+    page = asyncio.run(P.wish_middleware(_req("aisyah.mysyg.com"), _next))
+    assert page.status_code == 200
+    assert b"Rahsia besar" not in page.body and b"cdn/v.mp4" not in page.body
+    assert b"img/1.jpg" not in page.body
+
+
+def test_unlock_time_passed_reveals_the_gift(table):
+    row = table.add(slug="aisyah", status="ready", video_url="https://cdn/v.mp4",
+                    message="Rahsia besar", unlock_at=_ago(1))
+    view = W.public_view(row)
+    assert view["locked"] is False and view["unlock_at"] is None
+    assert view["message"] == "Rahsia besar" and view["video_url"] == "https://cdn/v.mp4"
+
+
+def test_sender_preview_sees_through_the_seal(table):
+    row = table.add(slug="aisyah", status="ready", video_url="https://cdn/v.mp4",
+                    message="Rahsia besar", unlock_at=_ahead(hours=5))
+    view = W.public_view(row, preview=True)
+    assert view["locked"] is False and view["preview"] is True
+    assert view["message"] == "Rahsia besar" and view["sealed_until"]
+
+    def page(query):
+        req = _req("aisyah.mysyg.com")
+        req.query_params = query
+        return asyncio.run(P.wish_middleware(req, _next))
+
+    assert b"Rahsia besar" in page({"pratonton": "tok"}).body
+    assert b"Rahsia besar" not in page({"pratonton": "salah"}).body
+    W.bump_views.assert_called_once()  # only the wrong-token load counted as a view
+
+    client, _ = _client()
+    assert client.get("/api/v1/wishes/public/aisyah").json()["message"] == ""
+    assert client.get("/api/v1/wishes/public/aisyah?t=tok").json()["message"] == "Rahsia besar"
+    assert client.get("/api/v1/wishes/public/aisyah?t=salah").json()["message"] == ""
+
+
+def test_public_view_never_leaks_reply_or_payer(table):
+    row = table.add(slug="aisyah", status="ready", reaction="love", reply_text="Sayang awak",
+                    replied_at=_ago(3))
+    view = W.public_view(row)
+    assert view["replied"] is True
+    blob = json.dumps(view)
+    assert "Sayang awak" not in blob and "a@b.com" not in blob and "0123456789" not in blob
+    assert "edit_token_hash" not in blob
+
+
+def test_create_with_unlock_at_stores_utc(table, monkeypatch):
+    monkeypatch.setenv("WISH_FREE_EMAILS", "a@b.com")
+    client, E = _client()
+    inserted = []
+    patches = _create_patches(table, E, inserted)
+    for p in patches:
+        p.start()
+    try:
+        when = datetime.now(timezone.utc) + timedelta(days=2)
+        ok = client.post("/api/v1/wishes", data=_form(unlock_at=when.isoformat()), files=PHOTO)
+        plain = client.post("/api/v1/wishes", data=_form(slug="tanpa-kunci"), files=PHOTO)
+        bad = client.post("/api/v1/wishes", data=_form(slug="lain", unlock_at="bila-bila"), files=PHOTO)
+    finally:
+        for p in patches:
+            p.stop()
+    assert ok.status_code == 200, ok.text
+    assert W._parse_ts(inserted[0]["unlock_at"]) == when
+    # No time chosen: the column is not even sent (works before migration 069).
+    assert plain.status_code == 200 and "unlock_at" not in inserted[1]
+    assert bad.status_code == 400 and "Masa buka" in bad.json()["detail"]
+
+
+def test_open_is_recorded_once_and_notifies(table):
+    client, E = _client()
+    E._public_hits.clear()
+    row = table.add(slug="aisyah", status="ready")
+    with patch.object(W, "record_open", new=AsyncMock(side_effect=[True, False])) as rec, \
+         patch.object(W, "notify_opened", new=AsyncMock()) as notify:
+        assert client.post("/api/v1/wishes/public/aisyah/open").json() == {"ok": True}
+        assert client.post("/api/v1/wishes/public/aisyah/open").json() == {"ok": True}
+    assert rec.await_count == 2
+    notify.assert_awaited_once()  # only the first open emails the sender
+    assert rec.await_args_list[0].args[0]["id"] == row["id"]
+
+
+def test_sealed_gift_cannot_be_opened_or_answered(table):
+    client, E = _client()
+    E._public_hits.clear()
+    table.add(slug="aisyah", status="ready", unlock_at=_ahead(hours=1))
+    with patch.object(W, "record_open", new=AsyncMock()) as rec, \
+         patch.object(W, "save_reply", new=AsyncMock()) as save:
+        assert client.post("/api/v1/wishes/public/aisyah/open").status_code == 423
+        assert client.post("/api/v1/wishes/public/aisyah/reply", json={"reaction": "love"}).status_code == 423
+    rec.assert_not_awaited()
+    save.assert_not_awaited()
+
+
+def test_reply_validates_and_saves(table):
+    client, E = _client()
+    E._public_hits.clear()
+    table.add(slug="aisyah", status="ready")
+    saved = {"slug": "aisyah", "recipient_name": "Aisyah", "reaction": "touched", "reply_text": "Terharu!"}
+    with patch.object(W, "save_reply", new=AsyncMock(return_value=saved)) as save, \
+         patch.object(W, "notify_reply", new=AsyncMock()) as notify:
+        assert client.post("/api/v1/wishes/public/aisyah/reply", json={}).status_code == 400
+        assert client.post("/api/v1/wishes/public/aisyah/reply", json={"reaction": "bom"}).status_code == 400
+        assert client.post("/api/v1/wishes/public/tiada/reply", json={"reaction": "love"}).status_code == 404
+        ok = client.post("/api/v1/wishes/public/aisyah/reply",
+                         json={"reaction": "touched", "text": "  Terharu!\x00  " + "x" * 500})
+        assert ok.status_code == 200
+        reaction, text = save.await_args.args[1], save.await_args.args[2]
+        assert reaction == "touched"
+        assert text.startswith("Terharu!") and "\x00" not in text and len(text) <= W.MAX_REPLY_CHARS
+        notify.assert_awaited_once()
+        # An unknown reaction with real text still goes through, as text only.
+        client.post("/api/v1/wishes/public/aisyah/reply", json={"reaction": "bom", "text": "Hai"})
+        assert save.await_args.args[1] is None and save.await_args.args[2] == "Hai"
+
+
+def test_changed_reply_does_not_email_again(table):
+    client, E = _client()
+    E._public_hits.clear()
+    table.add(slug="aisyah", status="ready", replied_at=_ago(10), reaction="love")
+    with patch.object(W, "save_reply", new=AsyncMock(return_value={"slug": "aisyah"})), \
+         patch.object(W, "notify_reply", new=AsyncMock()) as notify:
+        assert client.post("/api/v1/wishes/public/aisyah/reply", json={"reaction": "wow"}).status_code == 200
+    notify.assert_not_awaited()
+
+
+def test_reply_is_rate_limited_per_wish(table):
+    client, E = _client()
+    E._public_hits.clear()
+    table.add(slug="aisyah", status="ready")
+    with patch.object(W, "save_reply", new=AsyncMock(return_value={"slug": "aisyah"})), \
+         patch.object(W, "notify_reply", new=AsyncMock()):
+        codes = [client.post("/api/v1/wishes/public/aisyah/reply", json={"reaction": "love"}).status_code
+                 for _ in range(E._REPLY_LIMIT + 1)]
+    assert codes[:-1] == [200] * E._REPLY_LIMIT and codes[-1] == 429
+
+
+def test_reply_storage_failure_is_reported(table):
+    client, E = _client()
+    E._public_hits.clear()
+    table.add(slug="aisyah", status="ready")
+    with patch.object(W, "save_reply", new=AsyncMock(return_value=None)):
+        resp = client.post("/api/v1/wishes/public/aisyah/reply", json={"reaction": "love"})
+    assert resp.status_code == 503  # e.g. migration 069 missing: say so, do not claim it was sent
+
+
+def test_owner_view_reports_open_reply_and_seal(table):
+    row = table.add(slug="aisyah", status="ready", unlock_at=_ahead(hours=2), opened_at=_ago(30),
+                    open_count=3, reaction="touched", reply_text="Terharu!", replied_at=_ago(5))
+    view = W.owner_view(row)
+    assert view["unlock_at"] and view["open_count"] == 3 and view["opened_at"]
+    assert view["reaction"] == "😭" and view["reply_text"] == "Terharu!"
+    assert view["qr"].startswith("data:image/svg+xml;base64,")
+    past = W.owner_view(table.add(slug="lepas", status="ready", unlock_at=_ago(10)))
+    assert past["unlock_at"] is None and past["reaction"] is None and past["open_count"] == 0
+
+
+def test_pages_have_no_unfilled_placeholders_and_og_image(table):
+    table.add(slug="aisyah", status="ready", occasion="raya")
+
+    def run(host, path="/"):
+        return asyncio.run(P.wish_middleware(_req(host, path), _next))
+
+    wish = run("aisyah.mysyg.com")
+    assert b'data-theme="raya"' in wish.body
+    assert b"https://aisyah.mysyg.com/og.png" in wish.body
+    for body in (wish.body, run("buat.mysyg.com").body, run("buat.mysyg.com", f"/s/{uuid.uuid4()}").body,
+                 run("tiada.mysyg.com").body):
+        assert b"__" not in body.replace(b"__proto__", b"")
+        assert b"/*__BASE_CSS__*/" not in body and b"--gold:" in body  # shared stylesheet inlined
+
+    og = run("aisyah.mysyg.com", "/og.png")
+    assert og.status_code == 200 and og.media_type == "image/png" and og.body[:4] == b"\x89PNG"
+    assert run("buat.mysyg.com", "/og.png").status_code == 200
+
+
+def test_unknown_occasion_falls_back_to_a_known_theme(table):
+    row = table.add(slug="aisyah", status="ready", occasion='"><script>')
+    assert W.public_view(row)["theme"] == W.DEFAULT_OCCASION
+
+
+def test_creator_config_carries_message_ideas():
+    page = P.render_creator()
+    config = json.loads(page.split('<script id="config" type="application/json">')[1].split("</script>")[0])
+    assert set(config["occasions"]) == set(W.OCCASIONS)
+    for occ in config["occasions"].values():
+        assert occ["ideas"] and all(len(text) <= W.MAX_MESSAGE_CHARS for text in occ["ideas"])
+        assert "scene" not in occ  # the video prompt text stays on the server
+    assert config["max_unlock_days"] == W.MAX_UNLOCK_AHEAD.days
+
+
+def test_record_open_first_then_repeat():
+    calls = []
+
+    async def fake_patch(wish_id, data, extra=None):
+        calls.append((data, extra))
+        return {"id": wish_id} if len(calls) == 1 else None
+
+    row = {"id": "w1", "slug": "aisyah", "open_count": 0}
+    with patch.object(W, "_patch", side_effect=fake_patch):
+        assert asyncio.run(W.record_open(row)) is True
+        assert calls[0][1] == {"opened_at": "is.null"} and calls[0][0]["open_count"] == 1
+        calls.clear()
+        calls.append(None)  # make the conditional PATCH "lose"
+        assert asyncio.run(W.record_open({**row, "open_count": 4})) is False
+        assert calls[-1][0] == {"open_count": 5} and calls[-1][1] is None

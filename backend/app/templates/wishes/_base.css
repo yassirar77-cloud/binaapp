@@ -1,0 +1,133 @@
+/* mysyg — shared foundation for every page (inlined by wish_pages._load).
+   Tokens, the occasion themes, type, buttons and the gift box. */
+:root {
+  --gold: #E3B65C;
+  --gold-deep: #B8862E;
+  --gold-hi: #F6DFA8;
+  --gold-ink: #86601A; /* gold as text on the light pages */
+  --gold-line: rgba(227, 182, 92, .38);
+  --gold-faint: rgba(227, 182, 92, .16);
+  --pearl: #FFF8F3;
+  --pearl-dim: rgba(255, 248, 243, .68);
+  --ink: #3A1534;
+  --ink-soft: #7C5670;
+  --line: #EBDCE2;
+  --error: #B3261E;
+  --ok: #2E7D4F;
+  /* theme (default = birthday: plum) */
+  --bg-0: #1C0A22;
+  --bg-1: #4A1A3F;
+  --box-a: #74285F;
+  --box-b: #45173B;
+  --soft: #F2C4CC;
+  --glow: rgba(227, 182, 92, .55);
+  --serif: "Fraunces", "Iowan Old Style", Georgia, serif;
+  --sans: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --script: "Pinyon Script", "Brush Script MT", cursive;
+  --ease: cubic-bezier(.2, .8, .2, 1);
+}
+[data-theme="anniversary"] { --bg-0: #20080F; --bg-1: #5C1730; --box-a: #8A2440; --box-b: #561326; --soft: #F4C9C4; }
+[data-theme="love"]        { --bg-0: #26091B; --bg-1: #6E1C48; --box-a: #A02A63; --box-b: #651A40; --soft: #FFC9D8; }
+[data-theme="raya"]        { --bg-0: #07201A; --bg-1: #145040; --box-a: #1F7559; --box-b: #0F4435; --soft: #CDE9D9; }
+[data-theme="sorry"]       { --bg-0: #0E1830; --bg-1: #2A416F; --box-a: #3C5896; --box-b: #243866; --soft: #CCD9F3; }
+[data-theme="thanks"]      { --bg-0: #261406; --bg-1: #6B3C12; --box-a: #96561C; --box-b: #5C310F; --soft: #F7DFB6; }
+[data-theme="congrats"]    { --bg-0: #0C0E2C; --bg-1: #2C2F7A; --box-a: #4347AE; --box-b: #25286F; --soft: #D4D6FB; }
+
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+html, body { margin: 0; }
+body {
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+h1, h2, h3, p { margin: 0; }
+button, input, textarea, select { font: inherit; color: inherit; }
+[hidden] { display: none !important; }
+.script { font-family: var(--script); font-weight: 400; line-height: 1.1; }
+.serif { font-family: var(--serif); font-optical-sizing: auto; }
+.eyebrow { font-size: 12px; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* The night sky every dark surface sits on */
+.night {
+  background:
+    radial-gradient(90% 55% at 50% -8%, var(--bg-1) 0%, transparent 72%),
+    radial-gradient(70% 40% at 100% 100%, color-mix(in srgb, var(--bg-1) 55%, transparent) 0%, transparent 70%),
+    var(--bg-0);
+  color: var(--pearl);
+}
+
+/* Buttons */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 52px; padding: 0 22px; border: 0; border-radius: 14px;
+  font: 600 16px/1 var(--sans); text-decoration: none; cursor: pointer;
+  transition: transform .15s var(--ease), box-shadow .2s, background-color .2s, opacity .2s;
+  -webkit-tap-highlight-color: transparent;
+}
+.btn:active { transform: scale(.98); }
+.btn:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
+.btn-gold {
+  background: linear-gradient(180deg, var(--gold-hi) 0%, var(--gold) 45%, #D3A247 100%);
+  color: #2A1030;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .5) inset, 0 10px 28px -8px rgba(227, 182, 92, .6);
+}
+.btn-gold:hover { box-shadow: 0 1px 0 rgba(255, 255, 255, .5) inset, 0 14px 34px -8px rgba(227, 182, 92, .75); }
+.btn-plum { background: #4A1A3F; color: var(--pearl); box-shadow: inset 0 0 0 1.5px var(--gold-line); }
+.btn-plum:hover { background: #5A2050; }
+.btn-ghost { background: rgba(255, 248, 243, .06); color: var(--pearl); box-shadow: inset 0 0 0 1px var(--gold-line); }
+.btn-ghost:hover { background: rgba(255, 248, 243, .1); }
+.btn-wa { background: #25D366; color: #06331A; }
+.btn[disabled] { opacity: .6; cursor: progress; }
+.btn-block { display: flex; width: 100%; }
+
+/* ---------- The gift box. Sized by font-size: 1em = one tenth of its width. ---------- */
+.gift { position: relative; display: block; width: 10em; height: 10.6em; }
+.gift .halo {
+  position: absolute; left: 50%; top: 52%; width: 17em; height: 17em; border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(closest-side, var(--glow) 0%, transparent 72%);
+  opacity: .5;
+}
+.gift .floor { position: absolute; left: 10%; right: 10%; bottom: -.45em; height: 1em; border-radius: 50%; background: rgba(0, 0, 0, .55); filter: blur(.4em); }
+.gift .body, .gift .lid {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  background:
+    repeating-linear-gradient(45deg, transparent 0 .52em, var(--gold-faint) .52em .58em),
+    repeating-linear-gradient(-45deg, transparent 0 .52em, var(--gold-faint) .52em .58em),
+    linear-gradient(160deg, var(--box-a), var(--box-b));
+  box-shadow: inset 0 0 0 .07em rgba(227, 182, 92, .65);
+}
+.gift .body { bottom: 0; width: 8.2em; height: 6.3em; border-radius: .2em .2em .5em .5em; box-shadow: inset 0 0 0 .07em rgba(227, 182, 92, .65), inset 0 1.1em 1em -.7em rgba(0, 0, 0, .6); }
+.gift .lid { bottom: 6.05em; width: 9.2em; height: 1.95em; border-radius: .3em; z-index: 2; box-shadow: inset 0 0 0 .07em rgba(227, 182, 92, .65), 0 .35em .5em -.2em rgba(0, 0, 0, .5); transition: transform .8s cubic-bezier(.2, .9, .3, 1.15), opacity .6s .15s; }
+.gift .rv, .gift .rh { position: absolute; }
+.gift .rv { left: 50%; top: 0; bottom: 0; width: 1.15em; transform: translateX(-50%); background: linear-gradient(90deg, var(--gold-deep) 0%, var(--gold-hi) 42%, var(--gold) 62%, var(--gold-deep) 100%); }
+.gift .rh { left: 0; right: 0; top: 50%; height: 1.05em; transform: translateY(-50%); background: linear-gradient(180deg, var(--gold-hi) 0%, var(--gold) 45%, var(--gold-deep) 100%); }
+.gift .bow { position: absolute; left: 50%; bottom: 100%; width: 0; height: 0; }
+.gift .bow::before, .gift .bow::after {
+  content: ""; position: absolute; bottom: -.25em; width: 2.5em; height: 1.85em;
+  border: .42em solid var(--gold); border-radius: 55% 55% 50% 50% / 62% 62% 38% 38%;
+  box-shadow: inset 0 .12em 0 rgba(246, 223, 168, .8);
+}
+.gift .bow::before { right: .05em; transform: rotate(-24deg); transform-origin: 100% 100%; }
+.gift .bow::after { left: .05em; transform: rotate(24deg); transform-origin: 0 100%; }
+.gift .knot { position: absolute; left: 50%; bottom: 100%; width: 1.1em; height: .8em; margin-bottom: -.35em; transform: translateX(-50%); border-radius: .28em; background: linear-gradient(180deg, var(--gold-hi), var(--gold-deep)); z-index: 1; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .gift.idle { animation: gift-float 3.6s ease-in-out infinite; transform-origin: 50% 100%; }
+  .gift.idle .halo { animation: gift-halo 3.6s ease-in-out infinite; }
+}
+@keyframes gift-float {
+  0%, 100% { transform: translateY(0) rotate(0); }
+  42% { transform: translateY(-.45em) rotate(0); }
+  58% { transform: translateY(-.45em) rotate(-2.4deg); }
+  70% { transform: translateY(-.3em) rotate(2deg); }
+  82% { transform: translateY(-.1em) rotate(-1deg); }
+}
+@keyframes gift-halo { 0%, 100% { opacity: .38; transform: translate(-50%, -50%) scale(.94); } 50% { opacity: .62; transform: translate(-50%, -50%) scale(1.04); } }
+.gift.open { animation: none; }
+.gift.open .lid { transform: translate(-50%, -7em) rotate(-22deg); opacity: 0; }
+.gift.open .halo { opacity: .9; transition: opacity .5s, transform .9s var(--ease); transform: translate(-50%, -50%) scale(1.5); }

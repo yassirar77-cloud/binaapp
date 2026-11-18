@@ -7,185 +7,461 @@
 <meta name="description" content="Muat naik gambar, tulis ucapan, dan kami jadikan video kejutan dengan muzik. Hantar satu pautan, dia tekan kotak hadiah dan terus terharu.">
 <meta property="og:title" content="mysyg — kejutan video untuk orang tersayang">
 <meta property="og:description" content="Gambar anda jadi video bermuzik, dalam satu pautan hadiah.">
-<meta name="theme-color" content="#2A1030">
+<meta property="og:type" content="website">
+<meta property="og:image" content="__OG_IMAGE__">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#1C0A22">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Pinyon+Script&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..600;1,9..144,400..500&family=Pinyon+Script&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  :root {
-    --plum-night: #2A1030;
-    --plum: #4A1A3F;
-    --plum-soft: #8A5A7C;
-    --gold: #E3B65C;
-    --gold-deep: #B8862E;
-    --gold-soft: rgba(227, 182, 92, .38);
-    --rose: #F2C4CC;
-    --pearl: #FFF8F3;
-    --line: #EBDCE2;
-    --ink: #3A1534;
-    --error: #B3261E;
-  }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; }
-  body { background: var(--pearl); color: var(--ink); font-family: "Plus Jakarta Sans", system-ui, sans-serif; font-size: 16px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
-  .script { font-family: "Pinyon Script", "Brush Script MT", cursive; font-weight: 400; }
+/*__BASE_CSS__*/
 
-  header.hero {
-    background: radial-gradient(120% 90% at 50% 0%, var(--plum) 0%, var(--plum-night) 70%);
-    color: var(--pearl);
-    padding: 28px 20px 44px;
-  }
-  .hero-inner { position: relative; max-width: 560px; margin: 0 auto; }
-  .brand { margin: 0 0 22px; font-size: 34px; color: var(--gold); line-height: 1; }
-  .hero h1 { margin: 0; max-width: 15ch; font-size: clamp(28px, 7.4vw, 38px); line-height: 1.15; font-weight: 600; letter-spacing: -0.01em; }
-  .hero p { margin: 12px 0 0; color: var(--rose); font-size: 16px; max-width: 34ch; }
-  .mini-gift { position: absolute; top: 0; right: 0; width: 84px; height: 84px; }
-  .mini-gift .box, .mini-gift .lid {
-    position: absolute; left: 50%; transform: translateX(-50%);
-    background:
-      repeating-linear-gradient(45deg, transparent 0 6px, var(--gold-soft) 6px 7px),
-      repeating-linear-gradient(-45deg, transparent 0 6px, var(--gold-soft) 6px 7px),
-      linear-gradient(160deg, #6B2457, #4A1A3F);
-    box-shadow: inset 0 0 0 1.5px rgba(227, 182, 92, .7);
-  }
-  .mini-gift .box { bottom: 0; width: 68px; height: 52px; border-radius: 3px 3px 6px 6px; }
-  .mini-gift .lid { bottom: 50px; width: 76px; height: 16px; border-radius: 3px; }
-  .mini-gift .band { position: absolute; left: 50%; top: 0; bottom: 0; width: 10px; transform: translateX(-50%); background: var(--gold); }
+  body { background: var(--pearl); color: var(--ink); }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 20px; }
+  @media (min-width: 720px) { .wrap { padding: 0 32px; } }
 
-  main { max-width: 560px; margin: 0 auto; padding: 8px 20px 140px; }
-  .step { padding: 28px 0 8px; border-bottom: 1px solid var(--line); }
-  .step:last-of-type { border-bottom: 0; }
-  .step h2 { display: flex; align-items: baseline; gap: 12px; margin: 0 0 6px; font-size: 20px; font-weight: 600; }
-  .step h2 .n { flex: 0 0 auto; width: 30px; height: 30px; border-radius: 50%; display: inline-grid; place-items: center; background: var(--plum); color: var(--gold); font-size: 15px; transform: translateY(-2px); }
-  .step > p.help { margin: 0 0 16px 42px; color: var(--plum-soft); font-size: 15px; }
+  /* ---------- Hero ---------- */
+  .hero { position: relative; overflow: hidden; padding: 18px 0 56px; }
+  .topbar { display: flex; align-items: center; justify-content: space-between; }
+  .brand { font-size: 38px; color: var(--gold); text-decoration: none; }
+  .price-pill { display: inline-flex; align-items: baseline; gap: 6px; padding: 8px 14px; border-radius: 999px; background: rgba(255, 248, 243, .07); box-shadow: inset 0 0 0 1px var(--gold-line); font-size: 13px; color: var(--pearl-dim); }
+  .price-pill b { font-size: 15px; color: var(--gold-hi); }
+  .hero-grid { display: grid; gap: 44px; margin-top: 40px; align-items: center; }
+  .hero .eyebrow { color: var(--gold); }
+  .hero h1 { margin-top: 14px; font: 500 clamp(38px, 10.4vw, 68px)/1.04 var(--serif); letter-spacing: -0.02em; text-wrap: balance; }
+  .hero h1 em { font-style: italic; font-weight: 400; color: var(--gold); }
+  .hero .lede { margin-top: 18px; max-width: 34ch; font-size: 17px; color: var(--soft); }
+  .hero .cta { margin-top: 28px; display: flex; flex-wrap: wrap; align-items: center; gap: 14px 20px; }
+  .hero .cta .btn { min-height: 56px; padding: 0 26px; font-size: 17px; }
+  .trust { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 26px; padding: 0; list-style: none; font-size: 14px; color: var(--pearl-dim); }
+  .trust li { display: inline-flex; align-items: center; gap: 7px; }
+  .trust svg { width: 15px; height: 15px; color: var(--gold); flex: 0 0 auto; }
+  .hero-demo { display: flex; justify-content: center; }
+  @media (min-width: 900px) {
+    .hero { padding: 26px 0 88px; }
+    .hero-grid { grid-template-columns: 1.15fr .85fr; gap: 56px; margin-top: 64px; }
+    .hero .lede { font-size: 19px; max-width: 38ch; }
+  }
+
+  /* ---------- The phone (hero demo + live preview share it) ---------- */
+  .phone { position: relative; width: 264px; aspect-ratio: 9 / 18.6; border-radius: 40px; padding: 9px; background: #0E0511; box-shadow: 0 0 0 1px var(--gold-line), 0 40px 80px -20px rgba(0, 0, 0, .7), 0 0 120px -30px var(--glow); }
+  .phone::before { content: ""; position: absolute; top: 17px; left: 50%; z-index: 3; width: 64px; height: 18px; transform: translateX(-50%); border-radius: 12px; background: #0E0511; }
+  .screen { position: relative; width: 100%; height: 100%; border-radius: 32px; overflow: hidden; text-align: center; }
+  .pv-closed, .pv-open { position: absolute; inset: 0; padding: 44px 16px 18px; transition: opacity .5s, transform .6s var(--ease); }
+  .pv-closed { display: flex; flex-direction: column; align-items: center; justify-content: center; padding-top: 30px; }
+  .pv-closed .lead { font-size: 8.5px; color: var(--soft); }
+  .pv-name { max-width: 100%; margin: 4px 0 0; padding: 0 4px; font-size: 44px; color: var(--gold); overflow-wrap: anywhere; }
+  .pv-name.long { font-size: 34px; }
+  .pv-name.longer { font-size: 27px; }
+  .pv-from { font-size: 10px; color: var(--pearl-dim); }
+  .pv-closed .gift { margin-top: 30px; font-size: 10.5px; }
+  .pv-tap { margin-top: 22px; padding: 6px 12px; border-radius: 999px; background: rgba(255, 248, 243, .07); box-shadow: inset 0 0 0 1px var(--gold-line); font-size: 9.5px; color: var(--pearl); }
+  .pv-open { overflow-y: auto; scrollbar-width: none; opacity: 0; pointer-events: none; transform: translateY(14px); }
+  .pv-open::-webkit-scrollbar { display: none; }
+  .screen.is-open .pv-open { opacity: 1; pointer-events: auto; transform: none; }
+  .screen.is-open .pv-closed { opacity: 0; pointer-events: none; transform: scale(1.05); }
+  .pv-occ { display: inline-block; padding: 4px 10px; border-radius: 999px; background: rgba(255, 248, 243, .07); box-shadow: inset 0 0 0 1px var(--gold-line); font-size: 9px; color: var(--soft); }
+  .pv-open .pv-name { margin: 6px 0 10px; }
+  .pv-film { position: relative; width: 78%; margin: 0 auto; aspect-ratio: 9 / 16; border-radius: 14px; overflow: hidden; background: linear-gradient(170deg, #5A2A52 0%, #B0607A 55%, #E9A77F 100%); box-shadow: 0 0 0 1px var(--gold-line), 0 14px 30px -8px rgba(0, 0, 0, .6); }
+  .pv-film img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .pv-film .ph { position: absolute; inset: 0; display: grid; place-items: center; padding: 14px; font-size: 10px; color: rgba(255, 248, 243, .85); }
+  .pv-film .play { position: absolute; left: 8px; bottom: 8px; display: inline-flex; align-items: center; gap: 5px; padding: 4px 8px; border-radius: 999px; background: rgba(20, 8, 24, .66); font-size: 8.5px; color: var(--pearl); }
+  .pv-film .play::before { content: ""; border-left: 6px solid var(--gold); border-top: 4px solid transparent; border-bottom: 4px solid transparent; }
+  .pv-letter { position: relative; margin: 16px 4px 0; padding: 16px 14px 12px; border-radius: 4px; background: linear-gradient(180deg, #FFFBF7, #FBEFE6); color: var(--ink); text-align: left; box-shadow: 0 12px 24px -8px rgba(0, 0, 0, .5); }
+  .pv-letter::before { content: ""; position: absolute; inset: 4px; border: 1px solid rgba(184, 134, 46, .4); border-radius: 2px; pointer-events: none; }
+  .pv-letter p { font: 400 10.5px/1.65 var(--serif); white-space: pre-line; overflow-wrap: anywhere; }
+  .pv-letter .muted { color: #B79AAB; font-style: italic; }
+  .pv-sign { margin-top: 8px; text-align: right; }
+  .pv-sign small { display: block; font: italic 400 8.5px var(--serif); color: var(--ink-soft); }
+  .pv-sign .script { font-size: 22px; color: #4A1A3F; }
+
+  /* Hero demo: the box opens by itself, then the wish scrolls past */
+  .demo .pv-film::after { content: ""; position: absolute; inset: 0; background: radial-gradient(40% 22% at 30% 24%, rgba(255, 236, 200, .55), transparent 70%), radial-gradient(34% 18% at 74% 38%, rgba(255, 236, 200, .4), transparent 70%), radial-gradient(60% 40% at 50% 100%, rgba(42, 16, 48, .55), transparent 70%); }
+  @media (prefers-reduced-motion: no-preference) {
+    .demo .pv-closed { animation: demo-closed 11s var(--ease) infinite; }
+    .demo .pv-closed .lid { animation: demo-lid 11s var(--ease) infinite; }
+    .demo .pv-open { animation: demo-open 11s var(--ease) infinite; pointer-events: none; }
+    .demo .pv-open .inner { animation: demo-scroll 11s ease-in-out infinite; }
+  }
+  @keyframes demo-closed { 0%, 30% { opacity: 1; transform: none; } 37%, 94% { opacity: 0; transform: scale(1.05); } 100% { opacity: 1; transform: none; } }
+  @keyframes demo-lid { 0%, 24% { transform: translateX(-50%); opacity: 1; } 31%, 96% { transform: translate(-50%, -7em) rotate(-22deg); opacity: 0; } 100% { transform: translateX(-50%); opacity: 1; } }
+  @keyframes demo-open { 0%, 33% { opacity: 0; transform: translateY(14px); } 40%, 92% { opacity: 1; transform: none; } 97%, 100% { opacity: 0; transform: none; } }
+  @keyframes demo-scroll { 0%, 52% { transform: none; } 78%, 100% { transform: translateY(-46%); } }
+
+  /* ---------- How it works ---------- */
+  section.band { padding: 64px 0; }
+  .band h2 { font: 500 clamp(28px, 6.4vw, 40px)/1.12 var(--serif); letter-spacing: -0.015em; text-wrap: balance; }
+  .band .eyebrow { margin-bottom: 10px; color: var(--gold-ink); }
+  .steps { display: grid; gap: 14px; margin: 30px 0 0; padding: 0; list-style: none; counter-reset: s; }
+  .steps li { position: relative; padding: 22px 22px 22px 76px; border-radius: 20px; background: #fff; box-shadow: 0 0 0 1px var(--line), 0 10px 30px -18px rgba(74, 26, 63, .35); counter-increment: s; }
+  .steps li::before { content: counter(s); position: absolute; left: 22px; top: 22px; width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; background: #4A1A3F; color: var(--gold); font: 500 19px var(--serif); }
+  .steps h3 { font: 600 17px/1.3 var(--sans); }
+  .steps p { margin-top: 4px; font-size: 15px; color: var(--ink-soft); }
+  @media (min-width: 820px) {
+    section.band { padding: 88px 0; }
+    .steps { grid-template-columns: repeat(3, 1fr); gap: 18px; }
+    .steps li { padding: 78px 24px 26px; }
+    .steps li::before { left: 24px; top: 24px; }
+  }
+  .for { margin-top: 34px; }
+  .for p { margin-bottom: 12px; font-size: 14px; font-weight: 600; color: var(--ink-soft); }
+  .for div { display: flex; flex-wrap: wrap; gap: 8px; }
+  .for button { padding: 9px 14px; border-radius: 999px; border: 1px solid #DEC8D3; background: #fff; font-size: 15px; cursor: pointer; transition: border-color .2s, transform .15s; }
+  .for button:hover { border-color: #4A1A3F; transform: translateY(-1px); }
+  .for button:focus-visible { outline: 2px solid var(--gold-deep); outline-offset: 2px; }
+
+  /* ---------- Builder ---------- */
+  #buat { scroll-margin-top: 12px; padding: 8px 0 72px; }
+  .builder-head { margin-bottom: 26px; }
+  .builder-head p { margin-top: 8px; color: var(--ink-soft); }
+  .builder { display: grid; gap: 32px; }
+  .card { margin: 0 0 16px; padding: 22px 18px; border-radius: 22px; background: #fff; box-shadow: 0 0 0 1px var(--line), 0 14px 40px -24px rgba(74, 26, 63, .4); }
+  @media (min-width: 560px) { .card { padding: 28px 28px; } }
+  .card > h3 { display: flex; align-items: center; gap: 12px; font: 600 19px/1.2 var(--sans); }
+  .card > h3 .n { flex: 0 0 auto; width: 32px; height: 32px; border-radius: 10px; display: inline-grid; place-items: center; background: #4A1A3F; color: var(--gold); font: 500 16px var(--serif); }
+  .card > p.help { margin: 6px 0 18px 44px; color: var(--ink-soft); font-size: 15px; }
 
   label.field { display: block; margin: 0 0 16px; }
-  label.field > span { display: block; margin-bottom: 6px; font-size: 15px; font-weight: 500; }
-  input[type=text], input[type=email], input[type=tel], textarea {
-    width: 100%; padding: 13px 14px; border: 1px solid #D9C4CF; border-radius: 10px; background: #fff; color: var(--ink);
-    font: 400 16px "Plus Jakarta Sans", sans-serif;
+  label.field > span, .lbl { display: block; margin-bottom: 6px; font-size: 14px; font-weight: 600; }
+  input[type=text], input[type=email], input[type=tel], input[type=datetime-local], textarea {
+    width: 100%; padding: 13px 14px; border: 1px solid #DCC6D1; border-radius: 12px; background: #fff; color: var(--ink);
+    font: 400 16px var(--sans); transition: border-color .15s, box-shadow .15s;
   }
   textarea { min-height: 150px; resize: vertical; line-height: 1.6; }
-  input:focus-visible, textarea:focus-visible { outline: 2px solid var(--gold-deep); outline-offset: 1px; border-color: transparent; }
-  .count { display: block; margin-top: 4px; text-align: right; font-size: 13px; color: var(--plum-soft); }
+  input:focus-visible, textarea:focus-visible { outline: none; border-color: var(--gold-deep); box-shadow: 0 0 0 3px rgba(227, 182, 92, .3); }
+  .count-line { display: flex; justify-content: space-between; gap: 12px; margin: 6px 0 14px; font-size: 13px; color: var(--ink-soft); }
   .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-  @media (max-width: 420px) { .row { grid-template-columns: 1fr; gap: 0; } }
+  @media (max-width: 440px) { .row { grid-template-columns: 1fr; gap: 0; } }
 
   /* Photos */
-  .drop { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 96px; border: 1.5px dashed #CDB1C0; border-radius: 14px; background: #fff; color: var(--plum); font-weight: 600; cursor: pointer; padding: 16px; text-align: center; }
+  .drop { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-height: 132px; border: 1.5px dashed #CDB1C0; border-radius: 18px; background: #FDF6F8; color: #4A1A3F; cursor: pointer; padding: 18px; text-align: center; transition: border-color .2s, background-color .2s; }
+  .drop:hover, .drop.over { border-color: #4A1A3F; background: #FAEDF2; }
   .drop:focus-within { outline: 2px solid var(--gold-deep); outline-offset: 2px; }
   .drop input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+  .drop svg { width: 30px; height: 30px; color: var(--gold-deep); }
+  .drop b { font-weight: 600; }
+  .drop small { font-size: 13px; color: var(--ink-soft); }
   .thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; margin-top: 12px; }
-  .thumb { position: relative; aspect-ratio: 4 / 5; border-radius: 12px; overflow: hidden; border: 2px solid transparent; background: #eee; }
+  .thumbs:empty { display: none; }
+  .thumb { position: relative; aspect-ratio: 4 / 5; border-radius: 14px; overflow: hidden; background: #eee; box-shadow: 0 0 0 1px var(--line); }
   .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .thumb.main { border-color: var(--gold-deep); }
-  .thumb .tag { position: absolute; left: 6px; bottom: 6px; padding: 2px 8px; border-radius: 10px; background: var(--plum); color: var(--gold); font-size: 12px; font-weight: 600; }
-  .thumb button { position: absolute; border: 0; cursor: pointer; font: 600 12px "Plus Jakarta Sans", sans-serif; }
+  .thumb.main { box-shadow: 0 0 0 2.5px var(--gold-deep); }
+  .thumb .tag { position: absolute; left: 6px; bottom: 6px; padding: 3px 8px; border-radius: 10px; background: #4A1A3F; color: var(--gold); font-size: 11px; font-weight: 600; }
+  .thumb button { position: absolute; border: 0; cursor: pointer; font: 600 11px var(--sans); }
   .thumb .rm { top: 6px; right: 6px; width: 28px; height: 28px; border-radius: 50%; background: rgba(42, 16, 48, .78); color: #fff; font-size: 16px; line-height: 1; }
-  .thumb .mk { left: 6px; bottom: 6px; padding: 4px 8px; border-radius: 10px; background: rgba(255, 248, 243, .92); color: var(--plum); }
+  .thumb .mk { left: 6px; bottom: 6px; padding: 4px 8px; border-radius: 10px; background: rgba(255, 248, 243, .94); color: #4A1A3F; }
   .thumb button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 
   /* Choice chips */
-  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 18px; padding: 0; border: 0; }
-  .chips legend { margin-bottom: 8px; padding: 0; font-size: 15px; font-weight: 500; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 18px; padding: 0; border: 0; min-width: 0; }
+  .chips legend { margin-bottom: 8px; padding: 0; font-size: 14px; font-weight: 600; }
   .chip { position: relative; }
   .chip input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
-  .chip span { display: inline-block; padding: 9px 14px; border-radius: 22px; border: 1px solid #D9C4CF; background: #fff; font-size: 15px; }
-  .chip input:checked + span { background: var(--plum); border-color: var(--plum); color: var(--pearl); }
+  .chip span { display: inline-block; padding: 9px 14px; border-radius: 22px; border: 1px solid #DCC6D1; background: #fff; font-size: 15px; transition: background-color .15s, border-color .15s, color .15s; }
+  .chip input:checked + span { background: #4A1A3F; border-color: #4A1A3F; color: var(--pearl); }
   .chip input:focus-visible + span { outline: 2px solid var(--gold-deep); outline-offset: 2px; }
 
-  .link-field { display: flex; align-items: stretch; border: 1px solid #D9C4CF; border-radius: 10px; background: #fff; overflow: hidden; }
-  .link-field:focus-within { outline: 2px solid var(--gold-deep); outline-offset: 1px; border-color: transparent; }
-  .link-field span { display: flex; align-items: center; padding: 0 12px; color: var(--plum-soft); background: #FBF2F5; white-space: nowrap; }
+  /* Message ideas */
+  .ideas { margin: 0 0 18px; }
+  .ideas .lbl { display: flex; align-items: center; gap: 6px; font-weight: 600; color: var(--ink-soft); }
+  .ideas .list { display: flex; gap: 10px; margin: 0 -18px; padding: 2px 18px 6px; overflow-x: auto; scroll-snap-type: x proximity; scrollbar-width: none; }
+  .ideas .list::-webkit-scrollbar { display: none; }
+  @media (min-width: 560px) { .ideas .list { margin: 0 -28px; padding: 2px 28px 6px; } }
+  .idea { flex: 0 0 78%; max-width: 300px; padding: 12px 14px; border-radius: 14px; border: 1px solid #E6D3DC; background: #FDF6F8; text-align: left; font: 400 14px/1.5 var(--serif); color: var(--ink); cursor: pointer; scroll-snap-align: start; transition: border-color .15s, background-color .15s; }
+  .idea:hover { border-color: #4A1A3F; background: #FAEDF2; }
+  .idea:focus-visible { outline: 2px solid var(--gold-deep); outline-offset: 2px; }
+  .idea span { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .idea b { display: block; margin-top: 8px; font: 600 12px var(--sans); color: var(--gold-ink); }
+
+  /* When to open */
+  .opts { display: grid; gap: 10px; }
+  @media (min-width: 560px) { .opts { grid-template-columns: 1fr 1fr; } }
+  .opt { position: relative; display: block; }
+  .opt input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+  .opt > span { display: block; height: 100%; padding: 14px 16px 14px 46px; border-radius: 16px; border: 1px solid #DCC6D1; background: #fff; transition: border-color .15s, background-color .15s; }
+  .opt > span::before { content: ""; position: absolute; left: 16px; top: 17px; width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid #C4A6B6; background: #fff; }
+  .opt input:checked + span { border-color: #4A1A3F; background: #FDF6F8; box-shadow: inset 0 0 0 1px #4A1A3F; }
+  .opt input:checked + span::before { border-color: #4A1A3F; background: radial-gradient(circle, #4A1A3F 0 45%, #fff 50%); }
+  .opt input:focus-visible + span { outline: 2px solid var(--gold-deep); outline-offset: 2px; }
+  .opt b { display: block; font-weight: 600; }
+  .opt small { display: block; margin-top: 2px; font-size: 14px; color: var(--ink-soft); }
+  .when { margin-top: 14px; }
+  .presets { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .presets button { padding: 8px 12px; border-radius: 999px; border: 1px solid #DCC6D1; background: #fff; font-size: 14px; cursor: pointer; }
+  .presets button:hover { border-color: #4A1A3F; }
+  .presets button:focus-visible { outline: 2px solid var(--gold-deep); outline-offset: 2px; }
+  .when-note { margin-top: 10px; font-size: 14px; color: var(--ink-soft); min-height: 1.4em; }
+
+  .link-field { display: flex; align-items: stretch; border: 1px solid #DCC6D1; border-radius: 12px; background: #fff; overflow: hidden; transition: border-color .15s, box-shadow .15s; }
+  .link-field:focus-within { border-color: var(--gold-deep); box-shadow: 0 0 0 3px rgba(227, 182, 92, .3); }
+  .link-field span { display: flex; align-items: center; padding: 0 12px; color: var(--ink-soft); background: #FBF2F5; white-space: nowrap; font-size: 15px; }
   .link-field span.pre { border-right: 1px solid var(--line); }
   .link-field span.post { border-left: 1px solid var(--line); }
-  .link-field input { border: 0; border-radius: 0; min-width: 0; flex: 1; }
-  .link-field input:focus-visible { outline: none; }
+  .link-field input { border: 0; border-radius: 0; min-width: 0; flex: 1; box-shadow: none !important; }
+  @media (max-width: 380px) { .link-field span.pre { display: none; } }
   .slug-note { margin: 6px 0 16px; font-size: 14px; min-height: 1.4em; }
-  .slug-note.ok { color: #2E7D4F; }
+  .slug-note.ok { color: var(--ok); }
   .slug-note.bad { color: var(--error); }
 
   .consent { display: flex; gap: 10px; align-items: flex-start; margin: 4px 0 8px; font-size: 15px; }
-  .consent input { width: 20px; height: 20px; margin-top: 3px; accent-color: var(--plum); flex: 0 0 auto; }
-
-  .paybar { position: fixed; left: 0; right: 0; bottom: 0; background: rgba(255, 248, 243, .96); backdrop-filter: blur(8px); border-top: 1px solid var(--line); padding: 12px 20px calc(12px + env(safe-area-inset-bottom)); }
-  .paybar-inner { max-width: 560px; margin: 0 auto; display: flex; align-items: center; gap: 16px; }
-  .price { flex: 0 0 auto; line-height: 1.2; }
-  .price b { display: block; font-size: 22px; }
-  .price small { color: var(--plum-soft); font-size: 13px; }
-  .pay { flex: 1; min-height: 52px; border: 0; border-radius: 14px; background: var(--plum); color: var(--pearl); font: 600 17px "Plus Jakarta Sans", sans-serif; cursor: pointer; box-shadow: inset 0 0 0 1.5px var(--gold-soft); }
-  .pay:hover { background: #5A2050; }
-  .pay:disabled { opacity: .6; cursor: progress; }
-  .pay:focus-visible { outline: 2px solid var(--gold-deep); outline-offset: 2px; }
-  .form-error { margin: 16px 0 0; padding: 12px 14px; border-radius: 10px; background: #FCEBEA; color: var(--error); font-size: 15px; display: none; }
+  .consent input { width: 20px; height: 20px; margin-top: 3px; accent-color: #4A1A3F; flex: 0 0 auto; }
+  .form-error { margin: 16px 0 0; padding: 12px 14px; border-radius: 12px; background: #FCEBEA; color: var(--error); font-size: 15px; display: none; }
   .form-error.shown { display: block; }
-  .fine { margin-top: 24px; font-size: 13px; color: var(--plum-soft); }
+  .fine { margin-top: 18px; font-size: 13px; color: var(--ink-soft); }
+
+  /* Live preview: a sheet on a phone, a sticky column on desktop */
+  .preview { display: none; }
+  .preview.open { display: flex; position: fixed; inset: 0; z-index: 60; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 20px; background: rgba(20, 8, 24, .97); }
+  .preview .cap { font-size: 12px; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; color: var(--gold-ink); }
+  .preview.open .cap { color: var(--gold); }
+  .tabs { display: inline-flex; padding: 4px; border-radius: 999px; background: #F3E4EA; }
+  .tabs button { padding: 8px 14px; border-radius: 999px; border: 0; background: none; font: 600 13px var(--sans); color: var(--ink-soft); cursor: pointer; }
+  .tabs button[aria-pressed="true"] { background: #4A1A3F; color: var(--pearl); }
+  .tabs button:focus-visible { outline: 2px solid var(--gold-deep); outline-offset: 2px; }
+  .preview .close { position: absolute; top: 14px; right: 14px; width: 44px; height: 44px; border-radius: 50%; border: 0; background: rgba(255, 248, 243, .12); color: var(--pearl); font-size: 22px; cursor: pointer; }
+  @media (max-height: 700px) { .preview.open .phone { width: 220px; } }
+  @media (min-width: 1000px) {
+    .builder { grid-template-columns: minmax(0, 1fr) 300px; gap: 56px; align-items: start; }
+    .preview, .preview.open { position: sticky; top: 24px; inset: auto; z-index: auto; display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 0; background: none; }
+    .preview.open .cap { color: var(--gold-ink); }
+    .preview .close { display: none; }
+    .pv-btn { display: none !important; }
+  }
+
+  /* ---------- FAQ + footer ---------- */
+  .faq { max-width: 720px; margin-top: 26px; border-radius: 20px; background: #fff; box-shadow: 0 0 0 1px var(--line); overflow: hidden; }
+  .faq details + details { border-top: 1px solid var(--line); }
+  .faq summary { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 18px 20px; font-weight: 600; cursor: pointer; list-style: none; }
+  .faq summary::-webkit-details-marker { display: none; }
+  .faq summary::after { content: "+"; flex: 0 0 auto; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: #F3E4EA; color: #4A1A3F; font-weight: 500; transition: transform .2s; }
+  .faq details[open] summary::after { transform: rotate(45deg); }
+  .faq summary:focus-visible { outline: 2px solid var(--gold-deep); outline-offset: -2px; }
+  .faq p { padding: 0 20px 20px; color: var(--ink-soft); font-size: 15px; }
+  footer.end { padding: 44px 0 150px; text-align: center; }
+  footer.end .brand { font-size: 40px; }
+  footer.end p { margin-top: 6px; font-size: 14px; color: var(--pearl-dim); }
+
+  /* ---------- Pay bar ---------- */
+  .paybar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 50; background: rgba(255, 248, 243, .94); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); border-top: 1px solid var(--line); padding: 12px 20px calc(12px + env(safe-area-inset-bottom)); }
+  /* Out of the way until the form is on screen: the hero has its own button. */
+  .paybar { transition: transform .35s var(--ease); }
+  .paybar.away { transform: translateY(110%); }
+  @media (prefers-reduced-motion: reduce) { .paybar { transition: none; } }
+  .paybar-inner { max-width: 1056px; margin: 0 auto; display: flex; align-items: center; gap: 12px; }
+  .price { flex: 0 0 auto; line-height: 1.2; }
+  .price b { display: block; font: 600 22px var(--serif); }
+  .price small { color: var(--ink-soft); font-size: 12px; }
+  .paybar .pay { flex: 1; min-height: 54px; padding: 0 12px; font-size: 17px; white-space: nowrap; }
+  @media (max-width: 430px) { .paybar .pay { font-size: 15px; } .price b { font-size: 20px; } }
+  @media (min-width: 720px) { .paybar .pay { flex: 0 0 320px; margin-left: auto; } .paybar .hint { display: block !important; } }
+  .paybar .hint { display: none; margin-left: 12px; font-size: 14px; color: var(--ink-soft); }
+  .pv-btn { flex: 0 0 auto; width: 54px; min-height: 54px; padding: 0; border-radius: 14px; border: 1px solid #DCC6D1; background: #fff; color: #4A1A3F; cursor: pointer; display: grid; place-items: center; }
+  .pv-btn svg { width: 22px; height: 22px; }
+  .pv-btn:focus-visible { outline: 2px solid var(--gold-deep); outline-offset: 2px; }
 </style>
 </head>
 <body>
-<header class="hero">
-  <div class="hero-inner">
-    <p class="brand script">mysyg</p>
-    <h1>Gambar dia, jadi video kejutan bermuzik.</h1>
-    <div class="mini-gift" aria-hidden="true">
-      <span class="lid"><span class="band"></span></span>
-      <span class="box"><span class="band"></span></span>
+
+<header class="hero night">
+  <div class="wrap">
+    <div class="topbar">
+      <a class="brand script" href="/" aria-label="mysyg">mysyg</a>
+      <span class="price-pill"><b>RM__PRICE__</b> sekali bayar</span>
     </div>
-    <p>Hantar satu pautan. Dia tekan kotak hadiah, video dan ucapan anda terus terbuka.</p>
+    <div class="hero-grid">
+      <div>
+        <p class="eyebrow">Kejutan video untuk orang tersayang</p>
+        <h1>Gambar dia, jadi <em>video kejutan</em> bermuzik.</h1>
+        <p class="lede">Hantar satu pautan. Dia tekan kotak hadiah, video dan ucapan anda terus terbuka.</p>
+        <div class="cta">
+          <a class="btn btn-gold" href="#buat">Buat kejutan sekarang</a>
+        </div>
+        <ul class="trust">
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"/></svg>Siap dalam beberapa minit</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"/></svg>Tak perlu daftar akaun</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"/></svg>Bayar dengan FPX</li>
+        </ul>
+      </div>
+      <div class="hero-demo" aria-hidden="true">
+        <div class="phone demo">
+          <div class="screen night">
+            <div class="pv-closed">
+              <p class="lead eyebrow">Ada kejutan untuk</p>
+              <p class="pv-name script">Aisyah</p>
+              <p class="pv-from">daripada Abang</p>
+              <span class="gift idle"><span class="halo"></span><span class="floor"></span><span class="lid"><span class="rv"></span><span class="knot"></span><span class="bow"></span></span><span class="body"><span class="rv"></span><span class="rh"></span></span></span>
+              <span class="pv-tap">Tekan kotak untuk buka</span>
+            </div>
+            <div class="pv-open"><div class="inner">
+              <span class="pv-occ">🎂 Selamat Hari Jadi</span>
+              <p class="pv-name script">Aisyah</p>
+              <div class="pv-film"><span class="play">Video</span></div>
+              <div class="pv-letter">
+                <p>Selamat hari jadi, sayang. Terima kasih sebab sentiasa ada, masa senang dan masa susah.</p>
+                <div class="pv-sign"><small>Dengan sayang,</small><span class="script">Abang</span></div>
+              </div>
+            </div></div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </header>
 
-<main>
-  <form id="form" novalidate>
-    <section class="step">
-      <h2><span class="n">1</span>Pilih gambar</h2>
-      <p class="help">Sehingga 5 gambar. Gambar utama akan dijadikan video, jadi pilih yang wajahnya jelas.</p>
-      <label class="drop" id="drop">
-        <input id="photoInput" type="file" accept="image/*" multiple>
-        <span id="dropText">Tambah gambar</span>
-      </label>
-      <div class="thumbs" id="thumbs"></div>
-    </section>
+<section class="band">
+  <div class="wrap">
+    <p class="eyebrow">Cara ia berfungsi</p>
+    <h2>Tiga langkah. Satu senyuman.</h2>
+    <ol class="steps">
+      <li><h3>Muat naik gambar</h3><p>Pilih gambar kegemaran anda berdua. Gambar utama akan dihidupkan menjadi video.</p></li>
+      <li><h3>Tulis ucapan</h3><p>Pilih sempena dan muzik, kemudian tulis dari hati. Tak tahu nak mula? Guna cadangan kami.</p></li>
+      <li><h3>Hantar pautan</h3><p>Selepas bayaran, video siap dalam beberapa minit. Hantar pautan hadiah melalui WhatsApp.</p></li>
+    </ol>
+    <div class="for">
+      <p>Sesuai untuk</p>
+      <div id="forList"></div>
+    </div>
+  </div>
+</section>
 
-    <section class="step">
-      <h2><span class="n">2</span>Tulis ucapan</h2>
-      <p class="help">Hanya penerima yang membuka pautan akan nampak ucapan ini.</p>
-      <fieldset class="chips" id="occasions"><legend>Sempena</legend></fieldset>
-      <div class="row">
-        <label class="field"><span>Nama penerima</span><input id="recipient" type="text" maxlength="40" placeholder="Aisyah" autocomplete="off"></label>
-        <label class="field"><span>Nama anda</span><input id="sender" type="text" maxlength="40" placeholder="Abang" autocomplete="off"></label>
-      </div>
-      <label class="field"><span>Ucapan</span>
-        <textarea id="message" maxlength="600" placeholder="Selamat hari jadi sayang. Terima kasih sebab sentiasa ada untuk abang..."></textarea>
-        <small class="count" id="count">0 / 600</small>
-      </label>
-      <fieldset class="chips" id="music"><legend>Muzik dalam video</legend></fieldset>
-    </section>
+<section id="buat">
+  <div class="wrap">
+    <div class="builder-head">
+      <p class="eyebrow" style="color:var(--gold-ink)">Mula di sini</p>
+      <h2 class="serif" style="font:500 clamp(28px,6.4vw,40px)/1.12 var(--serif);letter-spacing:-.015em;margin-top:10px">Buat kejutan anda</h2>
+      <p>Isi empat bahagian di bawah. Anda boleh lihat pratonton sebelum bayar.</p>
+    </div>
+    <div class="builder">
+      <form id="form" novalidate>
+        <section class="card">
+          <h3><span class="n">1</span>Pilih gambar</h3>
+          <p class="help">Sehingga 5 gambar. Gambar utama akan dijadikan video, jadi pilih yang wajahnya jelas.</p>
+          <label class="drop" id="drop">
+            <input id="photoInput" type="file" accept="image/*" multiple>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="3"/><circle cx="9" cy="10.5" r="1.8"/><path d="m4 17 5-4 4 3 3-2.5 4 3.5"/></svg>
+            <b id="dropText">Tambah gambar</b>
+            <small id="dropHint">Tekan untuk pilih, atau seret gambar ke sini</small>
+          </label>
+          <div class="thumbs" id="thumbs"></div>
+        </section>
 
-    <section class="step">
-      <h2><span class="n">3</span>Pautan & bayaran</h2>
-      <p class="help">Ini pautan yang anda hantar kepadanya.</p>
-      <div class="link-field">
-        <span class="pre">https://</span>
-        <input id="slug" type="text" maxlength="30" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="aisyah" aria-label="Nama pautan">
-        <span class="post">.__WISH_DOMAIN__</span>
-      </div>
-      <p class="slug-note" id="slugNote" aria-live="polite"></p>
-      <div class="row">
-        <label class="field"><span>Emel (untuk resit)</span><input id="email" type="email" autocomplete="email" placeholder="anda@email.com"></label>
-        <label class="field"><span>No. telefon</span><input id="phone" type="tel" autocomplete="tel" placeholder="0123456789"></label>
-      </div>
-      <label class="consent"><input id="consent" type="checkbox"><span>Saya mempunyai kebenaran menggunakan gambar-gambar ini.</span></label>
-      <p class="form-error" id="formError" role="alert"></p>
-      <p class="fine">Bayaran melalui ToyyibPay (FPX). Video siap dalam beberapa minit selepas bayaran, dan anda akan dapat pautan untuk dihantar.</p>
-    </section>
-  </form>
-</main>
+        <section class="card">
+          <h3><span class="n">2</span>Tulis ucapan</h3>
+          <p class="help">Hanya penerima yang membuka pautan akan nampak ucapan ini.</p>
+          <fieldset class="chips" id="occasions"><legend>Sempena</legend></fieldset>
+          <div class="row">
+            <label class="field"><span>Nama penerima</span><input id="recipient" type="text" maxlength="40" placeholder="Aisyah" autocomplete="off"></label>
+            <label class="field"><span>Nama anda</span><input id="sender" type="text" maxlength="40" placeholder="Abang" autocomplete="off"></label>
+          </div>
+          <label class="field" style="margin-bottom:0"><span>Ucapan</span>
+            <textarea id="message" maxlength="600" placeholder="Selamat hari jadi sayang. Terima kasih sebab sentiasa ada untuk abang..."></textarea>
+          </label>
+          <div class="count-line"><span>Tulis dari hati, pendek pun cukup.</span><span id="count">0 / 600</span></div>
+          <div class="ideas">
+            <span class="lbl">Tak tahu nak tulis apa? Tekan satu cadangan:</span>
+            <div class="list" id="ideas"></div>
+          </div>
+          <fieldset class="chips" id="music" style="margin-bottom:0"><legend>Muzik dalam video</legend></fieldset>
+        </section>
 
-<div class="paybar">
+        <section class="card">
+          <h3><span class="n">3</span>Bila boleh dibuka?</h3>
+          <p class="help">Kunci hadiah sehingga saat yang anda pilih, contohnya tepat tengah malam hari jadinya.</p>
+          <div class="opts" role="radiogroup" aria-label="Bila boleh dibuka">
+            <label class="opt"><input type="radio" name="when" value="now" checked><span><b>Terus boleh dibuka</b><small>Sebaik sahaja video siap.</small></span></label>
+            <label class="opt"><input type="radio" name="when" value="later"><span><b>Tetapkan masa buka</b><small>Dia nampak kotak berkunci dan kiraan detik.</small></span></label>
+          </div>
+          <div class="when" id="whenBox" hidden>
+            <label class="field" style="margin-bottom:0"><span>Tarikh & masa buka</span><input id="unlockAt" type="datetime-local"></label>
+            <div class="presets" id="presets"></div>
+            <p class="when-note" id="whenNote" aria-live="polite"></p>
+          </div>
+        </section>
+
+        <section class="card">
+          <h3><span class="n">4</span>Pautan & bayaran</h3>
+          <p class="help">Ini pautan yang anda hantar kepadanya.</p>
+          <div class="link-field">
+            <span class="pre">https://</span>
+            <input id="slug" type="text" maxlength="30" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="aisyah" aria-label="Nama pautan">
+            <span class="post">.__WISH_DOMAIN__</span>
+          </div>
+          <p class="slug-note" id="slugNote" aria-live="polite"></p>
+          <div class="row">
+            <label class="field"><span>Emel anda</span><input id="email" type="email" autocomplete="email" placeholder="anda@email.com"></label>
+            <label class="field"><span>No. telefon</span><input id="phone" type="tel" autocomplete="tel" placeholder="0123456789"></label>
+          </div>
+          <label class="consent"><input id="consent" type="checkbox"><span>Saya mempunyai kebenaran menggunakan gambar-gambar ini.</span></label>
+          <p class="form-error" id="formError" role="alert"></p>
+          <p class="fine">Bayaran melalui ToyyibPay (FPX). Emel digunakan untuk resit dan untuk memberitahu anda apabila kejutan dibuka atau dibalas. Emel dan nombor telefon anda tidak ditunjukkan kepada penerima.</p>
+        </section>
+      </form>
+
+      <aside class="preview" id="preview" aria-label="Pratonton kejutan">
+        <button class="close" id="pvClose" type="button" aria-label="Tutup pratonton">×</button>
+        <span class="cap">Pratonton</span>
+        <div class="phone">
+          <div class="screen night" id="pvScreen" data-theme="birthday">
+            <div class="pv-closed">
+              <p class="lead eyebrow">Ada kejutan untuk</p>
+              <p class="pv-name script" id="pvName1">Nama dia</p>
+              <p class="pv-from">daripada <span id="pvFrom">anda</span></p>
+              <span class="gift idle"><span class="halo"></span><span class="floor"></span><span class="lid"><span class="rv"></span><span class="knot"></span><span class="bow"></span></span><span class="body"><span class="rv"></span><span class="rh"></span></span></span>
+              <span class="pv-tap">Tekan kotak untuk buka</span>
+            </div>
+            <div class="pv-open"><div class="inner">
+              <span class="pv-occ" id="pvOcc"></span>
+              <p class="pv-name script" id="pvName2">Nama dia</p>
+              <div class="pv-film" id="pvFilm"><span class="ph">Gambar utama anda akan jadi video di sini</span></div>
+              <div class="pv-letter">
+                <p id="pvMsg" class="muted">Ucapan anda akan muncul di sini.</p>
+                <div class="pv-sign"><small>Dengan sayang,</small><span class="script" id="pvSign">Anda</span></div>
+              </div>
+            </div></div>
+          </div>
+        </div>
+        <div class="tabs" role="group" aria-label="Paparan pratonton">
+          <button type="button" id="tabClosed" aria-pressed="true">Sebelum buka</button>
+          <button type="button" id="tabOpen" aria-pressed="false">Selepas buka</button>
+        </div>
+      </aside>
+    </div>
+  </div>
+</section>
+
+<section class="band" style="padding-top:0">
+  <div class="wrap">
+    <p class="eyebrow">Soalan lazim</p>
+    <h2>Sebelum anda mula</h2>
+    <div class="faq">
+      <details><summary>Berapa lama video siap?</summary><p>Biasanya 2 hingga 5 minit selepas bayaran disahkan. Anda akan dibawa ke halaman status yang dikemas kini sendiri, dan boleh dibuka semula bila-bila masa.</p></details>
+      <details><summary>Gambar macam mana yang paling sesuai?</summary><p>Gambar yang terang dengan wajah jelas, sebaiknya satu hingga tiga orang. Gambar pertama dijadikan video; gambar lain dipaparkan sebagai kenangan di bawah ucapan.</p></details>
+      <details><summary>Penerima perlu pasang apa-apa?</summary><p>Tidak. Dia cuma tekan pautan yang anda hantar, kemudian tekan kotak hadiah. Ia berfungsi di mana-mana telefon.</p></details>
+      <details><summary>Siapa boleh nampak kejutan ini?</summary><p>Hanya orang yang mempunyai pautannya. Halaman kejutan tidak disenaraikan di Google.</p></details>
+      <details><summary>Macam mana saya tahu dia dah buka?</summary><p>Halaman status anda menunjukkan bila kotak hadiah dibuka. Penerima juga boleh menghantar reaksi dan balasan pendek kepada anda.</p></details>
+      <details><summary>Berapa bayarannya?</summary><p>RM__PRICE__ untuk satu kejutan, sekali bayar melalui FPX. Tiada langganan.</p></details>
+    </div>
+  </div>
+</section>
+
+<footer class="end night">
+  <div class="wrap">
+    <span class="brand script">mysyg</span>
+    <p>Kejutan kecil, kenangan besar.</p>
+  </div>
+</footer>
+
+<div class="paybar away" id="paybar">
   <div class="paybar-inner">
     <div class="price"><b>RM__PRICE__</b><small>sekali bayar</small></div>
-    <button class="pay" id="pay" type="submit" form="form">Bayar & buat kejutan</button>
+    <span class="hint">Video siap dalam beberapa minit selepas bayaran.</span>
+    <button class="pv-btn" id="pvBtn" type="button" aria-label="Lihat pratonton">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>
+    </button>
+    <button class="btn btn-plum pay" id="pay" type="submit" form="form">Bayar & buat kejutan</button>
   </div>
 </div>
 
@@ -195,10 +471,21 @@
   var cfg = JSON.parse(document.getElementById('config').textContent);
   var $ = function (id) { return document.getElementById(id); };
   var MAX = cfg.max_photos;
+  var DRAFT_KEY = 'mysyg-draft-v1';
   var files = []; // [{file, url}] — index 0 is the main photo
 
+  function checked(name) {
+    var el = document.querySelector('input[name="' + name + '"]:checked');
+    return el ? el.value : '';
+  }
+  function setChecked(name, value) {
+    var el = document.querySelector('input[name="' + name + '"][value="' + value + '"]');
+    if (el) { el.checked = true; return true; }
+    return false;
+  }
+
   // ---------- choice chips ----------
-  function chips(container, name, options, selected) {
+  function chips(container, name, options, selected, labelOf) {
     Object.keys(options).forEach(function (key) {
       var label = document.createElement('label');
       label.className = 'chip';
@@ -208,19 +495,60 @@
       input.value = key;
       if (key === selected) input.checked = true;
       var span = document.createElement('span');
-      span.textContent = options[key];
+      span.textContent = labelOf(options[key]);
       label.appendChild(input);
       label.appendChild(span);
       container.appendChild(label);
     });
   }
-  chips($('occasions'), 'occasion', cfg.occasions, cfg.default_occasion);
-  chips($('music'), 'music', cfg.music, cfg.default_music);
+  chips($('occasions'), 'occasion', cfg.occasions, cfg.default_occasion, function (o) { return o.emoji + ' ' + o.label; });
+  chips($('music'), 'music', cfg.music, cfg.default_music, function (m) { return m; });
+
+  // "Sesuai untuk": jump to the form with that occasion chosen
+  Object.keys(cfg.occasions).forEach(function (key) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = cfg.occasions[key].emoji + ' ' + cfg.occasions[key].label;
+    b.addEventListener('click', function () {
+      setChecked('occasion', key);
+      onOccasion();
+      $('buat').scrollIntoView({ behavior: 'smooth' });
+    });
+    $('forList').appendChild(b);
+  });
+
+  // ---------- message ideas ----------
+  var lastIdea = '';
+  function renderIdeas() {
+    var occ = cfg.occasions[checked('occasion')] || cfg.occasions[cfg.default_occasion];
+    var box = $('ideas');
+    box.textContent = '';
+    (occ.ideas || []).forEach(function (text) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'idea';
+      var span = document.createElement('span');
+      span.textContent = text;
+      var use = document.createElement('b');
+      use.textContent = 'Guna ucapan ini';
+      b.appendChild(span);
+      b.appendChild(use);
+      b.addEventListener('click', function () {
+        var current = $('message').value.trim();
+        if (current && current !== lastIdea && !window.confirm('Ganti ucapan yang anda sudah tulis?')) return;
+        $('message').value = text;
+        lastIdea = text;
+        onMessage();
+        $('message').focus();
+      });
+      box.appendChild(b);
+    });
+  }
 
   // ---------- photos ----------
   function renderThumbs() {
     var box = $('thumbs');
-    box.innerHTML = '';
+    box.textContent = '';
     files.forEach(function (item, i) {
       var div = document.createElement('div');
       div.className = 'thumb' + (i === 0 ? ' main' : '');
@@ -258,16 +586,27 @@
       box.appendChild(div);
     });
     $('dropText').textContent = files.length ? (files.length >= MAX ? 'Maksimum ' + MAX + ' gambar' : 'Tambah lagi gambar') : 'Tambah gambar';
+    $('dropHint').textContent = files.length ? files.length + ' / ' + MAX + ' gambar dipilih' : 'Tekan untuk pilih, atau seret gambar ke sini';
+    updatePreview();
   }
-
-  $('photoInput').addEventListener('change', function (e) {
-    var picked = Array.prototype.slice.call(e.target.files || []);
+  function addFiles(list) {
+    var picked = Array.prototype.slice.call(list || []).filter(function (f) { return /^image\//.test(f.type) || /\.(heic|heif)$/i.test(f.name || ''); });
     picked.slice(0, Math.max(0, MAX - files.length)).forEach(function (file) {
       files.push({ file: file, url: URL.createObjectURL(file) });
     });
-    e.target.value = '';
     renderThumbs();
+  }
+  $('photoInput').addEventListener('change', function (e) {
+    addFiles(e.target.files);
+    e.target.value = '';
   });
+  ['dragenter', 'dragover'].forEach(function (type) {
+    $('drop').addEventListener(type, function (e) { e.preventDefault(); $('drop').classList.add('over'); });
+  });
+  ['dragleave', 'drop'].forEach(function (type) {
+    $('drop').addEventListener(type, function (e) { e.preventDefault(); $('drop').classList.remove('over'); });
+  });
+  $('drop').addEventListener('drop', function (e) { if (e.dataTransfer) addFiles(e.dataTransfer.files); });
 
   // Phone photos are large; shrink to 1600px JPEG before upload so it is
   // quick on mobile data. If the browser can't decode it (e.g. HEIC on
@@ -289,14 +628,124 @@
     });
   }
 
-  // ---------- message counter ----------
-  $('message').addEventListener('input', function () {
-    $('count').textContent = this.value.length + ' / 600';
+  // ---------- live preview ----------
+  var pvTouched = false; // has the sender picked a tab themselves?
+  function setTab(open, byUser) {
+    if (byUser) pvTouched = true;
+    $('pvScreen').classList.toggle('is-open', open);
+    $('tabOpen').setAttribute('aria-pressed', open ? 'true' : 'false');
+    $('tabClosed').setAttribute('aria-pressed', open ? 'false' : 'true');
+  }
+  $('tabClosed').addEventListener('click', function () { setTab(false, true); });
+  $('tabOpen').addEventListener('click', function () { setTab(true, true); });
+  function updatePreview() {
+    var key = checked('occasion') || cfg.default_occasion;
+    var occ = cfg.occasions[key] || cfg.occasions[cfg.default_occasion];
+    var to = $('recipient').value.trim();
+    var from = $('sender').value.trim();
+    var msg = $('message').value.trim();
+    $('pvScreen').setAttribute('data-theme', key);
+    // A long name wraps on the real page; here it steps down a size instead.
+    var size = 'pv-name script' + (to.length > 14 ? ' longer' : to.length > 8 ? ' long' : '');
+    $('pvName1').textContent = to || 'Nama dia';
+    $('pvName2').textContent = to || 'Nama dia';
+    $('pvName1').className = size;
+    $('pvName2').className = size;
+    $('pvFrom').textContent = from || 'anda';
+    $('pvSign').textContent = from || 'Anda';
+    $('pvOcc').textContent = occ.emoji + ' ' + occ.title;
+    $('pvMsg').textContent = msg || 'Ucapan anda akan muncul di sini.';
+    $('pvMsg').className = msg ? '' : 'muted';
+    var film = $('pvFilm');
+    film.textContent = '';
+    if (files.length) {
+      var img = document.createElement('img');
+      img.src = files[0].url;
+      img.alt = '';
+      film.appendChild(img);
+      var play = document.createElement('span');
+      play.className = 'play';
+      play.textContent = 'Video ' + cfg.video_seconds + ' saat';
+      film.appendChild(play);
+    } else {
+      var ph = document.createElement('span');
+      ph.className = 'ph';
+      ph.textContent = 'Gambar utama anda akan jadi video di sini';
+      film.appendChild(ph);
+    }
+  }
+  var pvReturn = null;
+  $('pvBtn').addEventListener('click', function () {
+    pvReturn = this;
+    $('preview').classList.add('open');
+    $('pvClose').focus();
   });
+  function closePreview() {
+    $('preview').classList.remove('open');
+    if (pvReturn) pvReturn.focus();
+  }
+  $('pvClose').addEventListener('click', closePreview);
+  $('preview').addEventListener('click', function (e) { if (e.target === this) closePreview(); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && $('preview').classList.contains('open')) closePreview(); });
+
+  // ---------- message ----------
+  function onMessage() {
+    $('count').textContent = $('message').value.length + ' / 600';
+    // Once there is a message to read, show the side it appears on.
+    if (!pvTouched) setTab($('message').value.trim().length > 0, false);
+    updatePreview();
+    saveDraft();
+  }
+  $('message').addEventListener('input', onMessage);
+  function onOccasion() { renderIdeas(); updatePreview(); saveDraft(); }
+  $('occasions').addEventListener('change', onOccasion);
+  $('music').addEventListener('change', saveDraft);
+  $('sender').addEventListener('input', function () { updatePreview(); saveDraft(); });
+
+  // ---------- when to open ----------
+  function localInputValue(date) {
+    var p = function (n) { return (n < 10 ? '0' : '') + n; };
+    return date.getFullYear() + '-' + p(date.getMonth() + 1) + '-' + p(date.getDate()) + 'T' + p(date.getHours()) + ':' + p(date.getMinutes());
+  }
+  function whenText(date) {
+    try { return date.toLocaleString('ms-MY', { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' }); }
+    catch (e) { return date.toLocaleString(); }
+  }
+  function unlockDate() {
+    if (checked('when') !== 'later' || !$('unlockAt').value) return null;
+    var d = new Date($('unlockAt').value);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  function onWhen() {
+    var later = checked('when') === 'later';
+    $('whenBox').hidden = !later;
+    var note = $('whenNote');
+    note.textContent = '';
+    if (!later) return;
+    var now = new Date();
+    $('unlockAt').min = localInputValue(now);
+    $('unlockAt').max = localInputValue(new Date(now.getTime() + cfg.max_unlock_days * 86400000));
+    var d = unlockDate();
+    if (d) note.textContent = d > now ? 'Kotak hadiah akan terbuka pada ' + whenText(d) + '.' : 'Masa ini sudah lepas. Pilih masa akan datang.';
+  }
+  document.querySelectorAll('input[name="when"]').forEach(function (el) { el.addEventListener('change', onWhen); });
+  $('unlockAt').addEventListener('input', onWhen);
+  (function () {
+    var midnight = new Date(); midnight.setHours(24, 0, 0, 0);
+    var morning = new Date(); morning.setDate(morning.getDate() + 1); morning.setHours(8, 0, 0, 0);
+    var evening = new Date(); evening.setHours(20, 0, 0, 0);
+    if (evening <= new Date()) evening.setDate(evening.getDate() + 1);
+    [['Tengah malam ini', midnight], ['Esok, 8 pagi', morning], [evening.getDate() === new Date().getDate() ? 'Malam ini, 8 malam' : 'Esok, 8 malam', evening]].forEach(function (pair) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = pair[0];
+      b.addEventListener('click', function () { $('unlockAt').value = localInputValue(pair[1]); onWhen(); });
+      $('presets').appendChild(b);
+    });
+  })();
 
   // ---------- link name ----------
   var slugTouched = false;
-  var slugOk = false;
   var slugTimer = null;
   function slugify(s) {
     return (s || '').toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '')
@@ -305,7 +754,6 @@
   function checkSlug() {
     var slug = $('slug').value.trim().toLowerCase();
     var note = $('slugNote');
-    slugOk = false;
     if (!slug) { note.textContent = ''; note.className = 'slug-note'; return; }
     note.textContent = 'Menyemak…';
     note.className = 'slug-note';
@@ -313,14 +761,15 @@
       .then(function (r) { return r.json(); })
       .then(function (res) {
         if ($('slug').value.trim().toLowerCase() !== slug) return;
-        slugOk = !!res.available;
-        note.textContent = res.available ? slug + '.' + cfg.domain + ' boleh digunakan' : res.problem;
+        note.textContent = res.available ? '✓ ' + slug + '.' + cfg.domain + ' boleh digunakan' : res.problem;
         note.className = 'slug-note ' + (res.available ? 'ok' : 'bad');
       })
       .catch(function () { note.textContent = ''; });
   }
   function queueSlugCheck() { clearTimeout(slugTimer); slugTimer = setTimeout(checkSlug, 450); }
   $('recipient').addEventListener('input', function () {
+    updatePreview();
+    saveDraft();
     if (slugTouched) return;
     $('slug').value = slugify(this.value);
     queueSlugCheck();
@@ -330,7 +779,37 @@
     var clean = this.value.toLowerCase().replace(/[^a-z0-9-]/g, '');
     if (clean !== this.value) this.value = clean;
     queueSlugCheck();
+    saveDraft();
   });
+  $('email').addEventListener('input', saveDraft);
+  $('phone').addEventListener('input', saveDraft);
+
+  // ---------- draft: what was typed survives a reload or a trip to the bank ----------
+  // Text only. Photos are files and stay on this page.
+  function saveDraft() {
+    try {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({
+        occasion: checked('occasion'), music: checked('music'),
+        recipient: $('recipient').value, sender: $('sender').value, message: $('message').value,
+        slug: slugTouched ? $('slug').value : '', email: $('email').value, phone: $('phone').value
+      }));
+    } catch (e) {}
+  }
+  function loadDraft() {
+    var d = null;
+    try { d = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null'); } catch (e) {}
+    if (!d || typeof d !== 'object') return;
+    if (d.occasion) setChecked('occasion', String(d.occasion));
+    if (d.music) setChecked('music', String(d.music));
+    $('recipient').value = String(d.recipient || '').slice(0, 40);
+    $('sender').value = String(d.sender || '').slice(0, 40);
+    $('message').value = String(d.message || '').slice(0, 600);
+    $('email').value = String(d.email || '');
+    $('phone').value = String(d.phone || '');
+    if (d.slug) { $('slug').value = slugify(String(d.slug)); slugTouched = true; }
+    else if ($('recipient').value) { $('slug').value = slugify($('recipient').value); }
+    if ($('slug').value) queueSlugCheck();
+  }
 
   // ---------- submit ----------
   function fail(msg, focusId) {
@@ -340,10 +819,6 @@
     if (focusId && $(focusId)) $(focusId).focus();
     box.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
-  function checked(name) {
-    var el = document.querySelector('input[name="' + name + '"]:checked');
-    return el ? el.value : '';
-  }
 
   $('form').addEventListener('submit', function (e) {
     e.preventDefault();
@@ -352,6 +827,12 @@
     if (!$('recipient').value.trim()) return fail('Isi nama penerima.', 'recipient');
     if (!$('sender').value.trim()) return fail('Isi nama anda.', 'sender');
     if ($('message').value.trim().length < 5) return fail('Tulis ucapan anda.', 'message');
+    var unlock = null;
+    if (checked('when') === 'later') {
+      unlock = unlockDate();
+      if (!unlock) return fail('Pilih tarikh dan masa buka, atau pilih "Terus boleh dibuka".', 'unlockAt');
+      if (unlock <= new Date()) return fail('Masa buka sudah lepas. Pilih masa akan datang.', 'unlockAt');
+    }
     if (!$('slug').value.trim()) return fail('Isi nama pautan.', 'slug');
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test($('email').value.trim())) return fail('Isi emel yang sah untuk resit.', 'email');
     if ($('phone').value.replace(/\D/g, '').length < 9) return fail('Isi nombor telefon yang sah.', 'phone');
@@ -373,11 +854,14 @@
       fd.append('payer_email', $('email').value.trim());
       fd.append('payer_phone', $('phone').value.trim());
       fd.append('consent', 'true');
+      // The sender's clock, turned into one unambiguous instant.
+      if (unlock) fd.append('unlock_at', unlock.toISOString());
       return fetch('/api/v1/wishes', { method: 'POST', body: fd });
     }).then(function (r) {
       return r.json().then(function (body) { return { ok: r.ok, body: body }; });
     }).then(function (res) {
       if (!res.ok) throw new Error(res.body && res.body.detail ? res.body.detail : 'Ada masalah. Sila cuba lagi.');
+      try { localStorage.removeItem(DRAFT_KEY); } catch (e) {}
       btn.textContent = res.body.payment_url ? 'Membuka pembayaran…' : 'Menyiapkan kejutan…';
       window.location.href = res.body.payment_url || res.body.status_url;
     }).catch(function (err) {
@@ -386,6 +870,26 @@
       fail(err && err.message ? err.message : 'Ada masalah. Sila cuba lagi.');
     });
   });
+
+  // ---------- pay bar: appears with the form ----------
+  (function () {
+    var bar = $('paybar');
+    function place() {
+      var top = $('buat').getBoundingClientRect().top;
+      bar.classList.toggle('away', top > window.innerHeight * 0.75);
+    }
+    window.addEventListener('scroll', place, { passive: true });
+    window.addEventListener('resize', place);
+    place();
+  })();
+
+  // ---------- go ----------
+  loadDraft();
+  renderIdeas();
+  $('count').textContent = $('message').value.length + ' / 600';
+  if ($('message').value.trim()) setTab(true, false);
+  updatePreview();
+  onWhen();
 })();
 </script>
 </body>
