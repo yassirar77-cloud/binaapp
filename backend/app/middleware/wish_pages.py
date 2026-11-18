@@ -30,6 +30,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from loguru import logger
 
 from app.services import wishes as W
+from app.services.wish_direction import MAX_DIRECTION_CHARS
 
 _TEMPLATES = Path(__file__).resolve().parent.parent / "templates" / "wishes"
 _CREATOR_SUBS = ("", "www", "buat")
@@ -105,6 +106,10 @@ def render_creator() -> str:
         "default_music": W.DEFAULT_MUSIC,
         "max_unlock_days": W.MAX_UNLOCK_AHEAD.days,
         "video_seconds": W.wish_video_seconds(),
+        "packages": W.packages_public(),
+        "default_package": W.PACKAGE_BASE,
+        "scene_ideas": W.SCENE_IDEAS,
+        "max_direction": MAX_DIRECTION_CHARS,
     }
     return (
         _page("create.html")

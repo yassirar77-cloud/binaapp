@@ -104,6 +104,7 @@
       </div>
     </div>
     <p class="note" id="readyNote" hidden></p>
+    <p class="note" id="sceneNote" hidden></p>
   </section>
 
   <section class="panel" id="pulsePanel" hidden aria-live="polite">
@@ -186,7 +187,11 @@
     } else {
       $('title').textContent = 'Video sedang dibuat';
       $('sub').textContent = 'Simpan halaman ini. Anda boleh tutup dan buka semula bila-bila masa.';
-      if (w.attempts > 1) $('s2note').textContent = 'Mencuba sekali lagi untuk hasil terbaik. Sedikit masa lagi.';
+      $('s2note').textContent = w.attempts > 1
+        ? 'Mencuba sekali lagi untuk hasil terbaik. Sedikit masa lagi.'
+        : (w.video_seconds > 15
+          ? 'Video ' + w.video_seconds + ' saat mengambil masa lebih lama. Halaman ini dikemas kini sendiri.'
+          : 'Biasanya 2 hingga 5 minit.');
       setPace(6000);
     }
   }
@@ -195,7 +200,7 @@
     var s = w.status;
     $('title').textContent = 'Kejutan untuk ' + w.recipient_name + ' sudah sedia';
     $('sub').textContent = 'Hantar pautan ini kepadanya. Dia akan tekan kotak hadiah untuk membukanya.';
-    $('s2label').textContent = s === 'ready' ? 'Video siap' : 'Video tidak dapat dihasilkan';
+    $('s2label').textContent = s === 'ready' ? 'Video ' + w.video_seconds + ' saat siap' : 'Video tidak dapat dihasilkan';
     $('s2note').textContent = '';
     $('readyPanel').hidden = false;
     $('again').hidden = false;
@@ -231,6 +236,14 @@
     if (s === 'video_failed') {
       $('readyNote').hidden = false;
       $('readyNote').textContent = 'Video tidak dapat dihasilkan daripada gambar ini, tetapi halaman kejutan dengan gambar dan ucapan anda tetap sedia.' + (cfg.support ? ' Untuk bayaran balik, hubungi ' + cfg.support + '.' : '');
+    }
+
+    // The sender's own direction: what they asked for, and whether it was used.
+    if (w.direction && s === 'ready') {
+      $('sceneNote').hidden = false;
+      $('sceneNote').textContent = w.direction_dropped
+        ? 'Arahan video anda tidak dapat digunakan oleh penjana video, jadi babak ikut sempena digunakan.'
+        : 'Babak anda: "' + w.direction + '"';
     }
 
     // Opened? Replied?
