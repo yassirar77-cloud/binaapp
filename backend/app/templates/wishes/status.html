@@ -4,52 +4,74 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
 <title>Kejutan anda — mysyg</title>
-<meta name="theme-color" content="#2A1030">
+<meta name="theme-color" content="#1C0A22">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Pinyon+Script&family=Plus+Jakarta+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..600;1,9..144,400..500&family=Pinyon+Script&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  :root { --plum-night: #2A1030; --plum: #4A1A3F; --gold: #E3B65C; --gold-soft: rgba(227, 182, 92, .38); --rose: #F2C4CC; --pearl: #FFF8F3; }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; min-height: 100%; }
-  body { background: radial-gradient(120% 80% at 50% 0%, var(--plum) 0%, var(--plum-night) 62%); color: var(--pearl); font-family: "Plus Jakarta Sans", system-ui, sans-serif; font-size: 16px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
-  .script { font-family: "Pinyon Script", "Brush Script MT", cursive; font-weight: 400; color: var(--gold); }
-  main { max-width: 480px; margin: 0 auto; padding: 28px 20px 56px; }
-  .brand { margin: 0 0 28px; font-size: 32px; line-height: 1; }
-  h1 { margin: 0 0 8px; font-size: 28px; line-height: 1.2; font-weight: 600; }
-  .sub { margin: 0 0 28px; color: var(--rose); }
+/*__BASE_CSS__*/
 
-  ol.progress { list-style: none; margin: 0 0 32px; padding: 0; }
-  ol.progress li { position: relative; padding: 0 0 22px 44px; color: rgba(255, 248, 243, .55); }
+  html, body { min-height: 100%; }
+  body { background-attachment: fixed; }
+  main { max-width: 480px; margin: 0 auto; padding: 22px 20px 64px; }
+  .brand { display: inline-block; margin-bottom: 30px; font-size: 36px; color: var(--gold); text-decoration: none; }
+  h1 { font: 500 clamp(28px, 7.6vw, 36px)/1.14 var(--serif); letter-spacing: -0.015em; text-wrap: balance; }
+  .sub { margin: 10px 0 30px; color: var(--soft); }
+
+  ol.progress { list-style: none; margin: 0 0 30px; padding: 0; }
+  ol.progress li { position: relative; padding: 2px 0 24px 46px; color: rgba(255, 248, 243, .5); }
   ol.progress li:last-child { padding-bottom: 0; }
-  ol.progress li::before { content: attr(data-n); position: absolute; left: 0; top: -2px; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; border: 1px solid var(--gold-soft); font-size: 14px; }
-  ol.progress li:not(:last-child)::after { content: ""; position: absolute; left: 15px; top: 30px; bottom: 2px; width: 1px; background: var(--gold-soft); }
+  ol.progress li::before { content: attr(data-n); position: absolute; left: 0; top: 0; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; border: 1px solid var(--gold-line); font: 500 15px var(--serif); }
+  ol.progress li:not(:last-child)::after { content: ""; position: absolute; left: 16px; top: 34px; bottom: 2px; width: 1px; background: var(--gold-line); }
   ol.progress li.done { color: var(--pearl); }
-  ol.progress li.done::before { content: "✓"; background: var(--gold); border-color: var(--gold); color: var(--plum-night); font-weight: 600; }
+  ol.progress li.done::before { content: "✓"; background: linear-gradient(180deg, var(--gold-hi), var(--gold)); border-color: var(--gold); color: #2A1030; font: 700 14px var(--sans); }
+  ol.progress li.done:not(:last-child)::after { background: var(--gold); opacity: .6; }
   ol.progress li.now { color: var(--pearl); font-weight: 600; }
-  ol.progress li.now::before { border-color: var(--gold); color: var(--gold); animation: pulse 1.6s ease-in-out infinite; }
-  @keyframes pulse { 50% { box-shadow: 0 0 0 6px rgba(227, 182, 92, .18); } }
-  ol.progress small { display: block; font-weight: 400; color: var(--rose); font-size: 14px; }
+  ol.progress li.now::before { border-color: var(--gold); color: var(--gold); }
+  @media (prefers-reduced-motion: no-preference) { ol.progress li.now::before { animation: pulse 1.6s ease-in-out infinite; } }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 7px rgba(227, 182, 92, .16); } }
+  ol.progress small { display: block; font-weight: 400; color: var(--soft); font-size: 14px; }
 
-  .panel { padding: 20px; border-radius: 18px; background: rgba(255, 248, 243, .06); box-shadow: inset 0 0 0 1px var(--gold-soft); }
-  .linkbox { display: block; margin: 0 0 14px; padding: 14px; border-radius: 12px; background: var(--pearl); color: var(--plum); font-weight: 600; font-size: 17px; word-break: break-all; text-decoration: none; }
-  .actions { display: grid; gap: 10px; }
-  .btn { display: flex; align-items: center; justify-content: center; min-height: 50px; border-radius: 14px; border: 0; font: 600 16px "Plus Jakarta Sans", sans-serif; text-decoration: none; cursor: pointer; }
-  .btn.wa { background: #25D366; color: #0B3D20; }
-  .btn.gold { background: var(--gold); color: var(--plum-night); }
-  .btn.ghost { background: transparent; color: var(--pearl); box-shadow: inset 0 0 0 1px var(--gold-soft); }
-  .btn:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
-  .film { margin: 0 auto 20px; width: min(100%, 300px); aspect-ratio: 9 / 16; border-radius: 18px; overflow: hidden; background: #1a0a1e; box-shadow: 0 0 0 1px var(--gold-soft); }
+  .panel { margin-top: 16px; padding: 20px; border-radius: 22px; background: rgba(255, 248, 243, .055); box-shadow: inset 0 0 0 1px var(--gold-line); }
+  .panel > h2 { margin-bottom: 4px; font: 500 21px/1.2 var(--serif); }
+  .panel > p.hint { margin-bottom: 14px; font-size: 14px; color: var(--pearl-dim); }
+  .film { margin: 0 auto 18px; width: min(100%, 250px); aspect-ratio: 9 / 16; border-radius: 20px; overflow: hidden; background: #120616; box-shadow: 0 0 0 1px var(--gold-line), 0 20px 50px -12px rgba(0, 0, 0, .6); }
   .film video { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .note { margin: 16px 0 0; font-size: 14px; color: var(--rose); }
-  [hidden] { display: none !important; }
-  @media (prefers-reduced-motion: reduce) { ol.progress li.now::before { animation: none; } }
+  .linkbox { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; padding: 6px 6px 6px 16px; border-radius: 14px; background: var(--pearl); color: #4A1A3F; }
+  .linkbox a { flex: 1; min-width: 0; padding: 10px 0; color: inherit; font-weight: 600; font-size: 16px; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .linkbox button { flex: 0 0 auto; min-height: 42px; padding: 0 16px; border-radius: 10px; border: 0; background: #4A1A3F; color: var(--pearl); font: 600 14px var(--sans); cursor: pointer; }
+  .linkbox button:focus-visible, .linkbox a:focus-visible { outline: 2px solid var(--gold-deep); outline-offset: 2px; }
+  .actions { display: grid; gap: 10px; }
+  .actions.two { grid-template-columns: 1fr 1fr; }
+  .sealed { display: flex; gap: 12px; align-items: flex-start; margin: 0 0 14px; padding: 12px 14px; border-radius: 14px; background: rgba(227, 182, 92, .12); box-shadow: inset 0 0 0 1px var(--gold-line); font-size: 14px; color: var(--pearl); }
+  .sealed svg { flex: 0 0 auto; width: 20px; height: 20px; margin-top: 1px; color: var(--gold); }
+  .sealed b { display: block; font-weight: 600; color: var(--gold-hi); }
+  .note { margin: 14px 0 0; font-size: 14px; color: var(--soft); }
+
+  /* Did they open it? What did they say? */
+  .pulse { display: flex; align-items: center; gap: 14px; }
+  .pulse .ico { flex: 0 0 auto; width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; background: rgba(255, 248, 243, .07); box-shadow: inset 0 0 0 1px var(--gold-line); font-size: 22px; }
+  .pulse.on .ico { background: linear-gradient(180deg, var(--gold-hi), var(--gold)); box-shadow: 0 8px 24px -8px var(--glow); }
+  .pulse b { display: block; font: 500 19px/1.25 var(--serif); }
+  .pulse small { display: block; margin-top: 2px; font-size: 14px; color: var(--pearl-dim); }
+  .reply { margin-top: 16px; padding: 18px 18px 16px; border-radius: 16px; background: linear-gradient(180deg, #FFFBF7, #FBEFE6); color: var(--ink); }
+  .reply .emoji { font-size: 34px; line-height: 1; }
+  .reply blockquote { margin: 10px 0 0; font: 400 18px/1.6 var(--serif); white-space: pre-line; overflow-wrap: anywhere; }
+  .reply cite { display: block; margin-top: 10px; font: italic 400 14px var(--serif); color: var(--ink-soft); }
+
+  .qr { display: flex; align-items: center; gap: 16px; }
+  .qr img { flex: 0 0 auto; width: 116px; height: 116px; padding: 8px; border-radius: 14px; background: #fff; }
+  .qr .btn { min-height: 44px; margin-top: 10px; padding: 0 16px; font-size: 14px; }
+  .again { display: block; margin-top: 30px; text-align: center; font-size: 14px; color: var(--pearl-dim); }
+  .again a { color: var(--gold); text-underline-offset: 3px; }
+  .again a:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
 </style>
 </head>
-<body>
+<body class="night">
 <main>
-  <p class="brand script">mysyg</p>
+  <a class="brand script" href="/" aria-label="mysyg">mysyg</a>
   <h1 id="title">Menyemak kejutan anda…</h1>
   <p class="sub" id="sub">Simpan halaman ini. Anda boleh tutup dan buka semula bila-bila masa.</p>
 
@@ -59,21 +81,55 @@
     <li data-n="3" id="s3">Kejutan sedia untuk dihantar</li>
   </ol>
 
-  <section class="panel" id="readyPanel" hidden>
-    <div class="film" id="film" hidden></div>
-    <a class="linkbox" id="link" target="_blank" rel="noopener"></a>
-    <div class="actions">
-      <a class="btn wa" id="wa" target="_blank" rel="noopener">Hantar melalui WhatsApp</a>
-      <button class="btn gold" id="copy" type="button">Salin pautan</button>
-      <a class="btn ghost" id="open" target="_blank" rel="noopener">Lihat dulu kejutan ini</a>
-    </div>
-    <p class="note" id="readyNote"></p>
+  <section class="panel" id="payPanel" hidden>
+    <p style="margin-bottom:14px">Bayaran belum diterima. Jika anda sudah bayar, tunggu seminit, halaman ini akan dikemas kini sendiri.</p>
+    <div class="actions"><a class="btn btn-gold" id="payAgain">Buka semula pembayaran</a></div>
   </section>
 
-  <section class="panel" id="payPanel" hidden>
-    <p style="margin-top:0">Bayaran belum diterima. Jika anda sudah bayar, tunggu seminit, halaman ini akan dikemas kini sendiri.</p>
-    <div class="actions"><a class="btn gold" id="payAgain">Buka semula pembayaran</a></div>
+  <section class="panel" id="readyPanel" hidden>
+    <div class="film" id="film" hidden></div>
+    <div class="sealed" id="sealed" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+      <span><b id="sealedWhen"></b>Hantar pautan bila-bila masa. Sebelum masa itu, dia nampak kotak berkunci dan kiraan detik.</span>
+    </div>
+    <div class="linkbox">
+      <a id="link" target="_blank" rel="noopener"></a>
+      <button id="copy" type="button">Salin</button>
+    </div>
+    <div class="actions">
+      <a class="btn btn-wa" id="wa" target="_blank" rel="noopener">Hantar melalui WhatsApp</a>
+      <div class="actions two">
+        <button class="btn btn-ghost" id="share" type="button" hidden>Kongsi…</button>
+        <a class="btn btn-ghost" id="open" target="_blank" rel="noopener">Lihat dulu</a>
+      </div>
+    </div>
+    <p class="note" id="readyNote" hidden></p>
   </section>
+
+  <section class="panel" id="pulsePanel" hidden aria-live="polite">
+    <div class="pulse" id="pulse">
+      <span class="ico" id="pulseIco" aria-hidden="true">🎁</span>
+      <span><b id="pulseTitle"></b><small id="pulseNote"></small></span>
+    </div>
+    <div class="reply" id="reply" hidden>
+      <div class="emoji" id="replyEmoji"></div>
+      <blockquote id="replyText"></blockquote>
+      <cite id="replyCite"></cite>
+    </div>
+  </section>
+
+  <section class="panel" id="qrPanel" hidden>
+    <div class="qr">
+      <img id="qrImg" alt="Kod QR pautan kejutan">
+      <div>
+        <h2 style="font:500 19px/1.2 var(--serif)">Selit dalam kad</h2>
+        <p style="margin-top:4px;font-size:14px;color:var(--pearl-dim)">Cetak kod QR ini pada kad atau hadiah. Dia imbas, kejutan terbuka.</p>
+        <a class="btn btn-ghost" id="qrSave" download="kejutan-mysyg-qr.svg">Simpan kod QR</a>
+      </div>
+    </div>
+  </section>
+
+  <p class="again" id="again" hidden>Ada orang lain yang anda sayang? <a href="/">Buat kejutan lagi</a></p>
 </main>
 
 <script id="config" type="application/json">__CONFIG_JSON__</script>
@@ -85,58 +141,120 @@
   var token = params.get('t') || '';
   var wishId = location.pathname.split('/').filter(Boolean).pop();
   var timer = null;
+  var pace = 0;
   var shownVideo = null;
+  var current = null;
 
-  function step(id, state) {
-    var el = $(id);
-    el.className = state;
+  function step(id, state) { $(id).className = state; }
+  function whenText(value) {
+    var d = new Date(value);
+    try { return d.toLocaleString('ms-MY', { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' }); }
+    catch (e) { return d.toLocaleString(); }
+  }
+  // While the clip renders: every 6 s. Once it is out: every 20 s, to catch
+  // the open and the reply.
+  function setPace(ms) {
+    if (pace === ms) return;
+    pace = ms;
+    clearInterval(timer);
+    if (ms) timer = setInterval(function () { if (!document.hidden) poll(); }, ms);
   }
 
   function render(w) {
+    current = w;
     var s = w.status;
     var paid = s !== 'awaiting_payment' && s !== 'cancelled';
+    var out = s === 'ready' || s === 'video_failed';
     step('s1', paid ? 'done' : 'now');
     $('s1note').textContent = paid ? (w.amount_rm > 0 ? 'RM' + w.amount_rm.toFixed(2) + ' diterima' : 'Percuma') : 'Menunggu pengesahan ToyyibPay';
-    step('s2', s === 'ready' || s === 'video_failed' ? 'done' : (paid ? 'now' : ''));
-    step('s3', s === 'ready' || s === 'video_failed' ? 'done' : '');
+    step('s2', out ? 'done' : (paid ? 'now' : ''));
+    step('s3', out ? 'done' : '');
     $('payPanel').hidden = !(s === 'awaiting_payment' && params.get('status_id') && params.get('status_id') !== '1' && w.payment_url);
     if (w.payment_url) $('payAgain').href = w.payment_url;
 
     if (s === 'awaiting_payment') {
       $('title').textContent = 'Menunggu bayaran disahkan';
+      setPace(6000);
     } else if (s === 'cancelled') {
       $('title').textContent = 'Kejutan ini dibatalkan';
       $('sub').textContent = 'Pembayaran tidak dapat dibuka. Sila buat kejutan baru.';
-    } else if (s === 'ready' || s === 'video_failed') {
-      $('title').textContent = 'Kejutan untuk ' + w.recipient_name + ' sudah sedia';
-      $('sub').textContent = 'Hantar pautan ini kepadanya. Dia akan tekan kotak hadiah untuk membukanya.';
-      $('s2label').textContent = s === 'ready' ? 'Video siap' : 'Video tidak dapat dihasilkan';
-      $('s2note').textContent = '';
-      $('readyPanel').hidden = false;
-      $('link').textContent = w.url.replace('https://', '');
-      $('link').href = w.url;
-      $('open').href = w.url;
-      $('wa').href = 'https://wa.me/?text=' + encodeURIComponent('Ada kejutan untuk awak 🎁 ' + w.url);
-      if (s === 'ready' && w.video_url && shownVideo !== w.video_url) {
-        shownVideo = w.video_url;
-        var v = document.createElement('video');
-        v.src = w.video_url;
-        if (w.poster_url) v.poster = w.poster_url;
-        v.controls = true;
-        v.playsInline = true;
-        v.setAttribute('playsinline', '');
-        $('film').innerHTML = '';
-        $('film').appendChild(v);
-        $('film').hidden = false;
-      }
-      if (s === 'video_failed') {
-        $('readyNote').textContent = 'Video tidak dapat dihasilkan daripada gambar ini, tetapi halaman kejutan dengan gambar dan ucapan anda tetap sedia.' + (cfg.support ? ' Untuk bayaran balik, hubungi ' + cfg.support + '.' : '');
-      }
-      clearInterval(timer);
+      $('again').hidden = false;
+      setPace(0);
+    } else if (out) {
+      renderReady(w);
+      setPace(20000);
     } else {
       $('title').textContent = 'Video sedang dibuat';
       $('sub').textContent = 'Simpan halaman ini. Anda boleh tutup dan buka semula bila-bila masa.';
       if (w.attempts > 1) $('s2note').textContent = 'Mencuba sekali lagi untuk hasil terbaik. Sedikit masa lagi.';
+      setPace(6000);
+    }
+  }
+
+  function renderReady(w) {
+    var s = w.status;
+    $('title').textContent = 'Kejutan untuk ' + w.recipient_name + ' sudah sedia';
+    $('sub').textContent = 'Hantar pautan ini kepadanya. Dia akan tekan kotak hadiah untuk membukanya.';
+    $('s2label').textContent = s === 'ready' ? 'Video siap' : 'Video tidak dapat dihasilkan';
+    $('s2note').textContent = '';
+    $('readyPanel').hidden = false;
+    $('again').hidden = false;
+    $('link').textContent = w.url.replace('https://', '');
+    $('link').href = w.url;
+    // "Lihat dulu" is the sender's own look: unlocked, and not counted as an open.
+    $('open').href = w.url + '/?pratonton=' + encodeURIComponent(token);
+
+    var sealed = !!w.unlock_at;
+    $('sealed').hidden = !sealed;
+    if (sealed) $('sealedWhen').textContent = 'Dikunci sehingga ' + whenText(w.unlock_at);
+    var text = 'Ada kejutan untuk awak 🎁' + (sealed ? ' Boleh dibuka pada ' + whenText(w.unlock_at) + '.' : '') + ' ' + w.url;
+    $('wa').href = 'https://wa.me/?text=' + encodeURIComponent(text);
+    if (navigator.share) {
+      $('share').hidden = false;
+      $('share').onclick = function () { navigator.share({ title: 'Ada kejutan untuk awak 🎁', text: text }).catch(function () {}); };
+    } else {
+      $('open').parentNode.classList.remove('two');
+    }
+
+    if (s === 'ready' && w.video_url && shownVideo !== w.video_url) {
+      shownVideo = w.video_url;
+      var v = document.createElement('video');
+      v.src = w.video_url;
+      if (w.poster_url) v.poster = w.poster_url;
+      v.controls = true;
+      v.playsInline = true;
+      v.setAttribute('playsinline', '');
+      $('film').textContent = '';
+      $('film').appendChild(v);
+      $('film').hidden = false;
+    }
+    if (s === 'video_failed') {
+      $('readyNote').hidden = false;
+      $('readyNote').textContent = 'Video tidak dapat dihasilkan daripada gambar ini, tetapi halaman kejutan dengan gambar dan ucapan anda tetap sedia.' + (cfg.support ? ' Untuk bayaran balik, hubungi ' + cfg.support + '.' : '');
+    }
+
+    // Opened? Replied?
+    $('pulsePanel').hidden = false;
+    var was = !!w.opened_at;
+    $('pulse').className = 'pulse' + (was ? ' on' : '');
+    $('pulseIco').textContent = was ? '🎉' : '🎁';
+    $('pulseTitle').textContent = was ? w.recipient_name + ' dah buka kejutan anda' : 'Belum dibuka lagi';
+    $('pulseNote').textContent = was
+      ? 'Dibuka pada ' + whenText(w.opened_at) + (w.open_count > 1 ? ' · dilihat ' + w.open_count + ' kali' : '')
+      : 'Halaman ini akan beritahu anda sebaik dia tekan kotak hadiah.';
+    var replied = !!(w.replied_at && (w.reaction || w.reply_text));
+    $('reply').hidden = !replied;
+    if (replied) {
+      $('replyEmoji').textContent = w.reaction || '💌';
+      $('replyText').textContent = w.reply_text || '';
+      $('replyText').hidden = !w.reply_text;
+      $('replyCite').textContent = '— ' + w.recipient_name + ', ' + whenText(w.replied_at);
+    }
+
+    if (w.qr) {
+      $('qrPanel').hidden = false;
+      $('qrImg').src = w.qr;
+      $('qrSave').href = w.qr;
     }
   }
 
@@ -152,20 +270,22 @@
           $('title').textContent = 'Kejutan tidak dijumpai';
           $('sub').textContent = 'Semak pautan halaman ini, atau buat kejutan baru.';
           $('progress').hidden = true;
-          clearInterval(timer);
+          $('again').hidden = false;
+          setPace(0);
         }
       });
   }
 
   $('copy').addEventListener('click', function () {
     var url = $('link').href;
-    var done = function () { $('copy').textContent = 'Pautan disalin'; setTimeout(function () { $('copy').textContent = 'Salin pautan'; }, 2000); };
+    var done = function () { $('copy').textContent = 'Disalin ✓'; setTimeout(function () { $('copy').textContent = 'Salin'; }, 2000); };
     if (navigator.clipboard) navigator.clipboard.writeText(url).then(done, function () { prompt('Salin pautan ini:', url); });
     else prompt('Salin pautan ini:', url);
   });
+  document.addEventListener('visibilitychange', function () { if (!document.hidden && pace) poll(); });
 
   poll();
-  timer = setInterval(poll, 6000);
+  setPace(6000);
 })();
 </script>
 </body>

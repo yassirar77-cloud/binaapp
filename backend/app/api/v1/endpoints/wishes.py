@@ -4,6 +4,8 @@
     POST /api/v1/wishes                          create (multipart) -> pay
     GET  /api/v1/wishes/{id}/status?t=TOKEN      sender's status (advances)
     GET  /api/v1/wishes/public/{slug}            recipient's data (advances)
+    POST /api/v1/wishes/public/{slug}/open       recipient tapped the box
+    POST /api/v1/wishes/public/{slug}/reply      recipient's reaction + note
 
 The sender's secret token is returned once at creation and carried in the
 status-page link; only its SHA-256 is stored. See services/wishes.py.
@@ -52,6 +54,27 @@ def _rate_limited(ip: str) -> bool:
     return False
 
 
+# The recipient's two buttons are public, so each gets a small per-IP,
+# per-wish budget: enough for a person changing their mind, not for a loop.
+_OPEN_LIMIT = 30
+_REPLY_LIMIT = 6
+_PUBLIC_WINDOW_SECONDS = 3600.0
+_public_hits: Dict[str, Deque[float]] = defaultdict(deque)
+
+
+def _public_limited(kind: str, ip: str, slug: str, limit: int) -> bool:
+    now = time.monotonic()
+    if len(_public_hits) > 5000:  # bound memory under a spray of keys
+        _public_hits.clear()
+    hits = _public_hits[f"{kind}:{ip}:{slug}"]
+    while hits and now - hits[0] > _PUBLIC_WINDOW_SECONDS:
+        hits.popleft()
+    if len(hits) >= limit:
+        return True
+    hits.append(now)
+    return False
+
+
 def _upload_photo_sync(data: bytes, public_id: str) -> Optional[str]:
     result = cloudinary.uploader.upload(
         data,
@@ -94,6 +117,7 @@ async def create_wish(
     payer_email: str = Form(...),
     payer_phone: str = Form(...),
     consent: str = Form(""),
+    unlock_at: str = Form(""),
     photos: List[UploadFile] = File(...),
 ):
     if _rate_limited(_client_ip(request)):
@@ -122,6 +146,10 @@ async def create_wish(
         raise HTTPException(400, "Nombor telefon tidak sah. Contoh: 0123456789")
     if consent.lower() not in ("1", "true", "yes", "on"):
         raise HTTPException(400, "Sila sahkan anda mempunyai kebenaran menggunakan gambar ini.")
+    try:
+        unlock = W.parse_unlock_at(unlock_at)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
 
     files = [f for f in (photos or []) if f and f.filename][: W.MAX_PHOTOS]
     if not files:
@@ -167,7 +195,7 @@ async def create_wish(
 
     token = W.new_token()
     free = email in W.free_emails()
-    row = await W.insert({
+    new_row = {
         "slug": slug,
         "status": "paid" if free else "awaiting_payment",
         "occasion": occasion,
@@ -180,7 +208,12 @@ async def create_wish(
         "payer_phone": phone,
         "edit_token_hash": W.hash_token(token),
         "amount_rm": 0 if free else W.wish_price_rm(),
-    })
+    }
+    if unlock:
+        # Only sent when chosen, so a database without migration 069 still
+        # takes every ordinary wish.
+        new_row["unlock_at"] = unlock.isoformat()
+    row = await W.insert(new_row)
     if not row:
         raise HTTPException(409, "Nama pautan ini baru sahaja diambil. Cuba nama lain.")
 
@@ -218,10 +251,58 @@ async def wish_status(wish_id: str, t: str = ""):
     return W.owner_view(row)
 
 
-@router.get("/wishes/public/{slug}")
-async def wish_public(slug: str):
+async def _live_wish(slug: str) -> dict:
     row = await W.get_by_slug((slug or "").lower())
     if not row or row.get("status") not in W.LIVE_STATUSES:
         raise HTTPException(404, "Kejutan tidak dijumpai.")
+    return row
+
+
+@router.get("/wishes/public/{slug}")
+async def wish_public(slug: str, t: str = ""):
+    row = await _live_wish(slug)
     row = await W.advance(row)
-    return W.public_view(row)
+    # ?t=<sender token> is the sender previewing a sealed gift.
+    return W.public_view(row, preview=W.token_matches(row, t))
+
+
+@router.post("/wishes/public/{slug}/open")
+async def wish_opened(slug: str, request: Request):
+    """The recipient tapped the gift box. Sealed gifts cannot be opened."""
+    row = await _live_wish(slug)
+    if W.is_locked(row):
+        raise HTTPException(423, "Kejutan ini belum boleh dibuka.")
+    if _public_limited("open", _client_ip(request), row["slug"], _OPEN_LIMIT):
+        return {"ok": True}
+    if await W.record_open(row):
+        asyncio.create_task(W.notify_opened(row))
+    return {"ok": True}
+
+
+@router.post("/wishes/public/{slug}/reply")
+async def wish_reply(slug: str, request: Request):
+    """The recipient's reaction and short note back to the sender."""
+    row = await _live_wish(slug)
+    if W.is_locked(row):
+        raise HTTPException(423, "Kejutan ini belum boleh dibuka.")
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        body = None
+    if not isinstance(body, dict):
+        raise HTTPException(400, "Balasan tidak sah.")
+    reaction = body.get("reaction")
+    reaction = reaction if reaction in W.REACTIONS else None
+    text = W.clean_text(str(body.get("text") or ""), W.MAX_REPLY_CHARS)
+    if not reaction and not text:
+        raise HTTPException(400, "Pilih satu reaksi atau tulis balasan.")
+    if _public_limited("reply", _client_ip(request), row["slug"], _REPLY_LIMIT):
+        raise HTTPException(429, "Terlalu banyak balasan. Cuba lagi nanti.")
+    saved = await W.save_reply(row, reaction, text)
+    if not saved:
+        raise HTTPException(503, "Balasan tidak dapat dihantar sekarang. Cuba lagi sebentar.")
+    # One email per wish: a changed reply updates the status page silently,
+    # so this public button can never be used to flood the sender's inbox.
+    if not row.get("replied_at"):
+        asyncio.create_task(W.notify_reply(saved))
+    return {"ok": True}

@@ -8,6 +8,8 @@ subdomain middleware sees it:
     www.mysyg.com  /          -> creator page (once www has its own DNS)
     buat.mysyg.com /s/<id>    -> sender's status page (?t=<token>)
     <slug>.mysyg.com /        -> the recipient's gift page
+                                 (?pratonton=<token>: the sender's preview)
+    any host /og.png          -> the link-preview image
     any host /api/...         -> normal API routing (same-origin fetches)
 
 Like the subdomain middleware, any unexpected error falls through to
@@ -24,7 +26,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from fastapi import Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from loguru import logger
 
 from app.services import wishes as W
@@ -35,7 +37,21 @@ _STATUS_PATH = re.compile(r"^/s/([0-9a-fA-F-]{36})/?$")
 
 
 def _load(name: str) -> str:
-    return (_TEMPLATES / name).read_text(encoding="utf-8")
+    """A template with the shared stylesheet inlined. One request per page:
+    these open from a WhatsApp link on mobile data."""
+    text = (_TEMPLATES / name).read_text(encoding="utf-8")
+    if "/*__BASE_CSS__*/" in text:
+        text = text.replace("/*__BASE_CSS__*/", (_TEMPLATES / "_base.css").read_text(encoding="utf-8"))
+    return text
+
+
+_OG_IMAGE: Dict[str, bytes] = {}
+
+
+def og_image() -> bytes:
+    if "png" not in _OG_IMAGE:
+        _OG_IMAGE["png"] = (_TEMPLATES / "og.png").read_bytes()
+    return _OG_IMAGE["png"]
 
 
 _PAGES: Dict[str, str] = {}
@@ -80,16 +96,22 @@ def render_creator() -> str:
     config = {
         "domain": W.wish_domain(),
         "max_photos": W.MAX_PHOTOS,
-        "occasions": {k: v["label"] for k, v in W.OCCASIONS.items()},
+        "occasions": {
+            k: {"label": v["label"], "title": v["title"], "emoji": v["emoji"], "ideas": v["ideas"]}
+            for k, v in W.OCCASIONS.items()
+        },
         "music": {k: v["label"] for k, v in W.MUSIC_STYLES.items()},
         "default_occasion": W.DEFAULT_OCCASION,
         "default_music": W.DEFAULT_MUSIC,
+        "max_unlock_days": W.MAX_UNLOCK_AHEAD.days,
+        "video_seconds": W.wish_video_seconds(),
     }
     return (
         _page("create.html")
         .replace("__CONFIG_JSON__", script_json(config))
         .replace("__WISH_DOMAIN__", html.escape(W.wish_domain()))
         .replace("__PRICE__", f"{W.wish_price_rm():.2f}")
+        .replace("__OG_IMAGE__", html.escape(f"https://{W.creator_host()}/og.png"))
     )
 
 
@@ -99,26 +121,23 @@ def render_status() -> str:
     )
 
 
-def render_wish(row: Dict[str, Any]) -> str:
-    view = W.public_view(row)
+def render_wish(row: Dict[str, Any], preview: bool = False) -> str:
+    view = W.public_view(row, preview=preview)
     title = f"Ada kejutan untuk {view['recipient_name']} 🎁"
     return (
         _page("wish.html")
         .replace("__OG_TITLE__", html.escape(title))
+        .replace("__OG_IMAGE__", html.escape(f"{W.wish_url(row['slug'])}/og.png"))
+        .replace("__THEME__", html.escape(view["theme"]))
         .replace("__CREATOR_URL__", html.escape(f"https://{W.creator_host()}/"))
         .replace("__WISH_JSON__", script_json(view))
     )
 
 
 def render_not_found() -> str:
-    creator = html.escape(f"https://{W.creator_host()}/")
-    return f"""<!doctype html><html lang="ms"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
-<title>Kejutan tidak dijumpai — mysyg</title>
-<style>body{{margin:0;min-height:100vh;display:grid;place-items:center;background:#2A1030;color:#FFF8F3;
-font-family:system-ui,sans-serif;text-align:center;padding:24px}}a{{color:#E3B65C}}h1{{font-weight:600;font-size:24px}}</style>
-</head><body><main><h1>Kejutan ini tidak dijumpai</h1>
-<p>Semak semula pautan yang anda terima.</p><p><a href="{creator}">Buat kejutan anda sendiri</a></p></main></body></html>"""
+    return _page("notfound.html").replace(
+        "__CREATOR_URL__", html.escape(f"https://{W.creator_host()}/")
+    )
 
 
 async def wish_middleware(request: Request, call_next):
@@ -133,6 +152,11 @@ async def wish_middleware(request: Request, call_next):
             return await call_next(request)
         if request.method not in ("GET", "HEAD"):
             return await call_next(request)
+        if path == "/og.png":
+            return Response(
+                og_image(), media_type="image/png",
+                headers={"Cache-Control": "public, max-age=86400"},
+            )
 
         if sub in _CREATOR_SUBS:
             if path == "/":
@@ -151,8 +175,12 @@ async def wish_middleware(request: Request, call_next):
         # Nudge a pending clip forward without making the visitor wait.
         if row.get("status") != "ready":
             asyncio.create_task(W._safe_advance(row))
-        asyncio.create_task(W.bump_views(row))
-        return _html(render_wish(row))
+        # The sender's own look (token in the link) is not a view.
+        query = getattr(request, "query_params", None) or {}
+        preview = W.token_matches(row, query.get("pratonton"))
+        if not preview:
+            asyncio.create_task(W.bump_views(row))
+        return _html(render_wish(row, preview=preview))
     except Exception as exc:  # noqa: BLE001 — never break the connection
         logger.error(f"💌 wish middleware error: {exc}")
         return await call_next(request)
