@@ -176,6 +176,29 @@
   .idea span { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
   .idea b { display: block; margin-top: 8px; font: 600 12px var(--sans); color: var(--gold-ink); }
 
+  /* Video: length packages + the sender's own direction */
+  .pkgs { display: grid; gap: 10px; margin: 0 0 22px; padding: 0; border: 0; min-width: 0; }
+  .pkgs legend { margin-bottom: 8px; padding: 0; font-size: 14px; font-weight: 600; }
+  @media (min-width: 620px) { .pkgs { grid-template-columns: repeat(3, 1fr); } }
+  .pkg { position: relative; display: block; }
+  .pkg input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+  .pkg > span { display: grid; grid-template-columns: 1fr auto; align-items: baseline; gap: 2px 12px; height: 100%; padding: 14px 16px; border-radius: 16px; border: 1px solid #DCC6D1; background: #fff; transition: border-color .15s, background-color .15s, box-shadow .15s; }
+  .pkg input:checked + span { border-color: #4A1A3F; background: #FDF6F8; box-shadow: inset 0 0 0 1px #4A1A3F; }
+  .pkg input:focus-visible + span { outline: 2px solid var(--gold-deep); outline-offset: 2px; }
+  .pkg b { font: 500 22px/1.1 var(--serif); }
+  .pkg .rm { font: 600 16px var(--sans); white-space: nowrap; }
+  .pkg .name { font-size: 12px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--gold-ink); grid-column: 1 / -1; }
+  .pkg small { grid-column: 1 / -1; margin-top: 4px; font-size: 14px; color: var(--ink-soft); }
+  @media (min-width: 620px) { .pkg > span { grid-template-columns: 1fr; align-content: start; } .pkg .rm { margin-top: 2px; } }
+  textarea.short { min-height: 92px; }
+  .field em { font-style: normal; font-weight: 400; color: var(--ink-soft); }
+  .scenes { display: flex; flex-wrap: wrap; gap: 8px; }
+  .scenes button { padding: 8px 12px; border-radius: 999px; border: 1px solid #E6D3DC; background: #FDF6F8; font-size: 14px; text-align: left; cursor: pointer; transition: border-color .15s, background-color .15s; }
+  .scenes button:hover { border-color: #4A1A3F; background: #FAEDF2; }
+  .scenes button:focus-visible { outline: 2px solid var(--gold-deep); outline-offset: 2px; }
+  .pv-scene { margin: 8px 6px 0; font: italic 400 9px/1.4 var(--serif); color: var(--soft); overflow-wrap: anywhere; }
+  .pv-scene:empty { display: none; }
+
   /* When to open */
   .opts { display: grid; gap: 10px; }
   @media (min-width: 560px) { .opts { grid-template-columns: 1fr 1fr; } }
@@ -269,13 +292,13 @@
   <div class="wrap">
     <div class="topbar">
       <a class="brand script" href="/" aria-label="mysyg">mysyg</a>
-      <span class="price-pill"><b>RM__PRICE__</b> sekali bayar</span>
+      <span class="price-pill">dari <b>RM__PRICE__</b> sekali bayar</span>
     </div>
     <div class="hero-grid">
       <div>
         <p class="eyebrow">Kejutan video untuk orang tersayang</p>
         <h1>Gambar dia, jadi <em>video kejutan</em> bermuzik.</h1>
-        <p class="lede">Hantar satu pautan. Dia tekan kotak hadiah, video dan ucapan anda terus terbuka.</p>
+        <p class="lede">Muat naik gambar, tulis apa yang anda mahu berlaku, dan AI hidupkannya. Dia tekan kotak hadiah, video dan ucapan anda terus terbuka.</p>
         <div class="cta">
           <a class="btn btn-gold" href="#buat">Buat kejutan sekarang</a>
         </div>
@@ -317,7 +340,7 @@
     <h2>Tiga langkah. Satu senyuman.</h2>
     <ol class="steps">
       <li><h3>Muat naik gambar</h3><p>Pilih gambar kegemaran anda berdua. Gambar utama akan dihidupkan menjadi video.</p></li>
-      <li><h3>Tulis ucapan</h3><p>Pilih sempena dan muzik, kemudian tulis dari hati. Tak tahu nak mula? Guna cadangan kami.</p></li>
+      <li><h3>Tulis ucapan & babak</h3><p>Tulis ucapan dari hati, kemudian ceritakan babak video yang anda mahu: bunga api, salji, kelopak bunga, apa sahaja.</p></li>
       <li><h3>Hantar pautan</h3><p>Selepas bayaran, video siap dalam beberapa minit. Hantar pautan hadiah melalui WhatsApp.</p></li>
     </ol>
     <div class="for">
@@ -332,7 +355,7 @@
     <div class="builder-head">
       <p class="eyebrow" style="color:var(--gold-ink)">Mula di sini</p>
       <h2 class="serif" style="font:500 clamp(28px,6.4vw,40px)/1.12 var(--serif);letter-spacing:-.015em;margin-top:10px">Buat kejutan anda</h2>
-      <p>Isi empat bahagian di bawah. Anda boleh lihat pratonton sebelum bayar.</p>
+      <p>Isi lima bahagian di bawah. Anda boleh lihat pratonton sebelum bayar.</p>
     </div>
     <div class="builder">
       <form id="form" novalidate>
@@ -367,8 +390,23 @@
           <fieldset class="chips" id="music" style="margin-bottom:0"><legend>Muzik dalam video</legend></fieldset>
         </section>
 
+        <section class="card" id="videoCard">
+          <h3><span class="n">3</span>Video anda</h3>
+          <p class="help">Pilih panjang video, kemudian ceritakan apa yang patut berlaku di dalamnya.</p>
+          <fieldset class="pkgs" id="packages"><legend>Panjang video</legend></fieldset>
+          <label class="field" style="margin-bottom:0"><span>Apa yang berlaku dalam video? <em>(pilihan)</em></span>
+            <textarea id="direction" class="short" placeholder="Contoh: Bunga api meletup di langit malam di belakang kami"></textarea>
+          </label>
+          <div class="count-line"><span>Kosongkan, dan kami pilih babak ikut sempena.</span><span id="dcount"></span></div>
+          <div class="ideas" style="margin-bottom:14px">
+            <span class="lbl">Cuba salah satu:</span>
+            <div class="scenes" id="scenes"></div>
+          </div>
+          <p class="fine" style="margin-top:0">Wajah dan pakaian dikekalkan seperti dalam gambar. Arahan yang tidak sopan atau ganas akan ditolak.</p>
+        </section>
+
         <section class="card">
-          <h3><span class="n">3</span>Bila boleh dibuka?</h3>
+          <h3><span class="n">4</span>Bila boleh dibuka?</h3>
           <p class="help">Kunci hadiah sehingga saat yang anda pilih, contohnya tepat tengah malam hari jadinya.</p>
           <div class="opts" role="radiogroup" aria-label="Bila boleh dibuka">
             <label class="opt"><input type="radio" name="when" value="now" checked><span><b>Terus boleh dibuka</b><small>Sebaik sahaja video siap.</small></span></label>
@@ -382,7 +420,7 @@
         </section>
 
         <section class="card">
-          <h3><span class="n">4</span>Pautan & bayaran</h3>
+          <h3><span class="n">5</span>Pautan & bayaran</h3>
           <p class="help">Ini pautan yang anda hantar kepadanya.</p>
           <div class="link-field">
             <span class="pre">https://</span>
@@ -416,6 +454,7 @@
               <span class="pv-occ" id="pvOcc"></span>
               <p class="pv-name script" id="pvName2">Nama dia</p>
               <div class="pv-film" id="pvFilm"><span class="ph">Gambar utama anda akan jadi video di sini</span></div>
+              <p class="pv-scene" id="pvScene"></p>
               <div class="pv-letter">
                 <p id="pvMsg" class="muted">Ucapan anda akan muncul di sini.</p>
                 <div class="pv-sign"><small>Dengan sayang,</small><span class="script" id="pvSign">Anda</span></div>
@@ -442,7 +481,8 @@
       <details><summary>Penerima perlu pasang apa-apa?</summary><p>Tidak. Dia cuma tekan pautan yang anda hantar, kemudian tekan kotak hadiah. Ia berfungsi di mana-mana telefon.</p></details>
       <details><summary>Siapa boleh nampak kejutan ini?</summary><p>Hanya orang yang mempunyai pautannya. Halaman kejutan tidak disenaraikan di Google.</p></details>
       <details><summary>Macam mana saya tahu dia dah buka?</summary><p>Halaman status anda menunjukkan bila kotak hadiah dibuka. Penerima juga boleh menghantar reaksi dan balasan pendek kepada anda.</p></details>
-      <details><summary>Berapa bayarannya?</summary><p>RM__PRICE__ untuk satu kejutan, sekali bayar melalui FPX. Tiada langganan.</p></details>
+      <details><summary>Boleh saya tentukan apa yang berlaku dalam video?</summary><p>Boleh. Tulis satu atau dua ayat tentang babak yang anda mahu, contohnya bunga api, salji atau kelopak bunga. AI menghidupkan gambar anda mengikut arahan itu, dengan wajah dan pakaian dikekalkan. Hasilnya dijana AI, jadi ia mungkin tidak tepat seratus peratus.</p></details>
+      <details><summary>Berapa bayarannya?</summary><p id="faqPrice">Dari RM__PRICE__ untuk satu kejutan, sekali bayar melalui FPX. Harga ikut panjang video yang anda pilih. Tiada langganan.</p></details>
     </div>
   </div>
 </section>
@@ -456,7 +496,7 @@
 
 <div class="paybar away" id="paybar">
   <div class="paybar-inner">
-    <div class="price"><b>RM__PRICE__</b><small>sekali bayar</small></div>
+    <div class="price"><b id="payPrice">RM__PRICE__</b><small id="payNote">sekali bayar</small></div>
     <span class="hint">Video siap dalam beberapa minit selepas bayaran.</span>
     <button class="pv-btn" id="pvBtn" type="button" aria-label="Lihat pratonton">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -515,6 +555,57 @@
       $('buat').scrollIntoView({ behavior: 'smooth' });
     });
     $('forList').appendChild(b);
+  });
+
+  // ---------- video: length + the sender's own direction ----------
+  function pkg() {
+    var key = checked('package');
+    for (var i = 0; i < cfg.packages.length; i++) if (cfg.packages[i].key === key) return cfg.packages[i];
+    return cfg.packages[0];
+  }
+  cfg.packages.forEach(function (p) {
+    var label = document.createElement('label');
+    label.className = 'pkg';
+    var input = document.createElement('input');
+    input.type = 'radio';
+    input.name = 'package';
+    input.value = p.key;
+    if (p.key === cfg.default_package) input.checked = true;
+    var box = document.createElement('span');
+    var name = document.createElement('span'); name.className = 'name'; name.textContent = p.label;
+    var secs = document.createElement('b'); secs.textContent = p.seconds + ' saat';
+    var rm = document.createElement('span'); rm.className = 'rm'; rm.textContent = 'RM' + p.price.toFixed(2);
+    var tag = document.createElement('small'); tag.textContent = p.tagline;
+    box.appendChild(name); box.appendChild(secs); box.appendChild(rm); box.appendChild(tag);
+    label.appendChild(input);
+    label.appendChild(box);
+    $('packages').appendChild(label);
+  });
+  function onPackage() {
+    var p = pkg();
+    $('payPrice').textContent = 'RM' + p.price.toFixed(2);
+    $('payNote').textContent = 'video ' + p.seconds + ' saat';
+    updatePreview();
+    saveDraft();
+  }
+  $('packages').addEventListener('change', onPackage);
+  $('direction').maxLength = cfg.max_direction;
+  function onDirection() {
+    $('dcount').textContent = $('direction').value.length + ' / ' + cfg.max_direction;
+    updatePreview();
+    saveDraft();
+  }
+  $('direction').addEventListener('input', onDirection);
+  (cfg.scene_ideas || []).forEach(function (text) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = text;
+    b.addEventListener('click', function () {
+      $('direction').value = text.slice(0, cfg.max_direction);
+      onDirection();
+      $('direction').focus();
+    });
+    $('scenes').appendChild(b);
   });
 
   // ---------- message ideas ----------
@@ -656,6 +747,8 @@
     $('pvOcc').textContent = occ.emoji + ' ' + occ.title;
     $('pvMsg').textContent = msg || 'Ucapan anda akan muncul di sini.';
     $('pvMsg').className = msg ? '' : 'muted';
+    var scene = $('direction').value.trim();
+    $('pvScene').textContent = scene ? '🎬 ' + scene : '';
     var film = $('pvFilm');
     film.textContent = '';
     if (files.length) {
@@ -665,7 +758,7 @@
       film.appendChild(img);
       var play = document.createElement('span');
       play.className = 'play';
-      play.textContent = 'Video ' + cfg.video_seconds + ' saat';
+      play.textContent = 'Video ' + pkg().seconds + ' saat';
       film.appendChild(play);
     } else {
       var ph = document.createElement('span');
@@ -790,6 +883,7 @@
     try {
       localStorage.setItem(DRAFT_KEY, JSON.stringify({
         occasion: checked('occasion'), music: checked('music'),
+        pkg: checked('package'), direction: $('direction').value,
         recipient: $('recipient').value, sender: $('sender').value, message: $('message').value,
         slug: slugTouched ? $('slug').value : '', email: $('email').value, phone: $('phone').value
       }));
@@ -801,6 +895,8 @@
     if (!d || typeof d !== 'object') return;
     if (d.occasion) setChecked('occasion', String(d.occasion));
     if (d.music) setChecked('music', String(d.music));
+    if (d.pkg) setChecked('package', String(d.pkg));
+    $('direction').value = String(d.direction || '').slice(0, cfg.max_direction);
     $('recipient').value = String(d.recipient || '').slice(0, 40);
     $('sender').value = String(d.sender || '').slice(0, 40);
     $('message').value = String(d.message || '').slice(0, 600);
@@ -854,6 +950,8 @@
       fd.append('payer_email', $('email').value.trim());
       fd.append('payer_phone', $('phone').value.trim());
       fd.append('consent', 'true');
+      fd.append('package', pkg().key);
+      fd.append('video_direction', $('direction').value.trim());
       // The sender's clock, turned into one unambiguous instant.
       if (unlock) fd.append('unlock_at', unlock.toISOString());
       return fetch('/api/v1/wishes', { method: 'POST', body: fd });
@@ -888,7 +986,8 @@
   renderIdeas();
   $('count').textContent = $('message').value.length + ' / 600';
   if ($('message').value.trim()) setTab(true, false);
-  updatePreview();
+  onDirection();
+  onPackage();
   onWhen();
 })();
 </script>

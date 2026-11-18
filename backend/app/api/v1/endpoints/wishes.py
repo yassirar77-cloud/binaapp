@@ -118,6 +118,8 @@ async def create_wish(
     payer_phone: str = Form(...),
     consent: str = Form(""),
     unlock_at: str = Form(""),
+    package: str = Form(""),
+    video_direction: str = Form(""),
     photos: List[UploadFile] = File(...),
 ):
     if _rate_limited(_client_ip(request)):
@@ -151,9 +153,19 @@ async def create_wish(
     except ValueError as exc:
         raise HTTPException(400, str(exc))
 
+    package = W.package_key((package or "").strip().lower())
+
     files = [f for f in (photos or []) if f and f.filename][: W.MAX_PHOTOS]
     if not files:
         raise HTTPException(400, "Sila muat naik sekurang-kurangnya satu gambar.")
+
+    # The sender's own direction for the clip is screened here, before any
+    # upload and long before payment: nobody pays for a scene we will not make.
+    from app.services.wish_direction import REFUSAL, prepare_direction
+
+    direction = await prepare_direction(video_direction)
+    if not direction["ok"]:
+        raise HTTPException(400, REFUSAL)
 
     # Slug still free? (An abandoned unpaid wish frees its name after 2 h.)
     await W.delete_stale_unpaid(slug)
@@ -207,13 +219,25 @@ async def create_wish(
         "payer_email": email,
         "payer_phone": phone,
         "edit_token_hash": W.hash_token(token),
-        "amount_rm": 0 if free else W.wish_price_rm(),
+        "amount_rm": 0 if free else W.package_price_rm(package),
+        "package": package,
+        "video_seconds": W.package_seconds(package),
     }
+    if direction["scene"]:
+        new_row["video_direction"] = direction["direction"]
+        new_row["video_scene"] = direction["scene"]
     if unlock:
         # Only sent when chosen, so a database without migration 069 still
         # takes every ordinary wish.
         new_row["unlock_at"] = unlock.isoformat()
-    row = await W.insert(new_row)
+    try:
+        row = await W.insert(new_row)
+    except W.WishSchemaError:
+        raise HTTPException(
+            503,
+            "Pilihan video ini belum tersedia buat masa ini. Cuba pakej Ringkas tanpa arahan video, "
+            "atau cuba sebentar lagi.",
+        )
     if not row:
         raise HTTPException(409, "Nama pautan ini baru sahaja diambil. Cuba nama lain.")
 

@@ -656,3 +656,268 @@ def test_record_open_first_then_repeat():
         calls.append(None)  # make the conditional PATCH "lose"
         assert asyncio.run(W.record_open({**row, "open_count": 4})) is False
         assert calls[-1][0] == {"open_count": 5} and calls[-1][1] is None
+
+
+# ---------------------------------------------------------------------------
+# Packages (clip length, priced per second) and the sender's direction — 070
+# ---------------------------------------------------------------------------
+
+from app.services import wish_direction as D  # noqa: E402
+
+
+class _FakeAI:
+    """Stands in for ai_service: answers with ``reply`` or raises."""
+
+    zai_api_key = None
+
+    def __init__(self, reply=None, error=None):
+        self.reply, self.error, self.prompts = reply, error, []
+
+    async def _call_deepseek(self, prompt, **kwargs):
+        self.prompts.append((prompt, kwargs))
+        if self.error:
+            raise self.error
+        return self.reply
+
+
+def _prepare(text, ai):
+    return asyncio.run(D.prepare_direction(text, ai_service=ai))
+
+
+def test_packages_are_priced_by_length(monkeypatch):
+    for env in ("WISH_PRICE_RM", "WISH_PRICE_RM_MANIS", "WISH_PRICE_RM_SINEMATIK", "WISH_VIDEO_SECONDS"):
+        monkeypatch.delenv(env, raising=False)
+    public = W.packages_public()
+    assert [p["key"] for p in public] == ["ringkas", "manis", "sinematik"]
+    assert [p["seconds"] for p in public] == [10, 20, 30]
+    assert [p["price"] for p in public] == [9.90, 17.90, 24.90]
+    # Longer costs more in total, never more per second.
+    per_second = [p["price"] / p["seconds"] for p in public]
+    assert per_second == sorted(per_second, reverse=True)
+    assert W.package_key("entah") == "ringkas" and W.package_price_rm("entah") == 9.90
+
+    monkeypatch.setenv("WISH_PRICE_RM_SINEMATIK", "29.9")
+    monkeypatch.setenv("WISH_PRICE_RM_MANIS", "percuma")
+    assert W.package_price_rm("sinematik") == 29.9 and W.package_price_rm("manis") == 17.90
+
+
+def test_clip_seconds_is_what_was_sold():
+    assert W.clip_seconds({"package": "sinematik", "video_seconds": 30}) == 30
+    assert W.clip_seconds({"package": "manis"}) == 20            # no stored length: the package's
+    assert W.clip_seconds({}) == W.wish_video_seconds()          # a wish from before packages
+    assert W.clip_seconds({"package": "manis", "video_seconds": 999}) == 20  # nonsense is ignored
+
+
+def test_prompt_with_scene_keeps_the_rules_last():
+    scene = "Fireworks burst in the night sky behind the people in the photo"
+    prompt = W.build_video_prompt("birthday", "acoustic", scene)
+    assert f"What happens in the scene: {scene}." in prompt
+    assert "confetti" not in prompt  # the sender's scene replaces the occasion's
+    rules = prompt.index("Keep every face")
+    assert prompt.index(scene) < rules < prompt.index("fully clothed") < prompt.index("No text")
+    assert prompt.rstrip().endswith("no speech.")
+    # No scene: byte-for-byte the prompt wishes have always had.
+    assert W.build_video_prompt("birthday", "acoustic", "  ") == W.build_video_prompt("birthday", "acoustic")
+    assert "fully clothed" not in W.build_video_prompt("birthday", "acoustic")
+
+
+def test_scene_is_dropped_after_a_content_refusal():
+    row = {"video_scene": "Fireworks behind them"}
+    assert W.scene_for_attempt(row) == "Fireworks behind them"
+    assert W.scene_for_attempt({**row, "video_error": "render timed out"}) == "Fireworks behind them"
+    assert W.scene_for_attempt({**row, "video_error": "FAILED: DataInspectionFailed"}) == ""
+    assert W.scene_for_attempt({"video_error": "DataInspectionFailed"}) == ""
+
+
+def test_video_is_submitted_at_the_bought_length_with_the_scene(table):
+    row = table.add(slug="aisyah", status="paid", package="sinematik", video_seconds=30,
+                    video_direction="bunga api", video_scene="Fireworks burst behind the people in the photo")
+    ctx, svc = _video_service()
+    with ctx:
+        out = asyncio.run(W.start_video(row))
+    kwargs = svc.submit.await_args.kwargs
+    assert kwargs["duration"] == 30
+    assert "Fireworks burst behind the people in the photo" in svc.submit.await_args.args[0]
+    assert out["status"] == "generating"
+
+    # The provider refuses that scene: the retry is made without it, at the same length.
+    failed = asyncio.run(W._video_attempt_failed(out, "FAILED: DataInspectionFailed"))
+    assert failed["status"] == "paid"
+    ctx, svc = _video_service()
+    with ctx:
+        retry = asyncio.run(W.start_video(failed))
+    assert svc.submit.await_args.kwargs["duration"] == 30
+    assert "Fireworks" not in svc.submit.await_args.args[0]
+    view = W.owner_view({**retry, "status": "ready"})
+    assert view["direction"] == "bunga api" and view["direction_dropped"] is True
+    assert view["video_seconds"] == 30 and view["package"] == "Sinematik"
+
+
+def test_long_clips_get_longer_before_being_called_lost(table):
+    started = _ago(25)
+    short = table.add(slug="pendek", status="generating", video_task_id="t", video_started_at=started,
+                      video_attempts=1, last_polled_at=_ago(1))
+    long = table.add(slug="panjang", status="generating", video_task_id="t", video_started_at=started,
+                     video_attempts=1, last_polled_at=_ago(1), package="sinematik", video_seconds=30)
+    ctx, _svc = _video_service()
+    with ctx:
+        assert asyncio.run(W.poll_video(short))["status"] == "paid"        # 25 min > 20: retried
+        assert asyncio.run(W.poll_video(long))["status"] == "generating"   # 25 min < 35: still waiting
+
+
+def test_direction_word_list():
+    for fine in ("Bunga api meletup tepat pukul 12 malam", "mabuk cinta, kami berpelukan",
+                 "shooting stars di atas gunung", "baju stripe biru, rama-rama terbang"):
+        assert not D.blocked(fine), fine
+    for bad in ("dia buka baju", "telanjang", "tembak dia", "belasah sampai berdarah", "make her naked"):
+        assert D.blocked(bad), bad
+
+
+def test_direction_empty_needs_no_model():
+    ai = _FakeAI(reply="{}")
+    assert _prepare("   ", ai) == {"ok": True, "direction": "", "scene": "", "source": "none"}
+    assert ai.prompts == []
+
+
+def test_direction_blocked_words_never_reach_the_model():
+    ai = _FakeAI(reply='{"allowed": true, "scene": "x"}')
+    out = _prepare("dia buka baju perlahan-lahan", ai)
+    assert out["ok"] is False and out["scene"] == "" and ai.prompts == []
+
+
+def test_direction_is_rewritten_by_the_model():
+    ai = _FakeAI(reply='Sure!\n{"allowed": true, "scene": "Fireworks burst in the night sky behind the people in the photo."}')
+    out = _prepare("  bunga api\nmeletup di belakang kami  ", ai)
+    assert out == {
+        "ok": True, "direction": "bunga api meletup di belakang kami",
+        "scene": "Fireworks burst in the night sky behind the people in the photo.", "source": "model",
+    }
+    assert "bunga api meletup di belakang kami" in ai.prompts[0][0]
+
+
+def test_direction_refused_by_the_model():
+    assert _prepare("jadikan dia kelihatan tua dan gemuk", _FakeAI(reply='{"allowed": false, "scene": ""}'))["ok"] is False
+    # "Allowed" but the rewrite itself trips the floor, or is empty: refuse.
+    assert _prepare("babak romantik", _FakeAI(reply='{"allowed": true, "scene": "They undress slowly"}'))["ok"] is False
+    assert _prepare("babak romantik", _FakeAI(reply='{"allowed": true, "scene": ""}'))["ok"] is False
+
+
+def test_direction_falls_back_to_the_sender_words_when_the_model_is_down():
+    for ai in (_FakeAI(error=RuntimeError("timeout")), _FakeAI(reply="maaf, tak faham"), _FakeAI(reply=None)):
+        out = _prepare('Salji turun <b>"perlahan"</b>', ai)
+        assert out["ok"] is True and out["source"] == "sender"
+        assert out["scene"] == "Salji turun bperlahan/b"  # markup and quotes stripped
+
+
+def test_direction_is_capped():
+    out = _prepare("salji " * 200, _FakeAI(reply='{"allowed": true, "scene": "' + "snow " * 200 + '"}'))
+    assert len(out["direction"]) <= D.MAX_DIRECTION_CHARS and len(out["scene"]) <= D.MAX_SCENE_CHARS + 1
+
+
+def _create(table, monkeypatch, form, direction=None, insert_error=None):
+    monkeypatch.delenv("WISH_FREE_EMAILS", raising=False)
+    client, E = _client()
+    inserted = []
+    patches = _create_patches(table, E, inserted) + [
+        patch.object(W, "create_bill", new=AsyncMock(return_value={
+            "success": True, "bill_code": "abc123", "payment_url": "https://toyyibpay.com/abc123"})),
+        patch("app.services.wish_direction.prepare_direction", new=AsyncMock(
+            return_value=direction or {"ok": True, "direction": "", "scene": "", "source": "none"})),
+    ]
+    if insert_error:
+        patches.append(patch.object(W, "insert", new=AsyncMock(side_effect=insert_error)))
+    for p in patches:
+        p.start()
+    try:
+        resp = client.post("/api/v1/wishes", data=form, files=PHOTO)
+    finally:
+        for p in reversed(patches):  # two of these patch W.insert: unwind in order
+            p.stop()
+    return resp, inserted
+
+
+def test_create_charges_for_the_chosen_package(table, monkeypatch):
+    resp, inserted = _create(table, monkeypatch, _form(package="sinematik", video_direction="bunga api"),
+                             direction={"ok": True, "direction": "bunga api", "scene": "Fireworks.", "source": "model"})
+    assert resp.status_code == 200, resp.text
+    row = inserted[0]
+    assert row["package"] == "sinematik" and row["video_seconds"] == 30 and row["amount_rm"] == 24.90
+    assert row["video_direction"] == "bunga api" and row["video_scene"] == "Fireworks."
+
+
+def test_create_defaults_to_the_base_package(table, monkeypatch):
+    resp, inserted = _create(table, monkeypatch, _form(package="percuma-seumur-hidup"))
+    assert resp.status_code == 200, resp.text
+    row = inserted[0]
+    assert row["package"] == "ringkas" and row["amount_rm"] == 9.90 and row["video_seconds"] == 10
+    assert "video_scene" not in row and "video_direction" not in row
+
+
+def test_create_refuses_a_bad_direction_before_anything_is_stored(table, monkeypatch):
+    resp, inserted = _create(table, monkeypatch, _form(video_direction="tak sopan"),
+                             direction={"ok": False, "direction": "tak sopan", "scene": "", "source": "none"})
+    assert resp.status_code == 400 and "Arahan video" in resp.json()["detail"]
+    assert inserted == []
+
+
+def test_create_says_so_when_the_database_cannot_hold_the_package(table, monkeypatch):
+    resp, _ = _create(table, monkeypatch, _form(package="manis"), insert_error=W.WishSchemaError("070"))
+    assert resp.status_code == 503 and "belum tersedia" in resp.json()["detail"]
+
+
+class _Resp:
+    def __init__(self, status_code, body):
+        self.status_code, self._body = status_code, body
+        self.text = json.dumps(body)
+
+    def json(self):
+        return self._body
+
+
+def _insert_against_old_schema(row):
+    """Run W.insert against a database that has no migration-070 columns."""
+    posts = []
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def post(self, _url, headers=None, json=None):
+            posts.append(json)
+            if any(c in json for c in W._COLUMNS_070):
+                return _Resp(400, {"code": "PGRST204", "message": "Could not find the 'package' column of 'wishes'"})
+            return _Resp(201, [{**json, "id": "new"}])
+
+    fake = SimpleNamespace(url="https://db", headers={}, _client=lambda: _Client())
+    with patch.object(W, "supabase_service", fake):
+        return asyncio.run(W.insert(row)), posts
+
+
+def test_insert_before_migration_070():
+    # A plain base wish is stored without the new columns...
+    stored, posts = _insert_against_old_schema({"slug": "a", "package": "ringkas", "video_seconds": 10})
+    assert stored["id"] == "new" and len(posts) == 2 and "package" not in posts[1]
+    # ...but a longer clip or a direction is never silently downgraded.
+    with pytest.raises(W.WishSchemaError):
+        _insert_against_old_schema({"slug": "b", "package": "sinematik", "video_seconds": 30})
+    with pytest.raises(W.WishSchemaError):
+        _insert_against_old_schema({"slug": "c", "package": "ringkas", "video_seconds": 10, "video_scene": "Snow."})
+
+
+def test_creator_config_offers_packages_and_scene_ideas():
+    page = P.render_creator()
+    config = json.loads(page.split('<script id="config" type="application/json">')[1].split("</script>")[0])
+    assert [p["key"] for p in config["packages"]] == list(W.PACKAGES)
+    assert config["default_package"] == W.PACKAGE_BASE and config["max_direction"] == D.MAX_DIRECTION_CHARS
+    assert config["scene_ideas"] and all(not D.blocked(text) for text in config["scene_ideas"])
+    assert all(len(text) <= D.MAX_DIRECTION_CHARS for text in config["scene_ideas"])
+
+
+def test_public_view_never_shows_the_direction(table):
+    row = table.add(slug="aisyah", status="ready", video_direction="rahsia arahan", video_scene="Secret scene",
+                    video_prompt="... Secret scene ...")
+    blob = json.dumps(W.public_view(row))
+    assert "rahsia arahan" not in blob and "Secret scene" not in blob

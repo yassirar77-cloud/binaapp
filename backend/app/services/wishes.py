@@ -30,6 +30,16 @@ Around that core (migration 069):
 * ``opened_at`` / ``open_count`` — set when the recipient taps the box.
 * ``reaction`` / ``reply_text`` — what the recipient sends back. The sender
   reads both on the status page (and gets an email, when SMTP is set up).
+
+And the video itself is the sender's to shape (migration 070):
+
+* ``package`` / ``video_seconds`` — how long the clip is. Wan bills by the
+  second, so the price follows the length (see ``PACKAGES``).
+* ``video_direction`` / ``video_scene`` — one line from the sender about
+  what should happen in the clip, and the screened English scene made from
+  it (``wish_direction.prepare_direction``). The scene is the ONLY
+  sender-influenced text that reaches the model, and it sits between the
+  fixed sentences that keep faces, clothes and tone as they are.
 """
 
 from __future__ import annotations
@@ -84,6 +94,91 @@ def wish_video_resolution() -> str:
     return value if value in ("480P", "720P", "1080P") else "720P"
 
 
+# ---------------------------------------------------------------------------
+# Packages — the clip's length, priced by what the provider charges
+# ---------------------------------------------------------------------------
+#
+# wan3.0-video is billed per second of output: about USD 0.05/s at 480P and
+# USD 0.10/s at 720P (Model Studio price list). At the default 720P that is
+# roughly USD 1 / 2 / 3 for 10 / 20 / 30 seconds, before the payment
+# gateway's fee. The defaults below keep a similar margin on every package;
+# each price is an env var so it can follow the provider's.
+
+PACKAGE_BASE = "ringkas"
+
+PACKAGES: Dict[str, Dict[str, Any]] = {
+    "ringkas": {
+        "label": "Ringkas",
+        "tagline": "Detik manis yang padat.",
+        "seconds": 10, "price_env": "WISH_PRICE_RM", "price": 9.90,
+    },
+    "manis": {
+        "label": "Manis",
+        "tagline": "Dua kali lebih panjang, lebih banyak ruang untuk babak anda.",
+        "seconds": 20, "price_env": "WISH_PRICE_RM_MANIS", "price": 17.90,
+    },
+    "sinematik": {
+        "label": "Sinematik",
+        "tagline": "Video paling panjang, seperti babak filem.",
+        "seconds": 30, "price_env": "WISH_PRICE_RM_SINEMATIK", "price": 24.90,
+    },
+}
+
+
+def package_key(key: Optional[str]) -> str:
+    """``key`` if it names a package, else the base one."""
+    return key if key in PACKAGES else PACKAGE_BASE
+
+
+def package_price_rm(key: Optional[str]) -> float:
+    pkg = PACKAGES[package_key(key)]
+    try:
+        value = float(os.getenv(pkg["price_env"], str(pkg["price"])))
+    except ValueError:
+        value = pkg["price"]
+    return round(value, 2) if value > 0 else pkg["price"]
+
+
+def package_seconds(key: Optional[str]) -> int:
+    """Clip length for a package. The base package keeps honouring
+    WISH_VIDEO_SECONDS, which is how its length was set before packages."""
+    name = package_key(key)
+    return wish_video_seconds() if name == PACKAGE_BASE else int(PACKAGES[name]["seconds"])
+
+
+def packages_public() -> List[Dict[str, Any]]:
+    """What the creator page needs to offer the packages, cheapest first."""
+    return [
+        {
+            "key": key, "label": pkg["label"], "tagline": pkg["tagline"],
+            "seconds": package_seconds(key), "price": package_price_rm(key),
+        }
+        for key, pkg in PACKAGES.items()
+    ]
+
+
+def clip_seconds(row: Dict[str, Any]) -> int:
+    """The length to render for a stored wish: what it was sold as."""
+    try:
+        stored = int(row.get("video_seconds") or 0)
+    except (TypeError, ValueError):
+        stored = 0
+    return stored if 2 <= stored <= 30 else package_seconds(row.get("package"))
+
+
+#: Starting points for the sender's own direction. Scenes, not instructions.
+SCENE_IDEAS: List[str] = [
+    "Bunga api meletup di langit malam di belakang kami",
+    "Kelopak bunga ros jatuh perlahan-lahan di sekeliling kami",
+    "Kami tersenyum, berpandangan, kemudian melambai ke kamera",
+    "Salji turun dengan lembut, lampu-lampu kecil berkelip",
+    "Belon berwarna-warni naik ke langit",
+    "Rama-rama terbang mengelilingi kami di taman bunga",
+    "Matahari terbenam keemasan, angin meniup rambut perlahan",
+    "Pelita menyala dan bunga api kecil berkelip di belakang",
+]
+
+
 def free_emails() -> List[str]:
     """Emails that skip payment (owner testing / demos)."""
     raw = os.getenv("WISH_FREE_EMAILS", "")
@@ -101,6 +196,13 @@ MAX_UNLOCK_AHEAD = timedelta(days=60)
 MAX_VIDEO_ATTEMPTS = 2
 #: A render running longer than this is treated as lost and retried.
 VIDEO_HARD_TIMEOUT = timedelta(minutes=20)
+#: ...and a long clip is given longer before that verdict.
+VIDEO_HARD_TIMEOUT_LONG = timedelta(minutes=35)
+#: Provider errors that mean "the content was refused", not "try again".
+_INSPECTION_ERROR = re.compile(
+    r"inspection|inappropriate|sensitive|safety|policy|illegal|risk|green|moderation|prohibit",
+    re.IGNORECASE,
+)
 #: How often a poller may ask the provider / ToyyibPay about one wish.
 POLL_INTERVAL = timedelta(seconds=8)
 PAYMENT_CHECK_INTERVAL = timedelta(seconds=15)
@@ -244,23 +346,55 @@ def occasion_key(key: Optional[str]) -> str:
     return key if key in OCCASIONS else DEFAULT_OCCASION
 
 
-def build_video_prompt(occasion: str, music_style: str) -> str:
-    """Fixed, server-side prompt for image-to-video. The photo is the first
-    frame; the prompt only asks for gentle, faithful motion around it."""
+def build_video_prompt(occasion: str, music_style: str, scene: Optional[str] = None) -> str:
+    """The prompt for image-to-video. The photo is the first frame.
+
+    Everything here is fixed server text except ``scene``: the screened
+    English rewrite of the sender's own direction (``video_scene``). It is
+    placed in the middle, after the sentence that brings the people to life
+    and before the sentences that pin down faces, clothing and tone, so the
+    rules have the last word. Without a scene the occasion's own is used.
+    """
     occ = occasion_info(occasion)
+    scene = (scene or "").strip()
     parts = [
         "The people in this photo gently come to life with natural, subtle movement: "
         "soft warm smiles, natural blinking, slight head movement, hair moving softly in a light breeze.",
-        f"Around them, {occ['scene']}.",
-        "The camera slowly and smoothly pushes in.",
+    ]
+    if scene:
+        parts.append(f"What happens in the scene: {scene.rstrip('.')}.")
+        parts.append("The camera moves slowly and smoothly.")
+    else:
+        parts.append(f"Around them, {occ['scene']}.")
+        parts.append("The camera slowly and smoothly pushes in.")
+    parts += [
         "Keep every face, body and outfit exactly as in the original photo, realistic and natural, "
         "no distortion, no extra people.",
-        "No text, no captions, no logos, no watermarks.",
     ]
+    if scene:
+        parts.append(
+            "Everyone stays fully clothed; the mood is warm, wholesome and family-friendly, "
+            "with nothing violent, frightening or suggestive."
+        )
+    parts.append("No text, no captions, no logos, no watermarks.")
     music = MUSIC_STYLES.get(music_style or "", MUSIC_STYLES[DEFAULT_MUSIC])
     if music["prompt"]:
         parts.append(f"Soundtrack: {music['prompt']}, no singing, no voices, no speech.")
     return " ".join(parts)
+
+
+def scene_for_attempt(row: Dict[str, Any]) -> str:
+    """The sender's scene, unless the provider already refused it.
+
+    A direction that passed our own screening can still fail the video
+    provider's content inspection. When the previous attempt ended that way
+    the next one is made on the occasion's fixed scene instead: the sender
+    still gets their video, just not that direction.
+    """
+    scene = (row.get("video_scene") or "").strip()
+    if scene and _INSPECTION_ERROR.search(row.get("video_error") or ""):
+        return ""
+    return scene
 
 
 def wants_audio(music_style: str) -> bool:
@@ -439,12 +573,36 @@ async def get_by_bill(bill_code: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+class WishSchemaError(Exception):
+    """The table is missing a column this wish cannot do without (a paid-for
+    longer clip or the sender's direction, before migration 070)."""
+
+
+#: Columns a wish can be stored without, per migration, when their value is
+#: only the default. See ``insert``.
+_COLUMNS_070 = ("package", "video_seconds", "video_direction", "video_scene")
+
+
 async def insert(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Insert a wish. Returns the stored row, or None (slug taken / error)."""
+    """Insert a wish. Returns the stored row, or None (slug taken / error).
+
+    Raises WishSchemaError when the database predates something the sender
+    is paying for: better to say "not available yet" before payment than to
+    sell a 30-second clip and render ten.
+    """
     headers = {**supabase_service.headers, "Prefer": "return=representation"}
     try:
         async with supabase_service._client() as client:
             resp = await client.post(_url(), headers=headers, json=row)
+            if resp.status_code == 400 and any(c in resp.text for c in _COLUMNS_070 if c in row):
+                plain = package_key(row.get("package")) == PACKAGE_BASE and not row.get("video_scene")
+                if not plain:
+                    logger.error("💌 wishes package/direction columns missing — apply migration 070.")
+                    raise WishSchemaError("migration 070 not applied")
+                # A plain base-package wish loses nothing without them.
+                logger.warning("💌 wishes package columns missing (migration 070) — storing base wish without them.")
+                row = {k: v for k, v in row.items() if k not in _COLUMNS_070}
+                resp = await client.post(_url(), headers=headers, json=row)
             if (
                 resp.status_code == 400
                 and "unlock_at" in row
@@ -461,6 +619,8 @@ async def insert(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         if resp.status_code in (200, 201) and resp.json():
             return resp.json()[0]
         logger.warning(f"💌 wish insert failed: {resp.status_code} {resp.text[:300]}")
+    except WishSchemaError:
+        raise
     except Exception as exc:  # noqa: BLE001
         logger.error(f"💌 wish insert error: {exc}")
     return None
@@ -639,7 +799,10 @@ async def create_bill(row: Dict[str, Any], token: str) -> Dict[str, Any]:
     return await asyncio.to_thread(
         toyyibpay_service.create_bill,
         bill_name="Kejutan mysyg.com",
-        bill_description=f"{occ['label']} untuk {row['recipient_name']} ({row['slug']}.{wish_domain()})",
+        bill_description=(
+            f"{occ['label']} untuk {row['recipient_name']}, video {clip_seconds(row)} saat "
+            f"({row['slug']}.{wish_domain()})"
+        )[:100],
         bill_amount=float(row["amount_rm"]),
         bill_email=row["payer_email"],
         bill_phone=row["payer_phone"],
@@ -702,7 +865,7 @@ async def start_video(row: Dict[str, Any]) -> Dict[str, Any]:
     from app.services.zai_video_service import PROVIDER_DASHSCOPE, zai_video_service
 
     attempts = int(row.get("video_attempts") or 0) + 1
-    prompt = build_video_prompt(row.get("occasion"), row.get("music_style"))
+    prompt = build_video_prompt(row.get("occasion"), row.get("music_style"), scene_for_attempt(row))
     claimed = await transition(row["id"], "paid", {
         "status": "generating",
         "video_attempts": attempts,
@@ -719,7 +882,7 @@ async def start_video(row: Dict[str, Any]) -> Dict[str, Any]:
     try:
         task_id = await zai_video_service.submit(
             prompt,
-            duration=wish_video_seconds(),
+            duration=clip_seconds(claimed),
             image_url=photos[0] if photos else None,
             provider=PROVIDER_DASHSCOPE,
             aspect="9:16",
@@ -763,7 +926,8 @@ async def poll_video(row: Dict[str, Any]) -> Dict[str, Any]:
         if _older_than(row.get("updated_at"), timedelta(minutes=3)):
             return await _video_attempt_failed(row, "submit lost")
         return row
-    if _older_than(row.get("video_started_at"), VIDEO_HARD_TIMEOUT):
+    hard_timeout = VIDEO_HARD_TIMEOUT_LONG if clip_seconds(row) > 15 else VIDEO_HARD_TIMEOUT
+    if _older_than(row.get("video_started_at"), hard_timeout):
         return await _video_attempt_failed(row, "render timed out")
     if not _older_than(row.get("last_polled_at"), POLL_INTERVAL):
         return row
@@ -896,6 +1060,16 @@ def owner_view(row: Dict[str, Any]) -> Dict[str, Any]:
         "video_url": row.get("video_url"),
         "poster_url": row.get("poster_url"),
         "attempts": int(row.get("video_attempts") or 0),
+        "package": PACKAGES[package_key(row.get("package"))]["label"],
+        "video_seconds": clip_seconds(row),
+        "direction": row.get("video_direction") or None,
+        # True once a clip was made WITHOUT the sender's direction because
+        # the video provider refused it (see scene_for_attempt).
+        "direction_dropped": bool(
+            (row.get("video_scene") or "").strip()
+            and row.get("video_prompt")
+            and (row.get("video_scene") or "").strip().rstrip(".") not in row["video_prompt"]
+        ),
         "unlock_at": row.get("unlock_at") if is_locked(row) else None,
         "opened_at": row.get("opened_at"),
         "open_count": int(row.get("open_count") or 0),
