@@ -191,6 +191,8 @@ async def create_wish(
         *(moderate_uploaded_image(data, files[i].filename or "") for i, data in enumerate(blobs))
     )
     for index, verdict in enumerate(verdicts):
+        if verdict.get("unavailable"):
+            raise HTTPException(503, verdict.get("message", "Semakan gambar tidak tersedia. Sila cuba lagi."))
         if not verdict.get("allowed", True):
             raise HTTPException(400, f"Gambar {index + 1} tidak dibenarkan: {verdict.get('message', '')}")
 

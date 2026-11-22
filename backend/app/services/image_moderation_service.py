@@ -18,7 +18,24 @@ QWEN_API_KEY = os.getenv("QWEN_API_KEY")
 
 # Use separate QWEN_VL variables for vision/moderation
 QWEN_VL_API_URL = os.getenv("QWEN_VL_API_URL", "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation")
-QWEN_VL_MODEL = os.getenv("QWEN_VL_MODEL", "qwen-vl-plus")
+# qwen-vl-plus / qwen-vl-max no longer exist on DashScope international
+# ("Model not exist", HTTP 404). qwen3-vl-plus is the current vision model.
+QWEN_VL_MODEL = os.getenv("QWEN_VL_MODEL", "qwen3-vl-plus")
+
+#: Shown when the check itself could not run. The image is NOT allowed in
+#: that case: "could not check" must never mean "safe".
+UNAVAILABLE_MESSAGE = "Semakan gambar tidak tersedia buat masa ini. Sila cuba lagi sebentar lagi."
+
+
+def _unavailable(reason: str) -> dict:
+    """The verdict for a check that could not run — fails closed."""
+    return {
+        "is_safe": False,
+        "unavailable": True,
+        "reason": reason,
+        "confidence": 0,
+        "detected_categories": [],
+    }
 
 MODERATION_PROMPT = """Analyze this image for content moderation. Check if it contains ANY of these:
 
@@ -99,6 +116,11 @@ async def check_image_safety(image_data: bytes = None, image_url: str = None) ->
             "confidence": 0-100,
             "detected_categories": []
         }
+
+    Fails CLOSED: when the moderation API errors, times out or returns
+    something unusable, the result is ``is_safe: False`` with
+    ``unavailable: True``. The one exception is no API key at all, which
+    means moderation is not configured (local development) and is skipped.
     """
     try:
         if not QWEN_API_KEY:
@@ -149,19 +171,22 @@ async def check_image_safety(image_data: bytes = None, image_url: str = None) ->
             )
 
             if response.status_code != 200:
-                logger.error(f"[MODERATION] Qwen API error: {response.status_code}")
-                return {"is_safe": True, "reason": "API error, allowing image", "confidence": 0}
+                logger.error(
+                    f"[MODERATION] Qwen API error: {response.status_code} "
+                    f"model={QWEN_VL_MODEL} body={response.text[:300]} — image NOT allowed"
+                )
+                return _unavailable(f"Moderation API error ({response.status_code})")
 
             result = response.json()
 
             return _parse_moderation_result(result)
 
     except httpx.TimeoutException:
-        logger.error("[MODERATION] Qwen API timeout")
-        return {"is_safe": True, "reason": "Timeout, allowing image", "confidence": 0}
+        logger.error("[MODERATION] Qwen API timeout — image NOT allowed")
+        return _unavailable("Moderation timed out")
     except Exception as e:
-        logger.error(f"[MODERATION] Error: {str(e)}")
-        return {"is_safe": True, "reason": f"Error: {str(e)}", "confidence": 0}
+        logger.error(f"[MODERATION] Error: {str(e)} — image NOT allowed")
+        return _unavailable(f"Moderation error: {type(e).__name__}")
 
 
 async def moderate_uploaded_image(file_content: bytes, filename: str = "") -> dict:
@@ -181,6 +206,14 @@ async def moderate_uploaded_image(file_content: bytes, filename: str = "") -> di
     logger.info(f"[MODERATION] Moderating file: {filename}")
 
     result = await check_image_safety(image_data=file_content)
+
+    if result.get("unavailable"):
+        logger.error(f"[MODERATION] Could not check {filename}: {result.get('reason')}")
+        return {
+            "allowed": False,
+            "unavailable": True,
+            "message": UNAVAILABLE_MESSAGE
+        }
 
     if result["is_safe"]:
         logger.info(f"[MODERATION] Image allowed: {filename}")
