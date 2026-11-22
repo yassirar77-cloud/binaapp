@@ -211,7 +211,8 @@ async def dashscope_temp_upload(path: Path, model: str) -> str:
     return f"oss://{key}"
 
 
-def wan_payload(clip_url: str, mascot_url: str, prompt: str, resolution: str) -> Dict:
+def wan_payload(clip_url: str, mascot_url: str, prompt: str, resolution: str,
+                prompt_extend: bool = True) -> Dict:
     return {
         "model": WAN_MODEL,
         "input": {
@@ -231,14 +232,15 @@ def wan_payload(clip_url: str, mascot_url: str, prompt: str, resolution: str) ->
             "watermark": False,
             # The rewriter is told to preserve the scene by the prompt itself;
             # leaving it on lets it expand a short merchant prompt.
-            "prompt_extend": True,
+            "prompt_extend": prompt_extend,
         },
     }
 
 
 async def run_wan(clip: Path, clip_url: Optional[str], mascot: Path, prompt: str,
-                  resolution: str, dry_run: bool) -> Dict:
-    payload = wan_payload(clip_url or "oss://<uploaded at submit>", data_uri(mascot), prompt, resolution)
+                  resolution: str, dry_run: bool, prompt_extend: bool = True) -> Dict:
+    payload = wan_payload(clip_url or "oss://<uploaded at submit>", data_uri(mascot), prompt,
+                          resolution, prompt_extend)
     if dry_run:
         shown = json.loads(json.dumps(payload))
         shown["input"]["media"][0]["url"] = f"data:image/...;base64,<{mascot.stat().st_size} bytes>"
@@ -457,7 +459,8 @@ async def cmd_run(args: argparse.Namespace) -> int:
         print(f"== {which}")
         try:
             if which == "wan":
-                result = await run_wan(clip, args.clip_url, mascot, args.prompt, args.resolution, args.dry_run)
+                result = await run_wan(clip, args.clip_url, mascot, args.prompt, args.resolution, args.dry_run,
+                                       prompt_extend=not args.no_prompt_extend)
             elif which in RUNWAY_MODELS:
                 result = await run_runway(which, clip, mascot, args.prompt, clip_seconds, args.dry_run)
             else:
@@ -469,7 +472,8 @@ async def cmd_run(args: argparse.Namespace) -> int:
         video_bytes = result.pop("video_bytes", None)
         row = {"model": which, "clip": src.name, "mascot": mascot.stem, "prompt": args.prompt, **result}
         if video_bytes:
-            name = f"{which}__{src.stem}__{mascot.stem}.mp4"
+            tag = f"__{args.tag}" if args.tag else ""
+            name = f"{which}__{src.stem}__{mascot.stem}{tag}.mp4"
             (OUT_DIR / name).write_bytes(video_bytes)
             row["output"] = name
         print(f"  {which}: {row['status']} {row.get('note', '')} "
@@ -520,6 +524,8 @@ def main() -> int:
     run.add_argument("--models", default="wan,kling,runway")
     run.add_argument("--resolution", default="720P", choices=sorted(WAN_PRICE_PER_SECOND))
     run.add_argument("--clip-url", help="public URL of the SAME clip, to skip the DashScope temp upload")
+    run.add_argument("--tag", help="suffix for the output file, to keep prompt variants apart")
+    run.add_argument("--no-prompt-extend", action="store_true", help="wan: send the prompt as written")
     run.add_argument("--dry-run", action="store_true", help="print payloads, spend nothing")
 
     mascots = sub.add_parser("make-mascots", help="generate the two test mascots with glm-image")

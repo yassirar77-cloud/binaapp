@@ -20,6 +20,69 @@ QWEN_API_KEY = os.getenv("QWEN_API_KEY")
 QWEN_VL_API_URL = os.getenv("QWEN_VL_API_URL", "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation")
 QWEN_VL_MODEL = os.getenv("QWEN_VL_MODEL", "qwen-vl-plus")
 
+MODERATION_PROMPT = """Analyze this image for content moderation. Check if it contains ANY of these:
+
+1. Adult/Sexual content (nudity, pornography, sexually suggestive)
+2. Drugs (illegal drugs, drug paraphernalia, drug use)
+3. Violence (gore, blood, weapons being used violently)
+4. Weapons (guns, knives, explosives displayed threateningly)
+5. Hate symbols (racist, extremist symbols)
+6. Graphic disturbing content
+
+Respond ONLY with this exact JSON format, nothing else:
+{"is_safe": true, "reason": "brief explanation", "confidence": 85, "detected_categories": []}
+
+If the image is a normal food photo, menu item, restaurant, or safe content, respond with is_safe: true.
+If ANY inappropriate content is detected, respond with is_safe: false and list detected_categories."""
+
+
+def _parse_moderation_result(result: dict) -> dict:
+    """Turn a Qwen-VL response body into the moderation verdict."""
+    output_text = ""
+    try:
+        # Try different response structures
+        if "output" in result:
+            output = result["output"]
+            if "choices" in output:
+                output_text = output["choices"][0].get("message", {}).get("content", "")
+            elif "text" in output:
+                output_text = output["text"]
+
+        # Handle if content is a list
+        if isinstance(output_text, list):
+            for item in output_text:
+                if isinstance(item, dict) and "text" in item:
+                    output_text = item["text"]
+                    break
+
+        logger.info(f"[MODERATION] Raw response: {output_text[:200]}")
+
+        # Extract JSON from response
+        json_match = output_text
+        if "{" in output_text and "}" in output_text:
+            start = output_text.find("{")
+            end = output_text.rfind("}") + 1
+            json_match = output_text[start:end]
+
+        moderation_result = json.loads(json_match)
+
+        logger.info(f"[MODERATION] Result: is_safe={moderation_result.get('is_safe')}")
+
+        return {
+            "is_safe": moderation_result.get("is_safe", True),
+            "reason": moderation_result.get("reason", ""),
+            "confidence": moderation_result.get("confidence", 0),
+            "detected_categories": moderation_result.get("detected_categories", [])
+        }
+
+    except json.JSONDecodeError as e:
+        logger.warning(f"[MODERATION] JSON parse error: {e}")
+        # Keyword-based fallback
+        output_lower = str(output_text).lower()
+        if any(word in output_lower for word in ["unsafe", "inappropriate", "adult", "drug", "violence", "nude", "sexual"]):
+            return {"is_safe": False, "reason": "Content flagged as potentially inappropriate", "confidence": 60}
+        return {"is_safe": True, "reason": "Content appears safe", "confidence": 60}
+
 
 async def check_image_safety(image_data: bytes = None, image_url: str = None) -> dict:
     """
@@ -51,21 +114,7 @@ async def check_image_safety(image_data: bytes = None, image_url: str = None) ->
         else:
             return {"is_safe": False, "reason": "No image provided", "confidence": 100}
 
-        # Moderation prompt
-        moderation_prompt = """Analyze this image for content moderation. Check if it contains ANY of these:
-
-1. Adult/Sexual content (nudity, pornography, sexually suggestive)
-2. Drugs (illegal drugs, drug paraphernalia, drug use)
-3. Violence (gore, blood, weapons being used violently)
-4. Weapons (guns, knives, explosives displayed threateningly)
-5. Hate symbols (racist, extremist symbols)
-6. Graphic disturbing content
-
-Respond ONLY with this exact JSON format, nothing else:
-{"is_safe": true, "reason": "brief explanation", "confidence": 85, "detected_categories": []}
-
-If the image is a normal food photo, menu item, restaurant, or safe content, respond with is_safe: true.
-If ANY inappropriate content is detected, respond with is_safe: false and list detected_categories."""
+        moderation_prompt = MODERATION_PROMPT
 
         headers = {
             "Authorization": f"Bearer {QWEN_API_KEY}",
@@ -105,52 +154,7 @@ If ANY inappropriate content is detected, respond with is_safe: false and list d
 
             result = response.json()
 
-            # Parse Qwen response - handle different response formats
-            try:
-                output_text = ""
-
-                # Try different response structures
-                if "output" in result:
-                    output = result["output"]
-                    if "choices" in output:
-                        output_text = output["choices"][0].get("message", {}).get("content", "")
-                    elif "text" in output:
-                        output_text = output["text"]
-
-                # Handle if content is a list
-                if isinstance(output_text, list):
-                    for item in output_text:
-                        if isinstance(item, dict) and "text" in item:
-                            output_text = item["text"]
-                            break
-
-                logger.info(f"[MODERATION] Raw response: {output_text[:200]}")
-
-                # Extract JSON from response
-                json_match = output_text
-                if "{" in output_text and "}" in output_text:
-                    start = output_text.find("{")
-                    end = output_text.rfind("}") + 1
-                    json_match = output_text[start:end]
-
-                moderation_result = json.loads(json_match)
-
-                logger.info(f"[MODERATION] Result: is_safe={moderation_result.get('is_safe')}")
-
-                return {
-                    "is_safe": moderation_result.get("is_safe", True),
-                    "reason": moderation_result.get("reason", ""),
-                    "confidence": moderation_result.get("confidence", 0),
-                    "detected_categories": moderation_result.get("detected_categories", [])
-                }
-
-            except json.JSONDecodeError as e:
-                logger.warning(f"[MODERATION] JSON parse error: {e}")
-                # Keyword-based fallback
-                output_lower = str(output_text).lower()
-                if any(word in output_lower for word in ["unsafe", "inappropriate", "adult", "drug", "violence", "nude", "sexual"]):
-                    return {"is_safe": False, "reason": "Content flagged as potentially inappropriate", "confidence": 60}
-                return {"is_safe": True, "reason": "Content appears safe", "confidence": 60}
+            return _parse_moderation_result(result)
 
     except httpx.TimeoutException:
         logger.error("[MODERATION] Qwen API timeout")
@@ -208,3 +212,59 @@ async def moderate_uploaded_image(file_content: bytes, filename: str = "") -> di
             "allowed": False,
             "message": f"Gambar ditolak: {reason}"
         }
+
+
+# ---------------------------------------------------------------------------
+# Video (mascot video clips)
+# ---------------------------------------------------------------------------
+
+def moderation_video_model() -> str:
+    """The Qwen vision model that watches an uploaded clip. Its own setting
+    because it must be one that takes video input; ``qwen3-vl-plus`` does."""
+    return os.getenv("QWEN_VL_VIDEO_MODEL", "qwen3-vl-plus").strip() or "qwen3-vl-plus"
+
+
+async def check_video_safety(video_url: str) -> dict:
+    """The same Qwen moderation as ``check_image_safety``, on a whole clip.
+
+    ``video_url`` is a public URL or a DashScope ``oss://`` temp URL uploaded
+    for ``moderation_video_model()``.
+
+    Unlike the image check this fails CLOSED: with no key, an API error or a
+    timeout the clip is NOT allowed (``is_safe`` False, ``unavailable`` True).
+    A clip that slips through becomes a paid render published on a merchant's
+    site, so "could not check" must not mean "fine".
+    """
+    def unavailable(reason: str) -> dict:
+        return {"is_safe": False, "unavailable": True, "reason": reason, "confidence": 0, "detected_categories": []}
+
+    api_key = (os.getenv("DASHSCOPE_API_KEY") or os.getenv("QWEN_API_KEY") or "").strip()
+    if not api_key:
+        return unavailable("Moderation is not configured")
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    if video_url.startswith("oss://"):
+        headers["X-DashScope-OssResourceResolve"] = "enable"
+    payload = {
+        "model": moderation_video_model(),
+        "input": {
+            "messages": [
+                {"role": "user", "content": [{"video": video_url}, {"text": MODERATION_PROMPT}]}
+            ]
+        },
+        "parameters": {"max_tokens": 300},
+    }
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.post(QWEN_VL_API_URL, headers=headers, json=payload)
+        if response.status_code != 200:
+            logger.error(f"[MODERATION] Qwen video API error: {response.status_code} {response.text[:300]}")
+            return unavailable(f"Moderation API error ({response.status_code})")
+        verdict = _parse_moderation_result(response.json())
+        verdict["is_safe"] = verdict.get("is_safe") is True
+        return verdict
+    except httpx.TimeoutException:
+        logger.error("[MODERATION] Qwen video API timeout")
+        return unavailable("Moderation timed out")
+    except Exception as e:  # noqa: BLE001 - never let moderation crash a job
+        logger.error(f"[MODERATION] Video error: {str(e)}")
+        return unavailable(f"Moderation error: {type(e).__name__}")
