@@ -22,6 +22,12 @@ real scene. Off by default.
 3. Link the page from the dashboard nav (`frontend/src/lib/dashboardNav.ts`);
    it is deliberately not linked while the flag is off.
 
+Migration 071 only adds objects (one table with its index, policies and
+grants, and one bucket); it changes nothing that exists. To undo it, see
+`backend/migrations/rollbacks/071_mascot_videos_rollback.sql` — the table is
+dropped with SQL, the bucket must be deleted through the dashboard or the
+Storage API.
+
 "Use as hero video" also needs `HERO_VIDEO_ENABLED=true`: it copies the clip
 to Cloudinary and applies it with the hero-video patcher.
 

@@ -1,0 +1,23 @@
+-- ==========================================================================
+-- Rollback for migration 071 (mascot_videos). NOT run automatically.
+-- ==========================================================================
+-- 071 added exactly two things, and this removes them:
+--
+--   1. table public.mascot_videos — dropped by the statement below, together
+--      with its index, policies, constraints and grants.
+--      DATA LOSS: every mascot video job row is deleted.
+--
+--   2. the private storage bucket `mascot-videos` — Supabase refuses to
+--      delete storage rows with SQL ("Direct deletion from storage tables is
+--      not allowed"), so remove it in the dashboard (Storage → mascot-videos
+--      → Delete bucket) or with the Storage API, using the service-role key:
+--
+--        curl -X POST   "$SUPABASE_URL/storage/v1/bucket/mascot-videos/empty" \
+--             -H "apikey: $SERVICE_ROLE_KEY" -H "Authorization: Bearer $SERVICE_ROLE_KEY"
+--        curl -X DELETE "$SUPABASE_URL/storage/v1/bucket/mascot-videos" \
+--             -H "apikey: $SERVICE_ROLE_KEY" -H "Authorization: Bearer $SERVICE_ROLE_KEY"
+--
+-- Nothing else was created or changed by 071.
+-- ==========================================================================
+
+DROP TABLE IF EXISTS public.mascot_videos;
