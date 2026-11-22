@@ -7,8 +7,8 @@ the SAME input through every video-edit model a key is available for:
 
     wan      wan3.0-video video editing        DashScope   (existing key)
              input.media = reference_video + reference_image
-    kling    Kling O3 video-to-video edit      Runway API  (RUNWAYML_API_SECRET)
-             promptVideo + references[]
+    kling    Kling 3.0 Omni video edit         Kling API   (KLING_API_KEY)
+             contents = base_video + refer_image; needs --clip-url (public URL)
     runway   Runway Aleph 2.0 video-to-video   Runway API  (RUNWAYML_API_SECRET)
              videoUri + promptText (no reference-image input, see below)
 
@@ -37,11 +37,21 @@ Where the request shapes come from (read 2026-11-22, not guessed)
   takes timed *keyframes*, not a free reference image, so the mascot reaches
   it through the prompt only. ``klingO3_pro`` takes ``references`` (up to 4
   images) and is 17 credits/s (USD 0.17/s).
-* Kling's own API (api-singapore.klingai.com, access key + secret JWT): the
-  official Omni spec could not be read (the docs site is a JS shell), so
-  there is deliberately NO native Kling call here. Kling runs through Runway's
-  API, where its schema is confirmed. A KLING_ACCESS_KEY alone is reported as
-  skipped rather than fired at a guessed endpoint.
+* Kling: kling.ai/document-api "Omni Video Generation" (read in a real
+  browser; the site is JS-rendered). ``POST /omni-video/kling-3.0-omni`` with
+  ``Authorization: Bearer <API key>``; ``contents`` holds the prompt, a
+  ``base_video`` (the clip to edit — URL only, mp4/mov, 3-15.5 s, each side
+  >= 700 px, 24-60 fps) and a ``refer_image`` (URL or base64); the prompt
+  names them ``@video_1`` / ``@image_1``; ``GET /tasks?task_ids=`` returns
+  ``status`` submitted/processing/succeeded/failed and ``outputs[].url``.
+  The page states no price, so Kling's cost column is left empty.
+
+Success rate
+------------
+``--repeat N`` renders the same input N times per model. Each result is shown
+to Qwen with the mascot (the same check production uses) and the table
+records whether the mascot is in the clip and still there at the end. A
+render counts as a success when both are true.
 
 Usage
 -----
@@ -78,6 +88,11 @@ import httpx
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "backend"))
 
+# The backend modules read these at import; nothing here talks to Supabase.
+for _name in ("SUPABASE_URL", "SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY", "JWT_SECRET_KEY"):
+    os.environ.setdefault(_name, "https://unused.supabase.co" if _name.endswith("URL") else "unused")
+
+from app.services import mascot_video as mv  # noqa: E402
 from app.services import zai_video_service as zvs  # noqa: E402
 from app.services.zai_video_service import ZaiVideoError, zai_video_service  # noqa: E402
 
@@ -100,18 +115,15 @@ RUNWAY_USD_PER_CREDIT = 0.01
 RUNWAY_MODELS = {
     # key -> (model id, credits per second, minimum credits)
     "runway": ("aleph2", 28, 56),
-    "kling": ("klingO3_pro", 17, 0),
 }
+
+KLING_BASE_URL = "https://api-singapore.klingai.com"
+KLING_MODEL_PATH = "/omni-video/kling-3.0-omni"
 #: Runway takes a video as a data URI only up to 5 MB encoded.
 RUNWAY_DATA_URI_MAX_BYTES = 3_300_000
 
-DEFAULT_PROMPT = (
-    "Edit Video 1: add the cartoon mascot character from Image 1 into the scene, "
-    "standing naturally in the foreground, smiling and waving at the camera. "
-    "Keep the mascot's flat colourful cartoon style exactly as in Image 1. "
-    "Keep everything else in Video 1 unchanged: the same real shop, people, "
-    "food, lighting and camera movement."
-)
+#: The production prompt ("small, standing in the scene").
+DEFAULT_PROMPT = mv.build_edit_prompt("")
 
 MASCOTS = {
     "teh_tarik_uncle": (
@@ -337,15 +349,9 @@ async def runway_video_uri(client: httpx.AsyncClient, clip: Path) -> str:
 
 def runway_payload(which: str, video_uri: str, mascot_uri: str, prompt: str) -> Dict:
     model = RUNWAY_MODELS[which][0]
-    if which == "runway":
-        # Aleph 2.0 has no free reference-image input (only keyframes pinned
-        # to a timestamp), so the mascot is described by the prompt alone.
-        return {"model": model, "videoUri": video_uri, "promptText": prompt}
-    return {
-        "model": model, "promptVideo": video_uri, "promptText": prompt,
-        "references": [{"uri": mascot_uri}],
-        "providerSettings": {"keepOriginalSound": False},
-    }
+    # Aleph 2.0 has no free reference-image input (only keyframes pinned to
+    # a timestamp), so the mascot is described by the prompt alone.
+    return {"model": model, "videoUri": video_uri, "promptText": prompt}
 
 
 async def run_runway(which: str, clip: Path, mascot: Path, prompt: str,
@@ -355,11 +361,7 @@ async def run_runway(which: str, clip: Path, mascot: Path, prompt: str,
         print(json.dumps(runway_payload(which, "<clip>", "<mascot>", prompt), indent=2))
         return {"status": "dry-run"}
     if not _runway_key():
-        note = "RUNWAYML_API_SECRET not set"
-        if which == "kling" and os.getenv("KLING_ACCESS_KEY"):
-            note = ("KLING_ACCESS_KEY is set, but Kling's native Omni API spec could not be "
-                    "verified — set RUNWAYML_API_SECRET to run Kling O3 through Runway's API")
-        return {"status": "skipped", "note": note}
+        return {"status": "skipped", "note": "RUNWAYML_API_SECRET not set"}
 
     started = time.monotonic()
     async with httpx.AsyncClient(timeout=300) as client:
@@ -397,12 +399,87 @@ async def run_runway(which: str, clip: Path, mascot: Path, prompt: str,
 
 
 # ---------------------------------------------------------------------------
+# Kling API — Kling 3.0 Omni, base_video edit with a reference image
+# ---------------------------------------------------------------------------
+
+def _kling_key() -> Optional[str]:
+    return (os.getenv("KLING_API_KEY") or "").strip() or None
+
+
+def kling_payload(clip_url: str, mascot_b64: str, prompt: str, resolution: str) -> Dict:
+    # Kling names inputs by id with an @, where wan3.0 says "Video 1".
+    kling_prompt = prompt.replace("Video 1", "@video_1").replace("Image 1", "@image_1")
+    return {
+        "contents": [
+            {"type": "prompt", "text": kling_prompt},
+            {"type": "refer_image", "url": mascot_b64, "id": "image_1"},
+            {"type": "base_video", "url": clip_url, "id": "video_1"},
+        ],
+        # A base_video edit cannot be multi-shot or generate native audio.
+        "settings": {"resolution": resolution.lower(), "audio": "off", "multi_shot": False},
+    }
+
+
+async def run_kling(clip_url: Optional[str], mascot: Path, prompt: str, resolution: str,
+                    clip_seconds: float, dry_run: bool) -> Dict:
+    mascot_b64 = base64.b64encode(mascot.read_bytes()).decode()
+    if dry_run:
+        print(json.dumps(kling_payload(clip_url or "<--clip-url>", f"<{len(mascot_b64)} base64 chars>",
+                                       prompt, resolution), indent=2))
+        return {"status": "dry-run"}
+    if not _kling_key():
+        return {"status": "skipped", "note": "KLING_API_KEY not set"}
+    if not clip_url:
+        return {"status": "skipped", "note": "Kling takes the clip by public URL only — pass --clip-url"}
+    if clip_seconds < 3:
+        return {"status": "skipped", "note": "Kling needs a clip of at least 3 s"}
+
+    headers = {"Authorization": f"Bearer {_kling_key()}", "Content-Type": "application/json"}
+    started = time.monotonic()
+    async with httpx.AsyncClient(timeout=300) as client:
+        response = await client.post(
+            f"{KLING_BASE_URL}{KLING_MODEL_PATH}", headers=headers,
+            json=kling_payload(clip_url, mascot_b64, prompt, resolution),
+        )
+        body = response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
+        if response.status_code != 200 or body.get("code") != 0:
+            return {"status": "failed", "note": f"submit HTTP {response.status_code}: {response.text[:300]}"}
+        task_id = body["data"]["id"]
+        print(f"  kling: task {task_id} accepted")
+        while True:
+            await asyncio.sleep(POLL_INTERVAL)
+            poll = await client.get(f"{KLING_BASE_URL}/tasks", params={"task_ids": task_id}, headers=headers)
+            tasks = (poll.json() or {}).get("data") or []
+            task = tasks[0] if tasks else {}
+            elapsed = time.monotonic() - started
+            if task.get("status") == "succeeded":
+                break
+            if task.get("status") == "failed":
+                return {"status": "failed", "task_id": task_id, "render_seconds": round(elapsed),
+                        "note": str(task.get("message"))[:300]}
+            if elapsed > MAX_WAIT_SECONDS:
+                return {"status": "failed", "task_id": task_id, "note": "timed out waiting"}
+        render_seconds = time.monotonic() - started
+        output = next((o for o in task.get("outputs") or [] if o.get("type") == "video"), None)
+        if not output or not output.get("url"):
+            return {"status": "failed", "task_id": task_id, "note": "succeeded without a video output"}
+        video = await client.get(output["url"], follow_redirects=True)
+        video.raise_for_status()
+    return {
+        "status": "ok", "task_id": task_id, "render_seconds": round(render_seconds),
+        "billed_seconds": float(output.get("duration") or clip_seconds),
+        "cost_note": "price not published on the API page — see the Kling console",
+        "video_bytes": video.content,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Results
 # ---------------------------------------------------------------------------
 
 MODEL_LABELS = {
     "wan": "wan3.0-video (DashScope, video edit + reference image)",
-    "kling": "Kling O3 Pro (via Runway API, video-to-video + reference image)",
+    "kling": "Kling 3.0 Omni (Kling API, base video edit + reference image)",
     "runway": "Runway Aleph 2.0 (video-to-video, prompt only)",
 }
 
@@ -417,8 +494,8 @@ def record(rows: List[Dict]) -> None:
         "",
         "Generated by `scripts/mascot_video_test.py`. Cost is USD per clip.",
         "",
-        "| Model | Clip | Mascot | Status | Render time | Billed seconds | Cost per clip | Output |",
-        "|---|---|---|---|---|---|---|---|",
+        "| Model | Clip | Mascot | Status | Mascot in clip | Still there at end | Render time | Billed seconds | Cost per clip | Output |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for row in existing:
         render = f"{row['render_seconds']} s" if row.get("render_seconds") is not None else "–"
@@ -426,11 +503,33 @@ def record(rows: List[Dict]) -> None:
         cost = f"${row['cost_usd']:.2f}" if row.get("cost_usd") is not None else "–"
         if row.get("cost_note"):
             cost += f" ({row['cost_note']})"
+        yes_no = {True: "yes", False: "no", None: "–"}
+        seen, stayed = yes_no[row.get("mascot_visible")], yes_no[row.get("visible_at_end")]
         output = f"[{row['output']}]({row['output']})" if row.get("output") else (row.get("note") or "–")
         lines.append(
             f"| {MODEL_LABELS.get(row['model'], row['model'])} | {row['clip']} | {row['mascot']} "
-            f"| {row['status']} | {render} | {billed} | {cost} | {output.replace('|', '/')} |"
+            f"| {row['status']} | {seen} | {stayed} | {render} | {billed} | {cost} | {output.replace('|', '/')} |"
         )
+    # Success rate per model and clip, over the renders that were checked.
+    groups: Dict[tuple, List[Dict]] = {}
+    for row in existing:
+        if row["status"] == "ok" and row.get("mascot_visible") is not None:
+            groups.setdefault((row["model"], row["clip"]), []).append(row)
+    if groups:
+        lines += [
+            "", "## Success rate", "",
+            "A render succeeds when the mascot is in the clip and still there at the end "
+            "(judged by Qwen, the same check production uses).", "",
+            "| Model | Clip | Renders | Mascot in clip | Still there at end | Success rate |",
+            "|---|---|---|---|---|---|",
+        ]
+        for (model, clip_name), rows_ in sorted(groups.items()):
+            seen_n = sum(1 for r in rows_ if r["mascot_visible"])
+            ok_n = sum(1 for r in rows_ if r["mascot_visible"] and r["visible_at_end"])
+            lines.append(
+                f"| {MODEL_LABELS.get(model, model)} | {clip_name} | {len(rows_)} | {seen_n} | {ok_n} "
+                f"| {ok_n}/{len(rows_)} ({round(100 * ok_n / len(rows_))}%) |"
+            )
     prompts = sorted({row["prompt"] for row in existing})
     lines += ["", "## Prompts used", ""] + [f"- {p}" for p in prompts]
     RESULTS_MD.write_text("\n".join(lines) + "\n")
@@ -454,31 +553,44 @@ async def cmd_run(args: argparse.Namespace) -> int:
     print(f"clip: {src.name} -> {clip.name} ({clip_seconds} s, {clip.stat().st_size // 1024} KB)")
 
     rows: List[Dict] = []
+    mascot_mime = mimetypes.guess_type(mascot.name)[0] or "image/png"
     for which in args.models.split(","):
         which = which.strip()
-        print(f"== {which}")
-        try:
-            if which == "wan":
-                result = await run_wan(clip, args.clip_url, mascot, args.prompt, args.resolution, args.dry_run,
-                                       prompt_extend=not args.no_prompt_extend)
-            elif which in RUNWAY_MODELS:
-                result = await run_runway(which, clip, mascot, args.prompt, clip_seconds, args.dry_run)
-            else:
-                sys.exit(f"unknown model: {which}")
-        except Exception as exc:  # noqa: BLE001 — one model failing must not lose the others
-            result = {"status": "failed", "note": f"{type(exc).__name__}: {exc}"}
-        if result["status"] == "dry-run":
-            continue
-        video_bytes = result.pop("video_bytes", None)
-        row = {"model": which, "clip": src.name, "mascot": mascot.stem, "prompt": args.prompt, **result}
-        if video_bytes:
-            tag = f"__{args.tag}" if args.tag else ""
-            name = f"{which}__{src.stem}__{mascot.stem}{tag}.mp4"
-            (OUT_DIR / name).write_bytes(video_bytes)
-            row["output"] = name
-        print(f"  {which}: {row['status']} {row.get('note', '')} "
-              f"{row.get('render_seconds', '')}s ${row.get('cost_usd', '')}")
-        rows.append(row)
+        for attempt in range(1, args.repeat + 1):
+            print(f"== {which} (render {attempt}/{args.repeat})")
+            try:
+                if which == "wan":
+                    result = await run_wan(clip, args.clip_url, mascot, args.prompt, args.resolution, args.dry_run,
+                                           prompt_extend=not args.no_prompt_extend)
+                elif which == "kling":
+                    result = await run_kling(args.clip_url, mascot, args.prompt, args.resolution,
+                                             clip_seconds, args.dry_run)
+                elif which in RUNWAY_MODELS:
+                    result = await run_runway(which, clip, mascot, args.prompt, clip_seconds, args.dry_run)
+                else:
+                    sys.exit(f"unknown model: {which}")
+            except Exception as exc:  # noqa: BLE001 — one model failing must not lose the others
+                result = {"status": "failed", "note": f"{type(exc).__name__}: {exc}"}
+            if result["status"] == "dry-run":
+                break
+            video_bytes = result.pop("video_bytes", None)
+            row = {"model": which, "clip": src.name, "mascot": mascot.stem, "prompt": args.prompt, **result}
+            if video_bytes:
+                tag = f"__{args.tag}" if args.tag else ""
+                run = f"__r{attempt}" if args.repeat > 1 else ""
+                name = f"{which}__{src.stem}__{mascot.stem}{tag}{run}.mp4"
+                (OUT_DIR / name).write_bytes(video_bytes)
+                row["output"] = name
+                verdict = await mv.check_mascot_in_result(video_bytes, mascot.read_bytes(), mascot_mime)
+                if verdict:
+                    row.update(mascot_visible=verdict["mascot_visible"], visible_at_end=verdict["visible_at_end"],
+                               check_reason=verdict["reason"])
+            print(f"  {which}: {row['status']} {row.get('note', '')} "
+                  f"{row.get('render_seconds', '')}s ${row.get('cost_usd', '')} "
+                  f"mascot={row.get('mascot_visible')} at_end={row.get('visible_at_end')}")
+            rows.append(row)
+            if row["status"] == "skipped":
+                break  # no key / no URL: repeating will not change that
     if rows:
         record(rows)
         print(f"results: {RESULTS_MD}")
@@ -523,7 +635,8 @@ def main() -> int:
     run.add_argument("--prompt", default=DEFAULT_PROMPT)
     run.add_argument("--models", default="wan,kling,runway")
     run.add_argument("--resolution", default="720P", choices=sorted(WAN_PRICE_PER_SECOND))
-    run.add_argument("--clip-url", help="public URL of the SAME clip, to skip the DashScope temp upload")
+    run.add_argument("--clip-url", help="public URL of the SAME clip (required for Kling; optional for wan)")
+    run.add_argument("--repeat", type=int, default=1, help="renders per model, for a success rate")
     run.add_argument("--tag", help="suffix for the output file, to keep prompt variants apart")
     run.add_argument("--no-prompt-extend", action="store_true", help="wan: send the prompt as written")
     run.add_argument("--dry-run", action="store_true", help="print payloads, spend nothing")

@@ -273,7 +273,11 @@ def store(monkeypatch, dashscope_env):
     return rows, objects
 
 
-def provider(monkeypatch, *, verdict, poll=None):
+def provider(monkeypatch, *, verdict, poll=None, found=True):
+    monkeypatch.setattr(mv, "check_mascot_in_result", AsyncMock(return_value=(
+        None if found is None else {"mascot_visible": found, "visible_at_end": found, "reason": ""}
+    )))
+    monkeypatch.setattr(mv, "burn_ai_label", lambda data: b"LABELLED:" + data)
     service = svc.zai_video_service
     upload = AsyncMock(return_value="oss://tmp/clip.mp4")
     submit = AsyncMock(return_value="task-9")
@@ -304,7 +308,8 @@ class TestDriver:
         upload, submit = provider(monkeypatch, verdict={"is_safe": True})
         row = rows[await run_job()]
         assert row["status"] == "ready"
-        assert objects[row["result_key"]] == b"RESULT"
+        assert objects[row["result_key"]] == b"LABELLED:RESULT"  # the stored file carries the AI label
+        assert row["mascot_found"] is True
         assert row["result_url"].endswith(f"/api/v1/mascot-videos/media/{row['result_key']}")
         assert row["cost"] == 1.04  # metered: 10.4 billed seconds at 720P
         assert row["consent_at"]
@@ -339,6 +344,35 @@ class TestDriver:
         assert "internal detail" not in row["error"]
         assert await mv.renders_today(MERCHANT) == 1  # it reached the provider
         assert await mv.active_jobs(MERCHANT) == 0
+
+    async def test_render_without_a_mascot_is_not_delivered_and_not_counted(self, store, monkeypatch):
+        rows, objects = store
+        provider(monkeypatch, verdict={"is_safe": True}, found=False)
+        row = rows[await run_job()]
+        assert row["status"] == "failed" and row["mascot_found"] is False
+        assert row["error"] == mv.NO_MASCOT_MESSAGE
+        assert not row.get("result_key") and b"LABELLED:RESULT" not in objects.values()
+        assert row["cost"] == 1.04  # it was still paid for
+        usage = await mv.usage_today(MERCHANT)
+        assert usage["used"] == 0 and usage["attempts"] == 1
+
+    async def test_render_is_delivered_when_the_mascot_check_cannot_run(self, store, monkeypatch):
+        rows, _ = store
+        provider(monkeypatch, verdict={"is_safe": True}, found=None)
+        row = rows[await run_job()]
+        assert row["status"] == "ready" and row["mascot_found"] is None
+        assert await mv.renders_today(MERCHANT) == 1
+
+    async def test_a_clip_that_cannot_be_labelled_is_not_delivered(self, store, monkeypatch):
+        rows, _ = store
+        provider(monkeypatch, verdict={"is_safe": True})
+
+        def broken(_data):
+            raise mv.LabelError("no ffmpeg")
+
+        monkeypatch.setattr(mv, "burn_ai_label", broken)
+        row = rows[await run_job()]
+        assert row["status"] == "failed" and not row.get("result_key")
 
     async def test_a_merchant_cannot_read_another_merchants_job(self, store, monkeypatch):
         provider(monkeypatch, verdict={"is_safe": True})
@@ -382,7 +416,8 @@ class TestRoutes:
 
     def test_config_reports_limits_and_usage(self, client):
         body = client.get("/api/v1/mascot-videos/config").json()
-        assert body["max_clip_seconds"] == 10 and body["daily"] == {"used": 0, "limit": 3, "remaining": 3}
+        assert body["max_clip_seconds"] == 10
+        assert body["daily"] == {"used": 0, "limit": 3, "remaining": 3, "attempts": 0, "attempt_limit": 6}
 
     def test_create_requires_consent(self, client):
         response = post_job(client, consent="false")
@@ -423,6 +458,17 @@ class TestRoutes:
         assert capped.status_code == 429
         assert capped.json()["detail"]["error"] == "daily_limit_reached"
 
+    def test_no_mascot_renders_do_not_use_the_cap_but_hit_the_attempt_ceiling(self, client, store, monkeypatch):
+        rows, _ = store
+        monkeypatch.setenv("MASCOT_VIDEO_DAILY_LIMIT", "1")
+        for _ in range(2):  # attempt ceiling defaults to twice the limit
+            response = post_job(client)
+            assert response.status_code == 202
+            rows[response.json()["job"]["id"]].update({"status": "failed", "task_id": "t", "mascot_found": False})
+        blocked = post_job(client)
+        assert blocked.status_code == 429
+        assert blocked.json()["detail"]["error"] == "daily_attempts_reached"
+
     def test_another_merchants_job_is_not_found(self, client, store):
         job_id = post_job(client).json()["job"]["id"]
         client.app.dependency_overrides[get_current_user] = lambda: {"sub": OTHER}
@@ -436,3 +482,33 @@ class TestRoutes:
         ok = client.get(f"/api/v1/mascot-videos/media/{key}")
         assert ok.status_code == 200 and ok.content == b"VIDEO" and ok.headers["content-type"] == "video/mp4"
         assert client.get("/api/v1/mascot-videos/media/..%2Fsecret.mp4").status_code == 404
+
+
+# --------------------------------------------------------------------------
+# the burned-in label
+# --------------------------------------------------------------------------
+
+class TestLabel:
+    def test_label_image_is_a_transparent_png(self):
+        from io import BytesIO
+
+        from PIL import Image
+
+        image = Image.open(BytesIO(mv.ai_label_png()))
+        assert image.mode == "RGBA" and image.width > image.height
+        assert image.getpixel((0, 0))[3] == 0  # rounded corner is transparent
+
+    def test_missing_ffmpeg_is_a_label_error(self, monkeypatch):
+        monkeypatch.setattr(mv, "ffmpeg_path", lambda: None)
+        with pytest.raises(mv.LabelError):
+            mv.burn_ai_label(b"clip")
+
+    def test_ffmpeg_failure_is_a_label_error(self):
+        if not mv.ffmpeg_path():
+            pytest.skip("no ffmpeg in this environment")
+        with pytest.raises(mv.LabelError):
+            mv.burn_ai_label(b"this is not a video")
+
+    def test_usage_counts(self):
+        rows = [{"mascot_found": True}, {"mascot_found": None}, {"mascot_found": False}]
+        assert mv.count_usage(rows) == {"renders": 2, "attempts": 3}

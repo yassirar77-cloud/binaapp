@@ -39,8 +39,14 @@ to Cloudinary and applies it with the hero-video patcher.
    timeout fails the job without rendering.
 4. The clip goes to wan3.0 through DashScope's temporary file store (an
    `oss://` URL, never a public one), the mascot as a base64 reference image.
-5. The job is polled in the background; the result is copied into the bucket
-   and the metered cost written on the row.
+5. The job is polled in the background and the metered cost written on the row.
+6. Qwen is shown the result and the mascot and asked whether the mascot is in
+   the clip. If it is not, the job fails with `mascot_found = false`, nothing
+   is delivered, and the render does not count against the daily cap. If the
+   check cannot run, the clip is delivered and counted as usual.
+7. A small "Dijana AI" label is burned into the bottom-left corner with ffmpeg
+   (system ffmpeg, else the binary bundled with `imageio-ffmpeg`), and that
+   file is what is stored. A clip that cannot be labelled is not delivered.
 
 A backend restart loses the in-process driver; the next `GET` of the job
 starts it again (a job the provider already accepted resumes polling).
@@ -50,7 +56,11 @@ starts it again (a job the provider already accepted resumes polling).
 - DashScope bills **input + output seconds**: a 10 s clip at 720P is about
   USD 2.00, at 1080P about USD 4.00.
 - `MASCOT_VIDEO_DAILY_LIMIT` (default 3) renders per merchant per UTC day,
-  counted from rows that reached the provider. One job in flight per merchant.
+  counted from rows that reached the provider, minus renders that came back
+  with no mascot. One job in flight per merchant.
+- `MASCOT_VIDEO_DAILY_ATTEMPT_LIMIT` (default twice the daily limit) is the
+  hard ceiling on everything that reaches the provider, counted or not —
+  no-mascot renders are still billed by DashScope.
 - `MASCOT_IMAGE_DAILY_LIMIT` (default 5) glm-image mascots per merchant per
   day (in memory; resets on restart).
 - **No billing yet.** `TODO(billing)` in `mascot_video.py`: charge BinaCredits
@@ -60,9 +70,9 @@ starts it again (a job the provider already accepted resumes polling).
 
 - Mascot placement is not reliable — see `test_outputs/README.md`. The real
   scene is always kept, but the mascot can come out small, fade, or be missing.
-  A render that disappoints still costs money and still counts against the cap.
-- The "Dijana AI" label is shown by the dashboard on every result. It is not
-  burned into the downloaded file or the hero clip: wan3.0's own watermark
-  reads "AI 生成" (`MASCOT_VIDEO_WATERMARK`, off by default).
+  A render with no mascot at all is caught and not counted; one where the
+  mascot is small or fades still counts.
+- The burned-in label means every result is re-encoded once (H.264, CRF 18).
+  wan3.0's own watermark reads "AI 生成" and stays off (`MASCOT_VIDEO_WATERMARK`).
 - Media is served from `/api/v1/mascot-videos/media/{key}` without auth
   (a `<video>` tag cannot send a token); keys are 128-bit random.

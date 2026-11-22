@@ -38,9 +38,13 @@ export interface MascotVideoJob {
 }
 
 export interface MascotVideoDaily {
+  /** Renders that count against the cap (a render with no mascot does not). */
   used: number
   limit: number
   remaining: number
+  /** Everything that reached the video model today, counted or not. */
+  attempts?: number
+  attempt_limit?: number
 }
 
 export interface MascotVideoConfig {

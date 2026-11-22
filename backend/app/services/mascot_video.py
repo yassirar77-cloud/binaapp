@@ -18,9 +18,12 @@ Life of a job
 Money rules
 -----------
   * ``MASCOT_VIDEO_ENABLED`` is off by default: every route 404s.
-  * ``MASCOT_VIDEO_DAILY_LIMIT`` (default 3) caps the renders that reach the
-    provider per merchant per UTC day, and one merchant has one job in flight
-    at a time.
+  * ``MASCOT_VIDEO_DAILY_LIMIT`` (default 3) caps the renders per merchant
+    per UTC day, and one merchant has one job in flight at a time. A render
+    that comes back with no mascot in it is not delivered and not counted;
+    ``MASCOT_VIDEO_DAILY_ATTEMPT_LIMIT`` (default 2x) is the hard ceiling on
+    everything that reaches the provider, counted or not.
+  * Every delivered clip has a small "Dijana AI" label burned in with ffmpeg.
   * DashScope bills input seconds + output seconds, so a 10 s clip is 20
     billed seconds. The estimate is written on the row at submit and replaced
     by the metered figure when the job finishes.
@@ -35,9 +38,14 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import io
+import json
 import os
 import re
+import shutil
 import struct
+import subprocess
+import tempfile
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -99,6 +107,18 @@ def daily_limit() -> int:
         return max(0, int(os.getenv("MASCOT_VIDEO_DAILY_LIMIT", "3")))
     except ValueError:
         return 3
+
+
+def daily_attempt_limit() -> int:
+    """Every render that reaches the provider is paid for, including the ones
+    that come back without a mascot and so do not count against
+    ``daily_limit``. This is the hard ceiling on those: without it a clip the
+    model can never edit would be free to retry all day. Default: twice the
+    daily limit."""
+    try:
+        return max(0, int(os.getenv("MASCOT_VIDEO_DAILY_ATTEMPT_LIMIT", str(2 * daily_limit()))))
+    except ValueError:
+        return 2 * daily_limit()
 
 
 def max_clip_bytes() -> int:
@@ -256,6 +276,11 @@ _EDIT_SUFFIX = (
 )
 DEFAULT_ACTION = "The mascot smiles and waves at the camera."
 
+NO_MASCOT_MESSAGE = (
+    "Maskot tidak muncul dalam video yang dijana. Percubaan ini tidak dikira dalam had "
+    "harian anda. Sila cuba lagi, atau guna klip yang menunjukkan lantai atau meja dengan jelas."
+)
+
 
 def build_edit_prompt(merchant_prompt: str) -> str:
     """What wan3.0 receives. The merchant only says what the mascot does; the
@@ -267,6 +292,151 @@ def build_edit_prompt(merchant_prompt: str) -> str:
     else:
         action = DEFAULT_ACTION
     return f"{_EDIT_PREFIX} {action} {_EDIT_SUFFIX}"
+
+
+# --------------------------------------------------------------------------
+# finishing — is the mascot actually there, and the burned-in AI label
+# --------------------------------------------------------------------------
+
+_RESULT_CHECK_PROMPT = (
+    "The image is a cartoon mascot character. The video is a real-world clip that the mascot "
+    "was supposed to be added to. Watch the whole video and answer ONLY with this JSON, "
+    "nothing else:\n"
+    '{"mascot_visible": true, "visible_at_end": true, "reason": "one short sentence"}\n'
+    "mascot_visible: true only if that cartoon character (or a clearly recognisable version "
+    "of it) appears anywhere in the video. visible_at_end: true only if it is still clearly "
+    "visible in the final second. If there is no cartoon character in the video at all, both "
+    "are false."
+)
+
+
+async def check_mascot_in_result(result: bytes, mascot: bytes, mascot_mime: str) -> Optional[Dict[str, Any]]:
+    """Ask Qwen whether the rendered clip actually contains the mascot.
+
+    Returns ``{"mascot_visible", "visible_at_end", "reason"}``, or None when
+    the check could not run. None is NOT "missing": a render we could not
+    inspect is delivered and counted like any other.
+    """
+    model = moderation.moderation_video_model()
+    api_key = video._dashscope_api_key()
+    if not api_key:
+        return None
+    try:
+        video_url = await video.zai_video_service.upload_temp_file(
+            result, f"{uuid.uuid4().hex}.mp4", model=model
+        )
+        payload = {
+            "model": model,
+            "input": {"messages": [{"role": "user", "content": [
+                {"image": f"data:{mascot_mime};base64,{base64.b64encode(mascot).decode()}"},
+                {"video": video_url},
+                {"text": _RESULT_CHECK_PROMPT},
+            ]}]},
+            "parameters": {"max_tokens": 200},
+        }
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.post(
+                moderation.QWEN_VL_API_URL,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                    "X-DashScope-OssResourceResolve": "enable",
+                },
+                json=payload,
+            )
+        if response.status_code != 200:
+            logger.warning("mascot result check failed: {} {}", response.status_code, response.text[:200])
+            return None
+        content = response.json()["output"]["choices"][0]["message"]["content"]
+        text = content if isinstance(content, str) else next(
+            (item["text"] for item in content if isinstance(item, dict) and "text" in item), ""
+        )
+        verdict = json.loads(text[text.index("{"):text.rindex("}") + 1])
+        return {
+            "mascot_visible": verdict.get("mascot_visible") is True,
+            "visible_at_end": verdict.get("visible_at_end") is True,
+            "reason": str(verdict.get("reason") or "")[:300],
+        }
+    except Exception as exc:  # noqa: BLE001 - a broken check must not lose a paid render
+        logger.warning("mascot result check errored: {}: {}", type(exc).__name__, exc)
+        return None
+
+
+AI_LABEL_TEXT = "Dijana AI"
+
+
+class LabelError(RuntimeError):
+    pass
+
+
+def ffmpeg_path() -> Optional[str]:
+    """The system ffmpeg, else the one bundled with imageio-ffmpeg (the
+    Render runtime has no system ffmpeg)."""
+    found = shutil.which("ffmpeg")
+    if found:
+        return found
+    try:
+        import imageio_ffmpeg
+
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:  # noqa: BLE001 - not installed, or no binary for this platform
+        return None
+
+
+def ai_label_png() -> bytes:
+    """The label as a transparent PNG: white text on a dark rounded pill.
+    Drawn with Pillow so ffmpeg needs neither drawtext nor a font file."""
+    from PIL import Image, ImageDraw, ImageFont
+
+    try:
+        font = ImageFont.load_default(size=44)
+    except TypeError:  # Pillow < 10.1 has only the small bitmap font
+        font = ImageFont.load_default()
+    left, top, right, bottom = font.getbbox(AI_LABEL_TEXT)
+    pad_x, pad_y = 26, 16
+    width, height = (right - left) + 2 * pad_x, (bottom - top) + 2 * pad_y
+    image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    draw.rounded_rectangle((0, 0, width - 1, height - 1), radius=height // 2, fill=(0, 0, 0, 170))
+    draw.text((pad_x - left, pad_y - top), AI_LABEL_TEXT, font=font, fill=(255, 255, 255, 240))
+    out = io.BytesIO()
+    image.save(out, format="PNG")
+    return out.getvalue()
+
+
+def burn_ai_label(data: bytes) -> bytes:
+    """Re-encode the clip with a small "Dijana AI" label in the bottom-left
+    corner, so a downloaded file or a hero clip carries it. The label is
+    scaled to 5.5 % of the video's height whatever its size. Blocking — call
+    it through ``asyncio.to_thread``. Raises LabelError."""
+    binary = ffmpeg_path()
+    if not binary:
+        raise LabelError("ffmpeg is not available")
+    with tempfile.TemporaryDirectory(prefix="mascot-label-") as folder:
+        src, label, dst = (os.path.join(folder, name) for name in ("in.mp4", "label.png", "out.mp4"))
+        with open(src, "wb") as handle:
+            handle.write(data)
+        with open(label, "wb") as handle:
+            handle.write(ai_label_png())
+        command = [
+            binary, "-v", "error", "-y", "-i", src, "-i", label,
+            "-filter_complex",
+            "[1:v][0:v]scale2ref=w=oh*mdar:h=ih*0.055[label][clip];"
+            "[clip][label]overlay=x=main_h*0.025:y=main_h-overlay_h-main_h*0.025",
+            "-c:v", "libx264", "-crf", "18", "-preset", "veryfast", "-pix_fmt", "yuv420p",
+            "-c:a", "copy", "-movflags", "+faststart", dst,
+        ]
+        try:
+            done = subprocess.run(command, capture_output=True, timeout=180)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise LabelError(f"ffmpeg did not finish: {type(exc).__name__}") from exc
+        if done.returncode != 0 or not os.path.exists(dst):
+            raise LabelError(f"ffmpeg failed: {done.stderr.decode(errors='replace')[-300:]}")
+        with open(dst, "rb") as handle:
+            labelled = handle.read()
+    if not labelled:
+        raise LabelError("ffmpeg wrote an empty file")
+    return labelled
 
 
 # --------------------------------------------------------------------------
@@ -345,16 +515,30 @@ async def list_jobs(merchant_id: str, limit: int = 20) -> List[Dict[str, Any]]:
     )
 
 
-async def renders_today(merchant_id: str) -> int:
-    """Rows that reached the provider today. A clip refused by moderation or
-    by validation was never rendered and does not count."""
-    rows = await db_select(
+async def _submitted_today(merchant_id: str) -> List[Dict[str, Any]]:
+    return await db_select(
         TABLE,
         filters={"merchant_id": merchant_id},
         extra={"created_at": f"gte.{_day_start_iso()}", "task_id": "not.is.null"},
-        select="id",
+        select="id,mascot_found",
     )
-    return len(rows)
+
+
+def count_usage(rows: List[Dict[str, Any]]) -> Dict[str, int]:
+    """``renders`` is what the merchant's daily cap counts: jobs that reached
+    the provider, minus those that came back with no mascot. ``attempts`` is
+    every job that reached the provider, mascot or not. Pure."""
+    return {
+        "renders": sum(1 for row in rows if row.get("mascot_found") is not False),
+        "attempts": len(rows),
+    }
+
+
+async def renders_today(merchant_id: str) -> int:
+    """Renders that count against the cap today. A clip refused by moderation
+    or validation was never rendered; a render that came back without the
+    mascot is the provider's miss. Neither counts."""
+    return count_usage(await _submitted_today(merchant_id))["renders"]
 
 
 async def active_jobs(merchant_id: str) -> int:
@@ -369,8 +553,14 @@ async def active_jobs(merchant_id: str) -> int:
 
 async def usage_today(merchant_id: str) -> Dict[str, int]:
     limit = daily_limit()
-    used = await renders_today(merchant_id)
-    return {"used": used, "limit": limit, "remaining": max(0, limit - used)}
+    counts = count_usage(await _submitted_today(merchant_id))
+    return {
+        "used": counts["renders"],
+        "limit": limit,
+        "remaining": max(0, limit - counts["renders"]),
+        "attempts": counts["attempts"],
+        "attempt_limit": daily_attempt_limit(),
+    }
 
 
 async def _patch(job_id: str, patch: Dict[str, Any]) -> None:
@@ -536,22 +726,43 @@ async def _poll_and_store(row: Dict[str, Any], task_id: str) -> None:
             logger.warning("mascot video {} failed at provider: {} {}", job_id, result.get("code"), result.get("message"))
             await _finish(job_id, "failed", "Video tidak dapat dijana daripada klip ini. Cuba klip lain.", result.get("raw_status"))
             return
-        # success → the provider URL lives 24 h; copy the clip into our bucket.
+        # success → the provider URL lives 24 h.
         data = await video.zai_video_service.download(str(result["video_url"]))
-        key = await store_bytes(data, "mp4")
-        patch: Dict[str, Any] = {
-            "status": "ready",
-            "result_key": key,
-            "result_url": media_url(key),
-            "provider_status": result.get("raw_status"),
-            "finished_at": _iso_now(),
-            "error": None,
-        }
+        patch: Dict[str, Any] = {"provider_status": result.get("raw_status"), "finished_at": _iso_now()}
         usage = await video.zai_video_service.fetch_dashscope_usage(task_id)
         billed = float(usage.get("duration") or 0)
         if billed > 0:
             res = f"{usage.get('SR')}P" if usage.get("SR") else (row.get("resolution") or resolution())
             patch["cost"] = round(billed * usd_per_second(res), 4)
+
+        # Did the model actually add the mascot? One render in five in Phase 1
+        # came back as the untouched clip. That is the provider's miss, not
+        # the merchant's: it is not delivered and not counted against the cap.
+        mascot = await fetch_bytes(row["mascot_key"])
+        verdict = None
+        if mascot:
+            mascot_mime = EXT_MIME[row["mascot_key"].rsplit(".", 1)[1]]
+            verdict = await check_mascot_in_result(data, mascot, mascot_mime)
+        if verdict is not None and not verdict["mascot_visible"]:
+            logger.warning("mascot video {} has no mascot: {}", job_id, verdict.get("reason"))
+            await _patch(job_id, {**patch, "status": "failed", "mascot_found": False, "error": NO_MASCOT_MESSAGE})
+            return
+
+        try:
+            data = await asyncio.to_thread(burn_ai_label, data)
+        except LabelError as exc:
+            # An unlabelled AI clip is not handed out.
+            logger.error("mascot video {} could not be labelled: {}", job_id, exc)
+            await _patch(job_id, {**patch, "status": "failed", "error": "Video tidak dapat disiapkan. Sila cuba lagi."})
+            return
+        key = await store_bytes(data, "mp4")
+        patch.update({
+            "status": "ready",
+            "result_key": key,
+            "result_url": media_url(key),
+            "mascot_found": True if verdict is not None else None,
+            "error": None,
+        })
         await _patch(job_id, patch)
         logger.info("mascot video {} ready ({} KB)", job_id, len(data) // 1024)
         return

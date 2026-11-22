@@ -7,7 +7,8 @@
 -- (DashScope) edits the mascot into the real scene. Every attempt is a row:
 -- what was uploaded, what was asked, where it went (provider task id), what
 -- came back and what it cost. The per-merchant daily cap
--- (MASCOT_VIDEO_DAILY_LIMIT) is counted from rows that reached the provider.
+-- (MASCOT_VIDEO_DAILY_LIMIT) is counted from rows that reached the provider,
+-- except those whose render came back with no mascot (mascot_found = FALSE).
 --
 -- status: queued → moderating → processing → ready | rejected | failed
 --   rejected = Qwen moderation refused the clip; nothing was rendered.
@@ -44,6 +45,7 @@ CREATE TABLE IF NOT EXISTS public.mascot_videos (
     resolution       TEXT NOT NULL DEFAULT '720P',
     model            TEXT,                             -- wan3.0-video
     task_id          TEXT,                             -- provider task id (NULL = never rendered)
+    mascot_found     BOOLEAN,                          -- FALSE = render came back with no mascot (not counted against the cap); NULL = not checked
     provider_status  TEXT,
     error            TEXT,
     consent_at       TIMESTAMPTZ NOT NULL,             -- merchant confirmed people in the clip agreed

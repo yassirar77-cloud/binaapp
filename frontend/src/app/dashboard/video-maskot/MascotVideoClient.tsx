@@ -45,14 +45,6 @@ type MascotPick =
   | { kind: 'upload'; file: File; preview: string }
   | { kind: 'generated'; url: string }
 
-function AiLabel() {
-  return (
-    <span className="absolute left-2 top-2 rounded-full bg-black/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/90 backdrop-blur">
-      Dijana AI
-    </span>
-  )
-}
-
 export default function MascotVideoClient() {
   const router = useRouter()
   const [userName, setUserName] = useState('Pengguna')
@@ -244,7 +236,9 @@ export default function MascotVideoClient() {
 
   const mascotPreview =
     mascot?.kind === 'preset' ? mascot.src : mascot?.kind === 'upload' ? mascot.preview : mascot?.url
-  const capReached = !!config && config.daily.remaining <= 0
+  const attemptsSpent =
+    !!config && config.daily.attempt_limit !== undefined && (config.daily.attempts || 0) >= config.daily.attempt_limit
+  const capReached = !!config && (config.daily.remaining <= 0 || attemptsSpent)
   const canSubmit =
     !!clip && !!mascot && consent && !submitting && !activeJob && !capReached && !!config?.available
 
@@ -289,7 +283,10 @@ export default function MascotVideoClient() {
             )}
             {capReached && (
               <Notice tone="info">
-                Had harian dicapai ({config.daily.used}/{config.daily.limit}). Anda boleh menjana video baharu esok.
+                {config.daily.remaining <= 0
+                  ? `Had harian dicapai (${config.daily.used}/${config.daily.limit}). `
+                  : 'Terlalu banyak percubaan hari ini. '}
+                Anda boleh menjana video baharu esok.
               </Notice>
             )}
 
@@ -452,17 +449,15 @@ export default function MascotVideoClient() {
                     <article key={job.id} className="dash-surface overflow-hidden">
                       <div className="relative aspect-video bg-black">
                         {job.status === 'ready' && job.result_url ? (
-                          <>
-                            <video
-                              src={job.result_url}
-                              controls
-                              loop
-                              muted
-                              playsInline
-                              className="h-full w-full object-contain"
-                            />
-                            <AiLabel />
-                          </>
+                          // The "Dijana AI" label is burned into the file itself.
+                          <video
+                            src={job.result_url}
+                            controls
+                            loop
+                            muted
+                            playsInline
+                            className="h-full w-full object-contain"
+                          />
                         ) : (
                           <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
                             {isActive(job.status) && (

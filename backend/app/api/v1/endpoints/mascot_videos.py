@@ -183,6 +183,11 @@ async def create_mascot_video(
                 429, "daily_limit_reached",
                 f"Had harian dicapai ({usage['used']}/{usage['limit']}). Cuba lagi esok.",
             )
+        if mv.cap_reached(usage["attempts"], usage["attempt_limit"]):
+            raise _error(
+                429, "daily_attempts_reached",
+                "Terlalu banyak percubaan hari ini. Cuba lagi esok dengan klip yang lain.",
+            )
         if await mv.active_jobs(merchant_id) > 0:
             raise _error(409, "job_in_progress", "Satu video sedang dijana. Tunggu sehingga ia siap.")
     except DbError as exc:

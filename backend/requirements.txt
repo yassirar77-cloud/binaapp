@@ -77,3 +77,7 @@ pytest-asyncio
 # The browser itself is installed by build.sh; without it the gate falls
 # back to a text-only critique.
 playwright>=1.45
+
+# Bundled ffmpeg binary: burns the "Dijana AI" label into mascot videos
+# (the Render python runtime has no system ffmpeg).
+imageio-ffmpeg
