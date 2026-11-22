@@ -1257,6 +1257,153 @@ class ZaiVideoService:
             logger.error(f"🎬 DashScope task {task_id} UNEXPECTED task_status={state!r} — full body: {response.text}")
         return _poll_result("processing", raw_status=state or "(missing)")
 
+    # ---- DashScope: video editing (mascot video) --------------------------
+
+    async def upload_temp_file(
+        self, data: bytes, filename: str, *, model: str, content_type: str = "video/mp4"
+    ) -> str:
+        """Put a file in DashScope's temporary store and return its ``oss://``
+        URL (valid 48 h). A request that uses the URL must carry
+        ``X-DashScope-OssResourceResolve: enable``. This is how a merchant's
+        clip reaches the model without ever being given a public URL.
+
+        The policy is issued per model: a URL uploaded for one model is only
+        resolvable by a request to that model.
+        """
+        key = _dashscope_api_key()
+        if not key:
+            raise ZaiVideoError("DASHSCOPE_API_KEY is not configured")
+        try:
+            async with httpx.AsyncClient(timeout=zai_video_timeout_seconds()) as client:
+                policy_response = await client.get(
+                    f"{_dashscope_base_url()}/uploads",
+                    params={"action": "getPolicy", "model": model},
+                    headers={"Authorization": f"Bearer {key}"},
+                )
+                if policy_response.status_code != 200:
+                    raise ZaiVideoError(
+                        f"DashScope upload policy failed ({policy_response.status_code})",
+                        status_code=policy_response.status_code,
+                    )
+                policy = (policy_response.json() or {}).get("data") or {}
+                object_key = f"{policy['upload_dir']}/{filename}"
+                upload = await client.post(
+                    policy["upload_host"],
+                    data={
+                        "OSSAccessKeyId": policy["oss_access_key_id"],
+                        "Signature": policy["signature"],
+                        "policy": policy["policy"],
+                        "x-oss-object-acl": policy["x_oss_object_acl"],
+                        "x-oss-forbid-overwrite": policy["x_oss_forbid_overwrite"],
+                        "key": object_key,
+                        "success_action_status": "200",
+                    },
+                    files={"file": (filename, data, content_type)},
+                )
+        except KeyError as exc:
+            raise ZaiVideoError(f"DashScope upload policy was missing {exc}") from exc
+        except httpx.TimeoutException as exc:
+            raise ZaiVideoError("DashScope temp upload timed out") from exc
+        except httpx.HTTPError as exc:
+            raise ZaiVideoError(f"DashScope temp upload failed: {exc}") from exc
+        if upload.status_code != 200:
+            logger.error(f"🎬 DashScope temp upload failed: {upload.status_code} - {upload.text[:300]}")
+            raise ZaiVideoError(f"DashScope temp upload failed ({upload.status_code})")
+        return f"oss://{object_key}"
+
+    async def submit_video_edit(
+        self,
+        prompt: str,
+        *,
+        video_url: str,
+        reference_image_urls: Optional[List[str]] = None,
+        resolution: Optional[str] = None,
+        watermark: bool = False,
+    ) -> str:
+        """Start a wan3.x video EDIT: ``video_url`` is the clip to keep
+        ("Video 1" in the prompt), the reference images are what to add to it
+        ("Image 1"…). Returns the DashScope task id; poll it with
+        ``fetch_result(task_id, provider=PROVIDER_DASHSCOPE)``.
+
+        ``duration: -1`` keeps the source length and ``ratio: adaptive`` its
+        shape. DashScope bills input seconds + output seconds. The prompt is
+        NOT cut to ZAI_PROMPT_MAX_CHARS: wan3.x takes 20 000 characters and an
+        edit instruction that loses its "keep everything else" half is worse
+        than no instruction.
+        """
+        if not _dashscope_api_key():
+            raise ZaiVideoError("DASHSCOPE_API_KEY is not configured")
+        model = dashscope_video_model()
+        if not _dashscope_is_unified(model):
+            raise ZaiVideoError(
+                f"DashScope model {model} cannot edit a video — set DASHSCOPE_VIDEO_MODEL to a wan3.x model"
+            )
+        chosen_resolution = (resolution or "").strip().upper()
+        if chosen_resolution not in DASHSCOPE_RESOLUTIONS:
+            chosen_resolution = dashscope_video_resolution()
+        references = [u for u in (reference_image_urls or []) if u][:10]
+        media = [{"type": "reference_image", "url": u} for u in references]
+        media.append({"type": "reference_video", "url": video_url})
+        payload: Dict = {
+            "model": model,
+            "input": {"prompt": prompt, "media": media},
+            "parameters": {
+                "resolution": chosen_resolution,
+                "ratio": "adaptive",
+                "duration": -1,
+                "audio": False,
+                "watermark": bool(watermark),
+            },
+        }
+        headers = self._dashscope_headers()
+        if video_url.startswith("oss://") or any(u.startswith("oss://") for u in references):
+            headers["X-DashScope-OssResourceResolve"] = "enable"
+        logger.info(
+            f"🎬 DASHSCOPE VIDEO REQUEST model={model} mode=video-edit "
+            f"resolution={chosen_resolution} ratio=adaptive duration=source "
+            f"watermark={bool(watermark)} references={len(references)} prompt={prompt!r}"
+        )
+        try:
+            async with httpx.AsyncClient(timeout=zai_video_timeout_seconds()) as client:
+                response = await client.post(
+                    f"{_dashscope_base_url()}/services/aigc/video-generation/video-synthesis",
+                    headers=headers,
+                    json=payload,
+                )
+        except httpx.TimeoutException as exc:
+            raise ZaiVideoError("DashScope video submit timed out") from exc
+        except httpx.HTTPError as exc:
+            raise ZaiVideoError(f"DashScope video submit failed: {exc}") from exc
+        if response.status_code == 429:
+            raise ZaiVideoError("DashScope video rate limit — try again in a minute")
+        if response.status_code != 200:
+            logger.error(
+                f"🎬 DashScope video edit submit failed: {response.status_code} - {response.text[:300]}"
+            )
+            raise ZaiVideoError(f"DashScope video submit failed ({response.status_code})")
+        output = (response.json() or {}).get("output") or {}
+        task_id = output.get("task_id")
+        if not task_id:
+            raise ZaiVideoError("DashScope video submit returned no task id")
+        logger.info(f"🎬 DashScope video edit task {task_id} accepted")
+        return str(task_id)
+
+    async def fetch_dashscope_usage(self, task_id: str) -> Dict:
+        """The ``usage`` block of a finished task (``duration`` = billed
+        seconds, input + output). Empty when it cannot be read: the caller
+        falls back to its estimate rather than failing a finished clip."""
+        try:
+            async with httpx.AsyncClient(timeout=zai_video_poll_timeout_seconds()) as client:
+                response = await client.get(
+                    f"{_dashscope_base_url()}/tasks/{task_id}",
+                    headers={"Authorization": f"Bearer {_dashscope_api_key()}"},
+                )
+            if response.status_code != 200:
+                return {}
+            return (response.json() or {}).get("usage") or {}
+        except (httpx.HTTPError, ValueError):
+            return {}
+
     # ---- storage ----------------------------------------------------------
 
     @staticmethod

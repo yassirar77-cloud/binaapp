@@ -1,0 +1,102 @@
+[
+  {
+    "model": "wan",
+    "clip": "street_stalls_bangkok.mp4",
+    "mascot": "teh_tarik_uncle",
+    "prompt": "Edit Video 1: add the cartoon mascot character from Image 1 into the scene, standing naturally in the foreground, smiling and waving at the camera. Keep the mascot's flat colourful cartoon style exactly as in Image 1. Keep everything else in Video 1 unchanged: the same real shop, people, food, lighting and camera movement.",
+    "status": "ok",
+    "task_id": "a2bb09f3-9272-4c7c-9c2b-d6acf48f5e72",
+    "render_seconds": 260,
+    "billed_seconds": 10.4,
+    "cost_usd": 1.04,
+    "usage": {
+      "duration": 10.4,
+      "SR": 720,
+      "video_count": 1,
+      "output_video_duration": 5.2,
+      "input_video_duration": 5.2,
+      "fps": 30,
+      "ratio": "16:9"
+    },
+    "output": "wan__street_stalls_bangkok__teh_tarik_uncle.mp4"
+  },
+  {
+    "model": "kling",
+    "clip": "street_stalls_bangkok.mp4",
+    "mascot": "teh_tarik_uncle",
+    "prompt": "Edit Video 1: add the cartoon mascot character from Image 1 into the scene, standing naturally in the foreground, smiling and waving at the camera. Keep the mascot's flat colourful cartoon style exactly as in Image 1. Keep everything else in Video 1 unchanged: the same real shop, people, food, lighting and camera movement.",
+    "status": "skipped",
+    "note": "RUNWAYML_API_SECRET not set"
+  },
+  {
+    "model": "runway",
+    "clip": "street_stalls_bangkok.mp4",
+    "mascot": "teh_tarik_uncle",
+    "prompt": "Edit Video 1: add the cartoon mascot character from Image 1 into the scene, standing naturally in the foreground, smiling and waving at the camera. Keep the mascot's flat colourful cartoon style exactly as in Image 1. Keep everything else in Video 1 unchanged: the same real shop, people, food, lighting and camera movement.",
+    "status": "skipped",
+    "note": "RUNWAYML_API_SECRET not set"
+  },
+  {
+    "model": "wan",
+    "clip": "street_stalls_bangkok.mp4",
+    "mascot": "cartoon_chicken",
+    "prompt": "Edit Video 1: add the cartoon mascot character from Image 1 into the scene, standing naturally in the foreground, smiling and waving at the camera. Keep the mascot's flat colourful cartoon style exactly as in Image 1. Keep everything else in Video 1 unchanged: the same real shop, people, food, lighting and camera movement.",
+    "status": "ok",
+    "task_id": "8fa5191f-2a8a-4a95-9677-73c27634fed6",
+    "render_seconds": 211,
+    "billed_seconds": 10.4,
+    "cost_usd": 1.04,
+    "usage": {
+      "duration": 10.4,
+      "SR": 720,
+      "video_count": 1,
+      "output_video_duration": 5.2,
+      "input_video_duration": 5.2,
+      "fps": 30,
+      "ratio": "16:9"
+    },
+    "output": "wan__street_stalls_bangkok__cartoon_chicken.mp4"
+  },
+  {
+    "model": "wan",
+    "clip": "street_stalls_bangkok.mp4",
+    "mascot": "cartoon_chicken",
+    "prompt": "Edit Video 1: add the cartoon mascot character from Image 1 into the scene. The mascot stands on the ground in the lower foreground, feet on the street, and stays fully visible and solid from the first frame to the last frame of the video. It never fades, never becomes transparent and never leaves the frame. It smiles and waves at the camera, and moves with the camera so it stays anchored in the scene. Keep the mascot's flat colourful cartoon style exactly as in Image 1. Keep everything else in Video 1 unchanged: the same real shop, people, food, lighting and camera movement.",
+    "status": "ok",
+    "task_id": "457ab9f2-8bba-4e0b-8ae6-a6656c0ee039",
+    "render_seconds": 226,
+    "billed_seconds": 10.4,
+    "cost_usd": 1.04,
+    "usage": {
+      "duration": 10.4,
+      "SR": 720,
+      "video_count": 1,
+      "output_video_duration": 5.2,
+      "input_video_duration": 5.2,
+      "fps": 30,
+      "ratio": "16:9"
+    },
+    "output": "wan__street_stalls_bangkok__cartoon_chicken__v2.mp4"
+  },
+  {
+    "model": "wan",
+    "clip": "street_stalls_bangkok.mp4",
+    "mascot": "cartoon_chicken",
+    "prompt": "Edit Video 1: add the cartoon mascot character from Image 1 into the scene. The mascot stands on the ground in the lower foreground, feet on the street, and stays fully visible and solid from the first frame to the last frame of the video. It never fades, never becomes transparent and never leaves the frame. It smiles and waves at the camera, and moves with the camera so it stays anchored in the scene. Keep the mascot's flat colourful cartoon style exactly as in Image 1. Keep everything else in Video 1 unchanged: the same real shop, people, food, lighting and camera movement.",
+    "status": "ok",
+    "task_id": "f0732f2f-dfa1-4ad5-8c6b-64f6fb36731d",
+    "render_seconds": 210,
+    "billed_seconds": 10.4,
+    "cost_usd": 1.04,
+    "usage": {
+      "duration": 10.4,
+      "SR": 720,
+      "video_count": 1,
+      "output_video_duration": 5.2,
+      "input_video_duration": 5.2,
+      "fps": 30,
+      "ratio": "16:9"
+    },
+    "output": "wan__street_stalls_bangkok__cartoon_chicken__v2raw.mp4"
+  }
+]
