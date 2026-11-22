@@ -8,7 +8,7 @@ This is a NEW endpoint file - does not modify any existing code.
 
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from loguru import logger
-from app.services.image_moderation_service import moderate_uploaded_image, check_image_safety
+from app.services.image_moderation_service import moderate_uploaded_image, check_image_safety, UNAVAILABLE_MESSAGE
 
 router = APIRouter(prefix="/moderation", tags=["moderation"])
 
@@ -46,6 +46,9 @@ async def check_image_moderation(file: UploadFile = File(...)):
         # Run moderation
         result = await moderate_uploaded_image(file_content, file.filename)
 
+        if result.get("unavailable"):
+            raise HTTPException(status_code=503, detail=result["message"])
+
         if not result["allowed"]:
             raise HTTPException(
                 status_code=400,
@@ -75,6 +78,9 @@ async def check_image_url_moderation(image_url: str):
     try:
         result = await check_image_safety(image_url=image_url)
 
+        if result.get("unavailable"):
+            raise HTTPException(status_code=503, detail=UNAVAILABLE_MESSAGE)
+
         return {
             "is_safe": result["is_safe"],
             "reason": result["reason"],
@@ -82,6 +88,8 @@ async def check_image_url_moderation(image_url: str):
             "detected_categories": result.get("detected_categories", [])
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"[MODERATION] URL check error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Ralat moderasi: {str(e)}")
