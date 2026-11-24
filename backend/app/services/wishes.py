@@ -40,6 +40,16 @@ And the video itself is the sender's to shape (migration 070):
   it (``wish_direction.prepare_direction``). The scene is the ONLY
   sender-influenced text that reaches the model, and it sits between the
   fixed sentences that keep faces, clothes and tone as they are.
+
+And the little extras around the gift (migration 072):
+
+* ``since_kind`` / ``since_date`` — "together since": the gift page counts
+  the days (and ticks the seconds) from a date the sender chose.
+* ``secret_question`` / ``secret_answer_hash`` / ``secret_hint`` — the box
+  only opens for someone who can answer the sender's question. Like the
+  timed seal, the content is withheld by the server until then; the answer
+  itself is never stored, only a salted hash.
+* ``heart_count`` — the recipient can tap hearts back at the sender.
 """
 
 from __future__ import annotations
@@ -49,7 +59,8 @@ import hashlib
 import os
 import re
 import secrets
-from datetime import datetime, timedelta, timezone
+import unicodedata
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from loguru import logger
@@ -190,6 +201,12 @@ MAX_PHOTO_BYTES = 8 * 1024 * 1024
 MAX_MESSAGE_CHARS = 600
 MAX_NAME_CHARS = 40
 MAX_REPLY_CHARS = 300
+MAX_QUESTION_CHARS = 120
+MAX_HINT_CHARS = 80
+MAX_ANSWER_CHARS = 60
+#: Hearts accepted from one request, and the most a wish will ever show.
+MAX_HEARTS_PER_CALL = 30
+MAX_HEARTS = 99999
 #: A gift can be sealed at most this far ahead.
 MAX_UNLOCK_AHEAD = timedelta(days=60)
 #: A clip that failed (or never came back) is tried this many times in total.
@@ -301,7 +318,68 @@ OCCASIONS: Dict[str, Dict[str, Any]] = {
             "Saya tahu awak boleh, dan awak memang boleh. Tahniah, awak layak dapat semua ini!",
         ],
     },
+    "parents": {
+        "label": "Untuk Mak & Ayah",
+        "title": "Untuk Mak & Ayah",
+        "emoji": "🤍",
+        "scene": "soft warm afternoon light through a window, a few jasmine petals drift gently, calm and loving atmosphere",
+        "ideas": [
+            "Mak, ayah, terima kasih untuk setiap penat lelah yang tak pernah mak ayah ungkit. Saya jadi siapa saya hari ini kerana doa mak dan ayah.",
+            "Dah besar baru saya faham betapa banyak yang mak ayah korbankan. Maaf kalau saya jarang cakap, tapi saya sayang mak ayah sangat-sangat.",
+            "Semoga Allah panjangkan umur mak dan ayah, murahkan rezeki, dan beri kesihatan yang baik. Saya rindu nak balik kampung.",
+        ],
+    },
+    "graduation": {
+        "label": "Graduasi",
+        "title": "Tahniah, Graduan!",
+        "emoji": "🎓",
+        "scene": "golden confetti and soft streamers fall gently, bright proud celebratory light, joyful sparkles",
+        "ideas": [
+            "Tahniah, graduan! Bertahun-tahun berjaga malam, akhirnya hari ini tiba. Saya bangga sangat dengan awak.",
+            "Segulung ijazah ini bukti awak tak pernah mengalah. Selamat bergraduasi, dan selamat melangkah ke bab seterusnya.",
+            "Dari hari pertama daftar sampai hari naik pentas, saya nampak semua usaha awak. Tahniah, awak memang layak!",
+        ],
+    },
+    "miss": {
+        "label": "Rindu",
+        "title": "Rindu Awak",
+        "emoji": "💌",
+        "scene": "soft twilight sky with slowly drifting clouds and a few gentle floating lights, tender wistful atmosphere",
+        "ideas": [
+            "Jauh macam mana pun kita, awak tetap orang pertama yang saya ingat setiap pagi. Rindu awak, jaga diri baik-baik.",
+            "Kira hari sampai kita jumpa lagi. Sementara itu, ini sedikit kejutan supaya awak tahu saya sentiasa teringat.",
+            "Rindu gelak awak, rindu bebel awak, rindu semuanya. Cepat-cepatlah kita jumpa.",
+        ],
+    },
+    "getwell": {
+        "label": "Cepat Sembuh",
+        "title": "Semoga Cepat Sembuh",
+        "emoji": "🌼",
+        "scene": "gentle morning sunlight, small daisies sway softly, fresh calm and hopeful atmosphere",
+        "ideas": [
+            "Semoga cepat sembuh. Rehat cukup-cukup, makan ubat ikut masa, dan jangan risau hal lain. Kami semua doakan awak.",
+            "Rumah sunyi tanpa awak. Cepat sihat ya, banyak cerita saya nak kongsi bila awak dah kuat semula.",
+            "Awak orang paling kuat yang saya kenal. Ini cuma ujian sekejap. Semoga Allah beri kesembuhan segera.",
+        ],
+    },
 }
+
+#: "Since" counters the sender can put on the gift page. Keys are stored;
+#: the labels are ours, so nothing the sender typed is involved.
+SINCE_KINDS: Dict[str, Dict[str, str]] = {
+    "together": {"label": "Bersama sejak", "unit": "hari bersama"},
+    "married": {"label": "Berkahwin sejak", "unit": "hari sebagai suami isteri"},
+    "friends": {"label": "Berkawan sejak", "unit": "hari bersahabat"},
+    "born": {"label": "Lahir pada", "unit": "hari menceriakan dunia"},
+}
+
+#: Starting points for the secret question.
+QUESTION_IDEAS: List[str] = [
+    "Di mana kita mula-mula berjumpa?",
+    "Apa nama panggilan manja saya untuk awak?",
+    "Makanan apa yang kita selalu order sama-sama?",
+    "Bulan berapa kita mula kenal?",
+]
 
 #: What the recipient can send back. Keys are stored; emoji are display only.
 REACTIONS: Dict[str, Dict[str, str]] = {
@@ -462,6 +540,74 @@ def parse_unlock_at(value: Optional[str], now: Optional[datetime] = None) -> Opt
     return parsed.astimezone(timezone.utc)
 
 
+def parse_since_date(value: Optional[str], today: Optional[date] = None) -> Optional[date]:
+    """The day a "since" counter starts from, or None when not chosen.
+    Raises ValueError, in Malay, for a date that is not one or lies ahead."""
+    text = (value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = date.fromisoformat(text[:10])
+    except ValueError:
+        raise ValueError("Tarikh kenangan tidak sah. Pilih tarikh sekali lagi.")
+    current = today or _utcnow().date()
+    # A day of slack: the sender's "today" may already be tomorrow in UTC.
+    if parsed > current + timedelta(days=1):
+        raise ValueError("Tarikh kenangan mesti hari ini atau sebelumnya.")
+    if parsed.year < 1900:
+        raise ValueError("Tarikh kenangan terlalu lama. Semak tahun yang dipilih.")
+    return parsed
+
+
+def since_view(row: Dict[str, Any]) -> Optional[Dict[str, str]]:
+    """The counter for the gift page, or None if the wish has none."""
+    kind = SINCE_KINDS.get(row.get("since_kind") or "")
+    try:
+        start = date.fromisoformat(str(row.get("since_date") or "")[:10])
+    except ValueError:
+        return None
+    if not kind:
+        return None
+    return {"date": start.isoformat(), "label": kind["label"], "unit": kind["unit"]}
+
+
+def normalize_answer(text: Optional[str]) -> str:
+    """An answer reduced to what should count: "  Kuala-Lumpur! " and
+    "kuala lumpur" are the same answer. Letters and digits only, lowercase,
+    accents dropped."""
+    decomposed = unicodedata.normalize("NFKD", text or "").lower()
+    return "".join(ch for ch in decomposed if ch.isalnum())[:MAX_ANSWER_CHARS]
+
+
+def hash_answer(slug: str, answer: Optional[str]) -> str:
+    """What is stored instead of the answer (salted with the link name)."""
+    return hashlib.sha256(f"answer:{slug}:{normalize_answer(answer)}".encode("utf-8")).hexdigest()
+
+
+def has_question(row: Dict[str, Any]) -> bool:
+    return bool((row.get("secret_question") or "").strip() and row.get("secret_answer_hash"))
+
+
+def answer_matches(row: Dict[str, Any], answer: Optional[str]) -> bool:
+    expected = row.get("secret_answer_hash") or ""
+    if not expected or not normalize_answer(answer):
+        return False
+    return secrets.compare_digest(hash_answer(row.get("slug") or "", answer), expected)
+
+
+def answer_pass(row: Dict[str, Any]) -> str:
+    """Proof of a correct answer, handed to the recipient's browser so a
+    reload does not ask again. Derived from the stored hash, so it cannot be
+    made without the database and is useless for any other wish."""
+    return hashlib.sha256(
+        f"pass:{row.get('id')}:{row.get('secret_answer_hash')}".encode("utf-8")
+    ).hexdigest()[:40]
+
+
+def pass_matches(row: Dict[str, Any], value: Optional[str]) -> bool:
+    return bool(value) and has_question(row) and secrets.compare_digest(str(value), answer_pass(row))
+
+
 def is_locked(row: Dict[str, Any], now: Optional[datetime] = None) -> bool:
     """True while the gift is still sealed (``unlock_at`` in the future)."""
     unlock = _parse_ts(row.get("unlock_at"))
@@ -575,12 +721,16 @@ async def get_by_bill(bill_code: str) -> Optional[Dict[str, Any]]:
 
 class WishSchemaError(Exception):
     """The table is missing a column this wish cannot do without (a paid-for
-    longer clip or the sender's direction, before migration 070)."""
+    longer clip or the sender's direction before migration 070; a "since"
+    counter or a secret question before migration 072)."""
 
 
 #: Columns a wish can be stored without, per migration, when their value is
 #: only the default. See ``insert``.
 _COLUMNS_070 = ("package", "video_seconds", "video_direction", "video_scene")
+#: Only ever sent when the sender chose the extra, so an ordinary wish never
+#: depends on migration 072. One that does is refused before payment.
+_COLUMNS_072 = ("since_kind", "since_date", "secret_question", "secret_answer_hash", "secret_hint")
 
 
 async def insert(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -594,6 +744,9 @@ async def insert(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     try:
         async with supabase_service._client() as client:
             resp = await client.post(_url(), headers=headers, json=row)
+            if resp.status_code == 400 and any(c in resp.text for c in _COLUMNS_072 if c in row):
+                logger.error("💌 wishes since/question columns missing — apply migration 072.")
+                raise WishSchemaError("migration 072 not applied")
             if resp.status_code == 400 and any(c in resp.text for c in _COLUMNS_070 if c in row):
                 plain = package_key(row.get("package")) == PACKAGE_BASE and not row.get("video_scene")
                 if not plain:
@@ -720,6 +873,19 @@ async def save_reply(row: Dict[str, Any], reaction: Optional[str], text: str) ->
         "reply_text": clean_text(text, MAX_REPLY_CHARS) or None,
         "replied_at": _utcnow().isoformat(),
     })
+
+
+async def add_hearts(row: Dict[str, Any], count: int) -> int:
+    """The recipient tapped ``count`` hearts. Returns the new total (the old
+    one if it could not be stored). Read-then-write like the view counter:
+    two phones tapping at once may lose a few, which nobody will miss."""
+    current = int(row.get("heart_count") or 0)
+    count = max(0, min(int(count), MAX_HEARTS_PER_CALL))
+    total = min(current + count, MAX_HEARTS)
+    if total == current:
+        return current
+    saved = await _patch(row["id"], {"heart_count": total})
+    return total if saved else current
 
 
 # ---------------------------------------------------------------------------
@@ -996,7 +1162,7 @@ async def _safe_advance(row: Dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 
 
-def public_view(row: Dict[str, Any], preview: bool = False) -> Dict[str, Any]:
+def public_view(row: Dict[str, Any], preview: bool = False, answered: bool = False) -> Dict[str, Any]:
     """What the recipient's page may show. No payer details, no tokens.
 
     While the gift is sealed (``unlock_at`` ahead) the message, photos and
@@ -1004,11 +1170,18 @@ def public_view(row: Dict[str, Any], preview: bool = False) -> Dict[str, Any]:
     served by the public API, so anything in it is one "view source" away.
     ``preview`` is the sender looking at their own wish (token checked by
     the caller): nothing is withheld.
+
+    A wish with a secret question is withheld the same way until
+    ``answered`` (the caller checked the answer, or the pass a correct
+    answer earned). The question is shown once the timed seal is off.
     """
     occ = occasion_info(row.get("occasion"))
     locked = is_locked(row) and not preview
+    gated = has_question(row) and not preview and not answered
+    hidden = locked or gated
     ready = row.get("status") == "ready"
     unlock = _parse_ts(row.get("unlock_at"))
+    ask = gated and not locked
     return {
         "slug": row.get("slug"),
         "occasion": row.get("occasion"),
@@ -1022,12 +1195,18 @@ def public_view(row: Dict[str, Any], preview: bool = False) -> Dict[str, Any]:
         "preview": bool(preview),
         # For the sender's preview bar only: when the recipient gets in.
         "sealed_until": unlock.isoformat() if preview and is_locked(row) else None,
-        "message": "" if locked else row.get("message"),
-        "photo_urls": [] if locked else (row.get("photo_urls") or []),
-        "video_url": row.get("video_url") if ready and not locked else None,
-        "poster_url": row.get("poster_url") if ready and not locked else None,
+        "message": "" if hidden else row.get("message"),
+        "photo_urls": [] if hidden else (row.get("photo_urls") or []),
+        "video_url": row.get("video_url") if ready and not hidden else None,
+        "poster_url": row.get("poster_url") if ready and not hidden else None,
         "has_music": wants_audio(row.get("music_style")),
-        "video_pending": (not locked) and row.get("status") in ("paid", "generating", "storing"),
+        "video_pending": (not hidden) and row.get("status") in ("paid", "generating", "storing"),
+        # The secret question: asked only once the timed seal is off.
+        "question": (row.get("secret_question") or "").strip() if ask else None,
+        "hint": ((row.get("secret_hint") or "").strip() or None) if ask else None,
+        # For the sender's preview bar: the recipient will be asked first.
+        "has_question": bool(preview and has_question(row)),
+        "since": None if hidden else since_view(row),
         "replied": bool(row.get("replied_at")),
         "reactions": {k: v["emoji"] for k, v in REACTIONS.items()},
     }
@@ -1076,6 +1255,8 @@ def owner_view(row: Dict[str, Any]) -> Dict[str, Any]:
         "reaction": REACTIONS.get(row.get("reaction") or "", {}).get("emoji"),
         "reply_text": row.get("reply_text"),
         "replied_at": row.get("replied_at"),
+        "hearts": int(row.get("heart_count") or 0),
+        "question": (row.get("secret_question") or "").strip() if has_question(row) else None,
         "qr": _wish_qr(row["slug"]),
     }
 

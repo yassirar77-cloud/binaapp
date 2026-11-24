@@ -1,11 +1,19 @@
 """mysyg.com surprise wishes API (no BinaApp login).
 
     GET  /api/v1/wishes/check-slug?slug=aisyah   is the link name free?
+    POST /api/v1/wishes/suggest                  AI drafts of the message
     POST /api/v1/wishes                          create (multipart) -> pay
     GET  /api/v1/wishes/{id}/status?t=TOKEN      sender's status (advances)
     GET  /api/v1/wishes/public/{slug}            recipient's data (advances)
     POST /api/v1/wishes/public/{slug}/open       recipient tapped the box
     POST /api/v1/wishes/public/{slug}/reply      recipient's reaction + note
+    POST /api/v1/wishes/public/{slug}/answer     the secret question's answer
+    POST /api/v1/wishes/public/{slug}/hearts     hearts tapped back
+
+A wish with a secret question keeps its content on the server until the
+question is answered. A correct answer returns the content and a pass
+(``k``); the recipient's browser sends ``?k=`` afterwards so a reload, the
+open and the reply all work without asking again.
 
 The sender's secret token is returned once at creation and carried in the
 status-page link; only its SHA-256 is stored. See services/wishes.py.
@@ -58,6 +66,11 @@ def _rate_limited(ip: str) -> bool:
 # per-wish budget: enough for a person changing their mind, not for a loop.
 _OPEN_LIMIT = 30
 _REPLY_LIMIT = 6
+#: Guesses at the secret question. Generous for a person, slow for a script.
+_ANSWER_LIMIT = 12
+_HEARTS_LIMIT = 40
+#: AI drafts: each one is a text-model call nobody has paid for yet.
+_SUGGEST_LIMIT = 8
 _PUBLIC_WINDOW_SECONDS = 3600.0
 _public_hits: Dict[str, Deque[float]] = defaultdict(deque)
 
@@ -73,6 +86,14 @@ def _public_limited(kind: str, ip: str, slug: str, limit: int) -> bool:
         return True
     hits.append(now)
     return False
+
+
+async def _json_body(request: Request) -> dict:
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        body = None
+    return body if isinstance(body, dict) else {}
 
 
 def _upload_photo_sync(data: bytes, public_id: str) -> Optional[str]:
@@ -105,6 +126,30 @@ async def check_slug(slug: str = ""):
     return {"slug": slug, "available": True, "url": W.wish_url(slug)}
 
 
+@router.post("/wishes/suggest")
+async def suggest_message(request: Request):
+    """Three AI drafts of the message, from a relation, a tone and a few of
+    the sender's own words. The sender picks one and edits it."""
+    from app.services import wish_writer as writer
+
+    body = await _json_body(request)
+    if _public_limited("suggest", _client_ip(request), "-", _SUGGEST_LIMIT):
+        raise HTTPException(429, "Terlalu banyak permintaan. Cuba lagi sejam lagi, atau guna cadangan sedia ada.")
+    result = await writer.suggest_messages(
+        str(body.get("occasion") or ""),
+        str(body.get("recipient_name") or ""),
+        str(body.get("sender_name") or ""),
+        str(body.get("relation") or ""),
+        str(body.get("tone") or ""),
+        str(body.get("notes") or ""),
+    )
+    if not result["ok"]:
+        if result["reason"] == "refused":
+            raise HTTPException(400, writer.REFUSAL)
+        raise HTTPException(503, writer.UNAVAILABLE)
+    return {"messages": result["messages"]}
+
+
 @router.post("/wishes")
 async def create_wish(
     request: Request,
@@ -120,6 +165,11 @@ async def create_wish(
     unlock_at: str = Form(""),
     package: str = Form(""),
     video_direction: str = Form(""),
+    since_kind: str = Form(""),
+    since_date: str = Form(""),
+    secret_question: str = Form(""),
+    secret_answer: str = Form(""),
+    secret_hint: str = Form(""),
     photos: List[UploadFile] = File(...),
 ):
     if _rate_limited(_client_ip(request)):
@@ -154,6 +204,27 @@ async def create_wish(
         raise HTTPException(400, str(exc))
 
     package = W.package_key((package or "").strip().lower())
+
+    # The extras: a "since" counter and a secret question. Each is all or
+    # nothing, so a half-filled one is an error rather than a silent drop.
+    since_kind = (since_kind or "").strip().lower()
+    since = None
+    if since_kind or (since_date or "").strip():
+        if since_kind not in W.SINCE_KINDS:
+            raise HTTPException(400, "Pilih jenis kiraan kenangan.")
+        try:
+            since = W.parse_since_date(since_date)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        if not since:
+            raise HTTPException(400, "Pilih tarikh untuk kiraan kenangan.")
+    question = W.clean_text(secret_question, W.MAX_QUESTION_CHARS)
+    hint = W.clean_text(secret_hint, W.MAX_HINT_CHARS)
+    if question or (secret_answer or "").strip():
+        if len(question) < 5:
+            raise HTTPException(400, "Tulis soalan rahsia anda (sekurang-kurangnya 5 huruf).")
+        if not W.normalize_answer(secret_answer):
+            raise HTTPException(400, "Isi jawapan untuk soalan rahsia (huruf atau nombor).")
 
     files = [f for f in (photos or []) if f and f.filename][: W.MAX_PHOTOS]
     if not files:
@@ -228,6 +299,14 @@ async def create_wish(
     if direction["scene"]:
         new_row["video_direction"] = direction["direction"]
         new_row["video_scene"] = direction["scene"]
+    if since:
+        new_row["since_kind"] = since_kind
+        new_row["since_date"] = since.isoformat()
+    if question:
+        new_row["secret_question"] = question
+        new_row["secret_answer_hash"] = W.hash_answer(slug, secret_answer)
+        if hint:
+            new_row["secret_hint"] = hint
     if unlock:
         # Only sent when chosen, so a database without migration 069 still
         # takes every ordinary wish.
@@ -237,8 +316,8 @@ async def create_wish(
     except W.WishSchemaError:
         raise HTTPException(
             503,
-            "Pilihan video ini belum tersedia buat masa ini. Cuba pakej Ringkas tanpa arahan video, "
-            "atau cuba sebentar lagi.",
+            "Pilihan ini belum tersedia buat masa ini. Cuba pakej Ringkas tanpa arahan video, "
+            "kiraan kenangan atau soalan rahsia, atau cuba sebentar lagi.",
         )
     if not row:
         raise HTTPException(409, "Nama pautan ini baru sahaja diambil. Cuba nama lain.")
@@ -284,20 +363,46 @@ async def _live_wish(slug: str) -> dict:
     return row
 
 
+def _require_openable(row: dict, k: str = "") -> None:
+    """The gift may be opened: the timed seal is off and, if the sender set
+    a secret question, this caller holds the pass a correct answer earns."""
+    if W.is_locked(row):
+        raise HTTPException(423, "Kejutan ini belum boleh dibuka.")
+    if W.has_question(row) and not W.pass_matches(row, k):
+        raise HTTPException(423, "Jawab soalan rahsia dahulu.")
+
+
 @router.get("/wishes/public/{slug}")
-async def wish_public(slug: str, t: str = ""):
+async def wish_public(slug: str, t: str = "", k: str = ""):
     row = await _live_wish(slug)
     row = await W.advance(row)
-    # ?t=<sender token> is the sender previewing a sealed gift.
-    return W.public_view(row, preview=W.token_matches(row, t))
+    # ?t=<sender token> is the sender previewing a sealed gift;
+    # ?k=<pass> is a recipient who already answered the secret question.
+    return W.public_view(row, preview=W.token_matches(row, t), answered=W.pass_matches(row, k))
 
 
-@router.post("/wishes/public/{slug}/open")
-async def wish_opened(slug: str, request: Request):
-    """The recipient tapped the gift box. Sealed gifts cannot be opened."""
+@router.post("/wishes/public/{slug}/answer")
+async def wish_answer(slug: str, request: Request):
+    """The recipient's answer to the secret question. A correct one returns
+    the gift's content and the pass that keeps it open."""
     row = await _live_wish(slug)
     if W.is_locked(row):
         raise HTTPException(423, "Kejutan ini belum boleh dibuka.")
+    if not W.has_question(row):
+        return {"ok": True, "k": "", "wish": W.public_view(row)}
+    body = await _json_body(request)
+    if _public_limited("answer", _client_ip(request), row["slug"], _ANSWER_LIMIT):
+        raise HTTPException(429, "Terlalu banyak cubaan. Cuba lagi sejam lagi.")
+    if not W.answer_matches(row, str(body.get("answer") or "")):
+        return {"ok": False}
+    return {"ok": True, "k": W.answer_pass(row), "wish": W.public_view(row, answered=True)}
+
+
+@router.post("/wishes/public/{slug}/open")
+async def wish_opened(slug: str, request: Request, k: str = ""):
+    """The recipient tapped the gift box. Sealed gifts cannot be opened."""
+    row = await _live_wish(slug)
+    _require_openable(row, k)
     if _public_limited("open", _client_ip(request), row["slug"], _OPEN_LIMIT):
         return {"ok": True}
     if await W.record_open(row):
@@ -305,17 +410,30 @@ async def wish_opened(slug: str, request: Request):
     return {"ok": True}
 
 
+@router.post("/wishes/public/{slug}/hearts")
+async def wish_hearts(slug: str, request: Request, k: str = ""):
+    """Hearts the recipient tapped, sent in small batches."""
+    row = await _live_wish(slug)
+    _require_openable(row, k)
+    body = await _json_body(request)
+    try:
+        count = int(body.get("count") or 0)
+    except (TypeError, ValueError):
+        count = 0
+    if count < 1:
+        raise HTTPException(400, "Tiada apa untuk dihantar.")
+    if _public_limited("hearts", _client_ip(request), row["slug"], _HEARTS_LIMIT):
+        return {"ok": True, "hearts": int(row.get("heart_count") or 0)}
+    return {"ok": True, "hearts": await W.add_hearts(row, count)}
+
+
 @router.post("/wishes/public/{slug}/reply")
-async def wish_reply(slug: str, request: Request):
+async def wish_reply(slug: str, request: Request, k: str = ""):
     """The recipient's reaction and short note back to the sender."""
     row = await _live_wish(slug)
-    if W.is_locked(row):
-        raise HTTPException(423, "Kejutan ini belum boleh dibuka.")
-    try:
-        body = await request.json()
-    except Exception:  # noqa: BLE001
-        body = None
-    if not isinstance(body, dict):
+    _require_openable(row, k)
+    body = await _json_body(request)
+    if not body:
         raise HTTPException(400, "Balasan tidak sah.")
     reaction = body.get("reaction")
     reaction = reaction if reaction in W.REACTIONS else None
