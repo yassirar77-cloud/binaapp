@@ -65,6 +65,19 @@
   .count span { display: block; margin-top: 6px; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--pearl-dim); }
   .lock .note { margin-top: 16px; font-size: 14px; color: var(--pearl-dim); }
 
+  /* The secret question */
+  .ask { margin-top: 34px; width: 100%; max-width: 360px; }
+  .ask .q { font: 500 20px/1.35 var(--serif); color: var(--pearl); overflow-wrap: anywhere; }
+  .ask .lead2 { margin-bottom: 8px; font-size: 13px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--gold); }
+  .ask form { display: flex; gap: 8px; margin-top: 16px; }
+  .ask input { flex: 1; min-width: 0; height: 52px; padding: 0 14px; border: 0; border-radius: 14px; background: rgba(255, 248, 243, .95); color: var(--ink); font: 400 16px var(--sans); }
+  .ask input:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+  .ask .btn { flex: 0 0 auto; padding: 0 20px; }
+  .ask .msg { min-height: 1.5em; margin-top: 10px; font-size: 14px; color: var(--soft); }
+  .ask .hint { margin-top: 4px; font-size: 14px; color: var(--pearl-dim); }
+  @media (prefers-reduced-motion: no-preference) { .ask.wrong form { animation: shake .4s; } }
+  @keyframes shake { 20%, 60% { transform: translateX(-7px); } 40%, 80% { transform: translateX(7px); } }
+
   /* ---------- Open: the wish ---------- */
   #open { display: none; padding: 44px 0 56px; }
   #open.shown { display: block; }
@@ -98,9 +111,43 @@
   .letter .orn { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 0 0 20px; color: var(--gold-deep); font-size: 18px; line-height: 1; }
   .letter .orn::before, .letter .orn::after { content: ""; width: 44px; height: 1px; background: currentColor; opacity: .5; }
   .letter .body { font: 400 18px/1.75 var(--serif); white-space: pre-line; overflow-wrap: anywhere; }
-  .signoff { margin-top: 24px; text-align: right; }
+  /* The letter writes itself: the untyped rest keeps its space, unseen. */
+  .letter .body .rest { visibility: hidden; }
+  .letter .body .caret { display: inline-block; width: 2px; height: 1.05em; margin-left: 1px; vertical-align: -0.15em; background: var(--gold-deep); animation: caret .9s steps(1) infinite; }
+  @keyframes caret { 50% { opacity: 0; } }
+  .letter.typing { cursor: pointer; }
+  .letter.typing .signoff { opacity: 0; }
+  .signoff { margin-top: 24px; text-align: right; transition: opacity .6s; }
   .signoff .from { display: block; font: italic 400 15px var(--serif); color: var(--ink-soft); }
   .signoff .script { display: block; margin-top: 2px; font-size: 44px; color: #4A1A3F; overflow-wrap: anywhere; }
+
+  /* "Since": days counted from a date the sender chose */
+  .since { margin: 40px auto 0; padding: 24px 18px 20px; max-width: 420px; border-radius: 22px; background: rgba(255, 248, 243, .055); box-shadow: inset 0 0 0 1px var(--gold-line); }
+  .since .lbl { font-size: 12px; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; color: var(--soft); }
+  .since .day { margin-top: 4px; font: 500 17px/1.3 var(--serif); color: var(--pearl); }
+  .since .big { margin-top: 14px; font: 500 clamp(52px, 17vw, 76px)/1 var(--serif); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; color: var(--gold); text-shadow: 0 0 34px rgba(227, 182, 92, .28); }
+  .since .unit { margin-top: 6px; font-size: 15px; color: var(--pearl-dim); }
+  .since .parts { display: flex; justify-content: center; gap: 8px; margin-top: 16px; }
+  .since .parts div { flex: 1 1 0; min-width: 0; padding: 9px 2px 8px; border-radius: 12px; background: rgba(255, 248, 243, .06); }
+  .since .parts div:last-child { flex-grow: 1.7; }
+  .since .parts b { display: block; font: 500 19px/1 var(--serif); font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--pearl); }
+  .since .parts span { display: block; margin-top: 5px; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--pearl-dim); }
+
+  /* Keepsake card */
+  .keep { margin: 26px auto 0; max-width: 420px; }
+  .keep .msg { min-height: 1.4em; margin-top: 8px; font-size: 14px; color: var(--soft); }
+
+  /* Hearts back to the sender */
+  .hearts { position: fixed; right: max(16px, env(safe-area-inset-right)); bottom: calc(18px + env(safe-area-inset-bottom)); z-index: 25; display: none; }
+  .hearts.shown { display: block; }
+  .hearts button { position: relative; width: 60px; height: 60px; border-radius: 50%; border: 0; background: linear-gradient(160deg, #FF8FAE, #E14A77); box-shadow: 0 10px 26px -6px rgba(225, 74, 119, .7), inset 0 0 0 2px rgba(255, 255, 255, .25); font-size: 27px; line-height: 1; cursor: pointer; -webkit-tap-highlight-color: transparent; transition: transform .12s var(--ease); touch-action: manipulation; }
+  .hearts button:active { transform: scale(.9); }
+  .hearts button:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
+  .hearts .n { position: absolute; top: -6px; right: -6px; min-width: 24px; height: 24px; padding: 0 6px; border-radius: 12px; background: var(--pearl); color: #A32250; font: 700 12px/24px var(--sans); text-align: center; }
+  .hearts .tip { position: absolute; right: 70px; top: 50%; transform: translateY(-50%); padding: 7px 12px; border-radius: 12px; background: rgba(20, 8, 24, .82); color: var(--pearl); font-size: 13px; white-space: nowrap; pointer-events: none; transition: opacity .4s; }
+  .hearts .tip.gone { opacity: 0; }
+  .fly { position: fixed; z-index: 26; pointer-events: none; font-size: 26px; line-height: 1; will-change: transform, opacity; animation: fly var(--t, 1.6s) ease-out forwards; }
+  @keyframes fly { from { transform: translate(0, 0) scale(.6); opacity: 1; } to { transform: translate(var(--dx, 0), -62vh) scale(1.5) rotate(var(--r, 0deg)); opacity: 0; } }
 
   /* Photos */
   .memories { margin-top: 52px; }
@@ -129,7 +176,7 @@
   .reply .sent p { margin-top: 10px; font: 500 20px/1.3 var(--serif); }
   .linkish { margin-top: 12px; padding: 6px; border: 0; background: none; color: var(--gold); font: 500 14px var(--sans); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 
-  .make { margin-top: 56px; padding-top: 30px; border-top: 1px solid var(--gold-faint); }
+  .make { margin-top: 56px; padding: 30px 0 60px; border-top: 1px solid var(--gold-faint); }
   .make p { margin-bottom: 14px; font: 400 19px/1.4 var(--serif); color: var(--pearl); }
   .make small { display: block; margin-top: 18px; font-size: 13px; color: var(--pearl-dim); }
   .make .script { font-size: 26px; color: var(--gold); }
@@ -166,6 +213,17 @@
       </span>
     </button>
     <div class="tap" id="tap"><span class="dot"></span>Tekan kotak untuk buka</div>
+    <div class="ask" id="ask" hidden>
+      <p class="lead2">Jawab dulu untuk buka</p>
+      <p class="q" id="askQ"></p>
+      <form id="askForm" autocomplete="off">
+        <label class="sr" for="askInput">Jawapan anda</label>
+        <input id="askInput" type="text" maxlength="60" placeholder="Jawapan anda" autocapitalize="off" autocomplete="off" enterkeyhint="go">
+        <button class="btn btn-gold" id="askBtn" type="submit">Jawab</button>
+      </form>
+      <p class="msg" id="askMsg" role="status" aria-live="polite"></p>
+      <p class="hint" id="askHint" hidden></p>
+    </div>
     <div class="lock" id="lock" hidden>
       <p class="when">Kejutan ini boleh dibuka pada<b id="lockWhen"></b></p>
       <div class="count" role="timer" aria-live="off">
@@ -194,15 +252,34 @@
         </a>
       </div>
     </div>
-    <article class="letter">
+    <article class="letter" id="letter">
       <div class="orn" aria-hidden="true">❦</div>
       <div class="body" id="letterBody"></div>
       <p class="signoff"><span class="from">Dengan sayang,</span><span class="script" id="signName"></span></p>
     </article>
+    <section class="since" id="since" hidden>
+      <p class="lbl" id="sinceLbl"></p>
+      <p class="day" id="sinceDay"></p>
+      <p class="big" id="sinceDays">0</p>
+      <p class="unit" id="sinceUnit"></p>
+      <div class="parts" aria-hidden="true">
+        <div><b id="sinceY">0</b><span>Tahun</span></div>
+        <div><b id="sinceMo">0</b><span>Bulan</span></div>
+        <div><b id="sinceD">0</b><span>Hari</span></div>
+        <div><b id="sinceT">00:00:00</b><span>Jam</span></div>
+      </div>
+    </section>
     <section class="memories">
       <h3>Kenangan kita</h3>
       <div class="photos" id="photos"></div>
     </section>
+    <div class="keep">
+      <button class="pill" id="keepBtn" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2.5"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>
+        Simpan kad kenangan
+      </button>
+      <p class="msg" id="keepMsg" role="status"></p>
+    </div>
     <section class="reply" id="reply" aria-live="polite">
       <div id="replyForm">
         <h3>Balas kejutan ini</h3>
@@ -227,6 +304,11 @@
   </section>
 </main>
 
+<div class="hearts" id="hearts">
+  <span class="tip" id="heartTip"></span>
+  <button id="heartBtn" type="button" aria-label="Hantar sayang">💗<span class="n" id="heartN" hidden>0</span></button>
+</div>
+
 <div class="lb" id="lb" hidden role="dialog" aria-modal="true" aria-label="Gambar">
   <button class="x" id="lbX" type="button" aria-label="Tutup">×</button>
   <button class="prev" id="lbPrev" type="button" aria-label="Gambar sebelum">‹</button>
@@ -243,9 +325,24 @@
   var previewToken = new URLSearchParams(location.search).get('pratonton') || '';
   var api = '/api/v1/wishes/public/' + encodeURIComponent(data.slug);
   var opened = false;
+  // The pass a correct answer to the secret question earned, kept so a
+  // reload does not ask again.
+  var PASS_KEY = 'mysyg-pass-' + data.slug;
+  var pass = '';
+  try { pass = localStorage.getItem(PASS_KEY) || ''; } catch (e) {}
+  function qs() {
+    var q = [];
+    if (previewToken) q.push('t=' + encodeURIComponent(previewToken));
+    if (pass) q.push('k=' + encodeURIComponent(pass));
+    return q.length ? '?' + q.join('&') : '';
+  }
 
   var PALETTES = {
     birthday: ['#E3B65C', '#F2C4CC', '#FFF8F3', '#C9953F', '#F6DFA8'],
+    parents: ['#E3B65C', '#F6D5C4', '#FFF8F3', '#E9A98C'],
+    graduation: ['#E3B65C', '#C9DDF6', '#FFF8F3', '#7FB0EA', '#F6DFA8'],
+    miss: ['#DCCDF8', '#E3B65C', '#FFF8F3', '#B79BEF'],
+    getwell: ['#F5D76E', '#CDEDE4', '#FFF8F3', '#8FD9C4'],
     anniversary: ['#E3B65C', '#F4C9C4', '#FFF8F3', '#D9546E'],
     love: ['#FF9DB8', '#FFC9D8', '#E3B65C', '#FFF8F3'],
     raya: ['#E3B65C', '#8FD9B6', '#FFF8F3', '#F6DFA8'],
@@ -275,7 +372,8 @@
     $('toName2').textContent = data.recipient_name;
     $('fromName').textContent = data.sender_name;
     $('occasion').textContent = data.emoji + '  ' + data.title;
-    $('letterBody').textContent = data.message || '';
+    setLetter(data.message || '');
+    showSince();
     $('signName').textContent = data.sender_name;
     $('replySub').textContent = data.sender_name + ' akan nampak balasan anda.';
 
@@ -443,7 +541,7 @@
     playVideo();
     // The sender looking at their own gift is not the recipient opening it.
     if (!data.preview) {
-      fetch(api + '/open', { method: 'POST', keepalive: true }).catch(function () {});
+      fetch(api + '/open' + qs(), { method: 'POST', keepalive: true }).catch(function () {});
     }
     setTimeout(function () { $('closed').classList.add('leaving'); }, reduce ? 0 : 520);
     setTimeout(function () {
@@ -451,9 +549,16 @@
       $('open').classList.add('shown');
       window.scrollTo(0, 0);
       if (video && video.paused) playVideo();
+      watchLetter();
+      $('hearts').classList.add('shown');
+      setTimeout(function () { $('heartTip').classList.add('gone'); }, 6000);
     }, reduce ? 60 : 980);
   }
-  $('gift').addEventListener('click', openGift);
+  $('gift').addEventListener('click', function () {
+    // Still waiting for the answer: the box points at the question.
+    if (data.question) { $('askInput').focus(); return; }
+    openGift();
+  });
   $('again').addEventListener('click', playVideo);
 
   // ---------- sealed until a set time ----------
@@ -468,10 +573,17 @@
     var locked = !!data.locked;
     $('seal').hidden = !locked;
     $('lock').hidden = !locked;
-    $('tap').hidden = locked;
+    var asking = !locked && !!data.question;
+    $('tap').hidden = locked || asking;
+    $('ask').hidden = !asking;
+    $('seal').hidden = !(locked || asking);
+    if (asking) {
+      $('askQ').textContent = data.question;
+      if (data.hint) $('askHint').textContent = 'Petunjuk: ' + data.hint;
+    }
     $('gift').disabled = locked;
-    $('gift').classList.toggle('idle', !locked && !opened);
-    $('gift').setAttribute('aria-label', locked ? 'Kejutan ini belum boleh dibuka' : 'Buka kejutan');
+    $('gift').classList.toggle('idle', !locked && !asking && !opened);
+    $('gift').setAttribute('aria-label', locked ? 'Kejutan ini belum boleh dibuka' : (asking ? 'Jawab soalan untuk buka kejutan' : 'Buka kejutan'));
     clearInterval(lockTimer);
     if (!locked) return;
     var at = new Date(data.unlock_at);
@@ -490,7 +602,7 @@
   }
   // The content was never sent to this page. Ask for it now that it is time.
   function unlockNow(tries) {
-    fetch(api).then(function (r) { return r.ok ? r.json() : null; }).then(function (fresh) {
+    fetch(api + qs()).then(function (r) { return r.ok ? r.json() : null; }).then(function (fresh) {
       if (fresh && !fresh.locked) {
         data = fresh;
         fill();
@@ -509,10 +621,10 @@
     clearInterval(pendingTimer);
     if (!data.video_pending) return;
     pendingTimer = setInterval(function () {
-      fetch(api + (previewToken ? '?t=' + encodeURIComponent(previewToken) : ''))
+      fetch(api + qs())
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (fresh) {
-          if (!fresh || fresh.locked) return;
+          if (!fresh || fresh.locked || fresh.question) return;
           if (fresh.video_url) {
             data.video_url = fresh.video_url;
             data.poster_url = fresh.poster_url;
@@ -597,7 +709,7 @@
     var btn = $('replySend');
     btn.disabled = true;
     msg.textContent = '';
-    fetch(api + '/reply', {
+    fetch(api + '/reply' + qs(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ reaction: picked, text: text })
@@ -613,17 +725,424 @@
     });
   });
 
+  // ---------- the secret question ----------
+  var wrong = 0;
+  function useWish(fresh) {
+    data = fresh;
+    fill();
+    buildFilm();
+    applyLock();
+    startPendingPoll();
+  }
+  $('askForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var answer = $('askInput').value.trim();
+    var msg = $('askMsg');
+    if (!answer) { msg.textContent = 'Tulis jawapan anda dahulu.'; return; }
+    $('askBtn').disabled = true;
+    msg.textContent = '';
+    fetch(api + '/answer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ answer: answer })
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (body) { return { ok: r.ok, body: body }; });
+    }).then(function (res) {
+      $('askBtn').disabled = false;
+      if (!res.ok) { msg.textContent = (res.body && res.body.detail) || 'Tidak dapat menyemak jawapan. Cuba lagi.'; return; }
+      if (!res.body.ok) {
+        wrong++;
+        msg.textContent = wrong > 2 ? 'Belum tepat. Fikir betul-betul 😉' : 'Belum tepat, cuba lagi.';
+        if (data.hint && wrong >= 2) $('askHint').hidden = false;
+        $('ask').classList.remove('wrong');
+        void $('ask').offsetWidth;
+        $('ask').classList.add('wrong');
+        $('askInput').select();
+        return;
+      }
+      pass = res.body.k || '';
+      try { if (pass) localStorage.setItem(PASS_KEY, pass); } catch (e) {}
+      useWish(res.body.wish);
+      // The box is theirs to tap: that tap is what lets the video play with sound.
+      $('tap').lastChild.nodeValue = 'Betul! Tekan kotak untuk buka';
+      $('gift').focus();
+    }).catch(function () {
+      $('askBtn').disabled = false;
+      msg.textContent = 'Tiada sambungan. Cuba lagi sebentar.';
+    });
+  });
+  // Answered on an earlier visit: the pass fetches what this page was not given.
+  function resumeWithPass() {
+    if (!data.question || !pass) return;
+    fetch(api + qs()).then(function (r) { return r.ok ? r.json() : null; }).then(function (fresh) {
+      if (fresh && !fresh.locked && !fresh.question) useWish(fresh);
+    }).catch(function () {});
+  }
+
+  // ---------- the letter writes itself ----------
+  var letterText = '';
+  var typeTimer = null;
+  var typed = false;
+  function setLetter(text) {
+    letterText = text;
+    clearInterval(typeTimer);
+    typed = false;
+    $('letter').classList.remove('typing');
+    $('letterBody').textContent = text;
+  }
+  function finishLetter() {
+    clearInterval(typeTimer);
+    $('letterBody').textContent = letterText;
+    $('letter').classList.remove('typing');
+  }
+  function typeLetter() {
+    if (typed) return;
+    typed = true;
+    var chars = Array.from(letterText);
+    if (reduce || chars.length < 12) return;
+    var body = $('letterBody');
+    var done = document.createElement('span');
+    var caret = document.createElement('span');
+    caret.className = 'caret';
+    var rest = document.createElement('span');
+    rest.className = 'rest';
+    rest.setAttribute('aria-hidden', 'true');
+    body.textContent = '';
+    body.setAttribute('aria-label', letterText);
+    body.appendChild(done); body.appendChild(caret); body.appendChild(rest);
+    rest.textContent = letterText;
+    $('letter').classList.add('typing');
+    // The whole letter in about seven seconds, however long it is.
+    var step = Math.max(1, Math.ceil(chars.length / 230));
+    var delay = Math.max(16, Math.min(34, 7000 / (chars.length / step)));
+    var i = 0;
+    typeTimer = setInterval(function () {
+      i = Math.min(chars.length, i + step);
+      done.textContent = chars.slice(0, i).join('');
+      rest.textContent = chars.slice(i).join('');
+      if (i >= chars.length) finishLetter();
+    }, delay);
+  }
+  $('letter').addEventListener('click', function () { if ($('letter').classList.contains('typing')) finishLetter(); });
+  function watchLetter() {
+    if (!('IntersectionObserver' in window)) return;
+    var io = new IntersectionObserver(function (entries) {
+      if (entries[0].isIntersecting) { io.disconnect(); typeLetter(); }
+    }, { threshold: 0.35 });
+    io.observe($('letter'));
+  }
+
+  // ---------- "since": days counted from the sender's date ----------
+  var sinceTimer = null;
+  function showSince() {
+    clearInterval(sinceTimer);
+    var s = data.since;
+    var parts = s && /^(\d{4})-(\d{2})-(\d{2})$/.exec(s.date);
+    $('since').hidden = !parts;
+    if (!parts) return;
+    // The sender's calendar day, at this phone's midnight.
+    var start = new Date(+parts[1], +parts[2] - 1, +parts[3]);
+    $('sinceLbl').textContent = s.label;
+    try { $('sinceDay').textContent = start.toLocaleDateString('ms-MY', { day: 'numeric', month: 'long', year: 'numeric' }); }
+    catch (e) { $('sinceDay').textContent = start.toLocaleDateString(); }
+    $('sinceUnit').textContent = s.unit;
+    function tick() {
+      var now = new Date();
+      if (now < start) now = start;
+      var y = now.getFullYear() - start.getFullYear();
+      var m = now.getMonth() - start.getMonth();
+      var d = now.getDate() - start.getDate();
+      if (d < 0) { m--; d += new Date(now.getFullYear(), now.getMonth(), 0).getDate(); }
+      if (m < 0) { y--; m += 12; }
+      var today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      var days = Math.round((today - start) / 86400000);
+      $('sinceDays').textContent = days.toLocaleString('ms-MY');
+      $('sinceY').textContent = y;
+      $('sinceMo').textContent = m;
+      $('sinceD').textContent = d;
+      $('sinceT').textContent = pad(now.getHours()) + ':' + pad(now.getMinutes()) + ':' + pad(now.getSeconds());
+    }
+    tick();
+    sinceTimer = setInterval(tick, 1000);
+  }
+
+  // ---------- hearts back to the sender ----------
+  var heartsSent = 0;
+  var heartsQueued = 0;
+  var heartTimer = null;
+  var HEARTS = ['💗', '💖', '💕', '❤️', '🥰'];
+  $('heartTip').textContent = 'Tekan untuk hantar sayang';
+  function flushHearts(last) {
+    clearTimeout(heartTimer);
+    heartTimer = null;
+    if (!heartsQueued || data.preview) { heartsQueued = 0; return; }
+    var body = JSON.stringify({ count: Math.min(heartsQueued, 30) });
+    heartsQueued = 0;
+    var url = api + '/hearts' + qs();
+    if (last && navigator.sendBeacon) {
+      navigator.sendBeacon(url, new Blob([body], { type: 'application/json' }));
+    } else {
+      fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body, keepalive: true }).catch(function () {});
+    }
+  }
+  $('heartBtn').addEventListener('click', function () {
+    var rect = this.getBoundingClientRect();
+    if (!reduce) {
+      var h = document.createElement('span');
+      h.className = 'fly';
+      h.textContent = HEARTS[Math.floor(Math.random() * HEARTS.length)];
+      h.style.left = (rect.left + rect.width / 2 - 13) + 'px';
+      h.style.top = (rect.top - 6) + 'px';
+      h.style.setProperty('--dx', Math.round(-90 + Math.random() * 110) + 'px');
+      h.style.setProperty('--r', Math.round(-30 + Math.random() * 60) + 'deg');
+      h.style.setProperty('--t', (1.3 + Math.random() * 0.9).toFixed(2) + 's');
+      document.body.appendChild(h);
+      h.addEventListener('animationend', function () { h.remove(); });
+    }
+    if (navigator.vibrate) { try { navigator.vibrate(8); } catch (e) {} }
+    $('heartTip').classList.add('gone');
+    heartsSent++;
+    heartsQueued++;
+    $('heartN').hidden = false;
+    $('heartN').textContent = heartsSent > 999 ? '999+' : heartsSent;
+    if (heartsQueued >= 30) flushHearts(false);
+    else if (!heartTimer) heartTimer = setTimeout(function () { flushHearts(false); }, 2500);
+  });
+  window.addEventListener('pagehide', function () { flushHearts(true); });
+  document.addEventListener('visibilitychange', function () { if (document.hidden) flushHearts(true); });
+
+  // ---------- keepsake card: the wish as one image to save or share ----------
+  function cssVar(name, fallback) {
+    var v = getComputedStyle(document.body).getPropertyValue(name).trim();
+    return v || fallback;
+  }
+  function cardPhotoUrl(url) {
+    // A cropped copy at its own URL: fetched with CORS, never the cached <img> response.
+    return /res\.cloudinary\.com\/.+\/upload\//.test(url) ? url.replace('/upload/', '/upload/c_fill,g_auto,w_800,h_1000,q_auto/') : url;
+  }
+  function loadImage(url) {
+    return new Promise(function (resolve) {
+      if (!url) return resolve(null);
+      var img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = function () { resolve(img); };
+      img.onerror = function () { resolve(null); };
+      img.src = url;
+    });
+  }
+  function wrapLines(ctx, text, maxWidth, maxLines) {
+    var lines = [];
+    var cut = false;
+    String(text).split(/\n/).forEach(function (para) {
+      var line = '';
+      para.split(/\s+/).forEach(function (word) {
+        if (!word) return;
+        // A single unbroken word wider than the line is split by character.
+        while (ctx.measureText(word).width > maxWidth) {
+          var n = word.length - 1;
+          while (n > 1 && ctx.measureText(word.slice(0, n)).width > maxWidth) n--;
+          if (line) { lines.push(line); line = ''; }
+          lines.push(word.slice(0, n));
+          word = word.slice(n);
+        }
+        var next = line ? line + ' ' + word : word;
+        if (ctx.measureText(next).width > maxWidth) { lines.push(line); line = word; }
+        else line = next;
+      });
+      lines.push(line);
+    });
+    while (lines.length && !lines[lines.length - 1]) lines.pop();
+    if (lines.length > maxLines) { lines = lines.slice(0, maxLines); cut = true; }
+    if (cut) {
+      var last = lines[maxLines - 1];
+      while (last && ctx.measureText(last + '…').width > maxWidth) last = last.slice(0, -1);
+      lines[maxLines - 1] = last.replace(/[\s,.;:]+$/, '') + '…';
+    }
+    return lines;
+  }
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+  function fitFont(ctx, text, weight, family, size, min, maxWidth) {
+    do { ctx.font = weight + ' ' + size + 'px ' + family; size -= 4; }
+    while (ctx.measureText(text).width > maxWidth && size >= min);
+  }
+  function drawCard(photo) {
+    var W = 1080, H = 1920;
+    var c = document.createElement('canvas');
+    c.width = W; c.height = H;
+    var ctx = c.getContext('2d');
+    var gold = cssVar('--gold', '#E3B65C');
+    var pearl = '#FFF8F3';
+    var serif = '"Fraunces", Georgia, serif';
+    var script = '"Pinyon Script", "Brush Script MT", cursive';
+    var sans = '"Plus Jakarta Sans", system-ui, sans-serif';
+
+    ctx.fillStyle = cssVar('--bg-0', '#1C0A22');
+    ctx.fillRect(0, 0, W, H);
+    var glow = ctx.createRadialGradient(W / 2, -80, 0, W / 2, -80, 1150);
+    glow.addColorStop(0, cssVar('--bg-1', '#4A1A3F'));
+    glow.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, W, H);
+    // Stars: placed by the link name, so the same card every time.
+    var seed = 7;
+    for (var k = 0; k < data.slug.length; k++) seed = (seed * 31 + data.slug.charCodeAt(k)) % 2147483647;
+    function rnd() { seed = (seed * 48271) % 2147483647; return seed / 2147483647; }
+    ctx.fillStyle = cssVar('--gold-hi', '#F6DFA8');
+    for (var i = 0; i < 70; i++) {
+      ctx.globalAlpha = 0.15 + rnd() * 0.5;
+      ctx.beginPath();
+      ctx.arc(rnd() * W, rnd() * H, 1.2 + rnd() * 2.6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+
+    var y = 150;
+    ctx.fillStyle = cssVar('--soft', '#F2C4CC');
+    ctx.font = '600 34px ' + sans;
+    ctx.fillText((data.emoji + '  ' + data.title).toUpperCase(), W / 2, y);
+    y += 150;
+    ctx.fillStyle = gold;
+    fitFont(ctx, data.recipient_name, '400', script, 170, 80, W - 160);
+    ctx.fillText(data.recipient_name, W / 2, y);
+    y += 70;
+
+    // The letter is measured first and sits at the bottom; the photo takes
+    // what is left above it, and is left out if that is too little.
+    var TOP = 360, BOTTOM = H - 215;
+    var lx = 110, lw = W - 220, lh = 62;
+    var hasPhoto = !!photo;
+    var lines, boxH, ph = 0;
+    function measure(maxLines) {
+      ctx.font = '400 42px ' + serif;
+      lines = wrapLines(ctx, data.message || '', lw - 110, maxLines);
+      boxH = 80 + lines.length * lh + 150;
+    }
+    if (hasPhoto) {
+      measure(8);
+      ph = Math.min(700, BOTTOM - boxH - 70 - TOP - 110);
+      if (ph < 380) hasPhoto = false;
+    }
+    if (hasPhoto) {
+      var pw = Math.round(ph * 0.8);
+      ctx.save();
+      ctx.translate(W / 2, TOP + 26 + ph / 2);
+      ctx.rotate(-0.035);
+      ctx.shadowColor = 'rgba(0,0,0,.55)';
+      ctx.shadowBlur = 60;
+      ctx.shadowOffsetY = 26;
+      ctx.fillStyle = '#FFFBF7';
+      ctx.fillRect(-pw / 2 - 26, -ph / 2 - 26, pw + 52, ph + 110);
+      ctx.shadowColor = 'transparent';
+      // cover-fit the photo into its window
+      var scale = Math.max(pw / photo.width, ph / photo.height);
+      var sw = pw / scale, sh = ph / scale;
+      ctx.drawImage(photo, (photo.width - sw) / 2, (photo.height - sh) / 2, sw, sh, -pw / 2, -ph / 2, pw, ph);
+      ctx.restore();
+      y = BOTTOM - boxH;
+    } else {
+      measure(18);
+      y = Math.round(TOP + Math.max(30, (BOTTOM - TOP - boxH) / 2));
+    }
+
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,.5)';
+    ctx.shadowBlur = 50;
+    ctx.shadowOffsetY = 22;
+    var paper = ctx.createLinearGradient(0, y, 0, y + boxH);
+    paper.addColorStop(0, '#FFFBF7');
+    paper.addColorStop(1, '#FBEFE6');
+    ctx.fillStyle = paper;
+    roundRect(ctx, lx, y, lw, boxH, 14);
+    ctx.fill();
+    ctx.restore();
+    ctx.strokeStyle = 'rgba(184,134,46,.45)';
+    ctx.lineWidth = 2;
+    roundRect(ctx, lx + 16, y + 16, lw - 32, boxH - 32, 8);
+    ctx.stroke();
+    ctx.fillStyle = '#3A1534';
+    ctx.textAlign = 'left';
+    ctx.font = '400 42px ' + serif;
+    lines.forEach(function (line, n) { ctx.fillText(line, lx + 55, y + 104 + n * lh); });
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#7C5670';
+    ctx.font = 'italic 400 32px ' + serif;
+    ctx.fillText('Dengan sayang,', lx + lw - 55, y + boxH - 112);
+    ctx.fillStyle = '#4A1A3F';
+    fitFont(ctx, data.sender_name, '400', script, 84, 44, lw - 110);
+    ctx.fillText(data.sender_name, lx + lw - 55, y + boxH - 44);
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = gold;
+    ctx.font = '400 76px ' + script;
+    ctx.fillText('mysyg', W / 2, H - 96);
+    ctx.fillStyle = 'rgba(255,248,243,.6)';
+    ctx.font = '500 26px ' + sans;
+    ctx.fillText('Kejutan video untuk orang tersayang · mysyg.com', W / 2, H - 50);
+    return c;
+  }
+  function toBlob(canvas) {
+    return new Promise(function (resolve) {
+      try { canvas.toBlob(function (b) { resolve(b); }, 'image/png'); } catch (e) { resolve(null); }
+    });
+  }
+  $('keepBtn').addEventListener('click', function () {
+    var btn = this;
+    var msg = $('keepMsg');
+    btn.disabled = true;
+    msg.textContent = 'Menyediakan kad…';
+    var fonts = document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve();
+    var name = 'kad-mysyg-' + data.slug + '.png';
+    Promise.all([loadImage(cardPhotoUrl((data.photo_urls || [])[0] || '')), fonts]).then(function (got) {
+      return toBlob(drawCard(got[0])).then(function (blob) {
+        // A photo the browser would not let us read back: the card without it.
+        return blob || toBlob(drawCard(null));
+      });
+    }).then(function (blob) {
+      btn.disabled = false;
+      if (!blob) { msg.textContent = 'Kad tidak dapat dibuat pada pelayar ini.'; return; }
+      var file = null;
+      try { file = new File([blob], name, { type: 'image/png' }); } catch (e) {}
+      if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
+        msg.textContent = '';
+        return navigator.share({ files: [file] }).catch(function () {});
+      }
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(function () { URL.revokeObjectURL(a.href); }, 4000);
+      msg.textContent = 'Kad disimpan ✓';
+    }).catch(function () {
+      btn.disabled = false;
+      msg.textContent = 'Kad tidak dapat dibuat. Cuba lagi.';
+    });
+  });
+
   // ---------- go ----------
   fill();
   buildFilm();
   applyLock();
   startPendingPoll();
+  resumeWithPass();
   if (data.replied && !data.preview) showSent('');
   if (data.preview) {
     var bar = $('previewBar');
-    bar.textContent = data.sealed_until
+    bar.textContent = (data.sealed_until
       ? 'Pratonton anda. Penerima hanya boleh buka pada ' + whenText(new Date(data.sealed_until)) + '.'
-      : 'Pratonton anda. Ini yang penerima akan nampak.';
+      : 'Pratonton anda. Ini yang penerima akan nampak.')
+      + (data.has_question ? ' Dia perlu jawab soalan rahsia anda dahulu.' : '');
     bar.hidden = false;
   }
 })();

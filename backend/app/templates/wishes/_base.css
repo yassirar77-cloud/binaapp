@@ -32,6 +32,10 @@
 [data-theme="sorry"]       { --bg-0: #0E1830; --bg-1: #2A416F; --box-a: #3C5896; --box-b: #243866; --soft: #CCD9F3; }
 [data-theme="thanks"]      { --bg-0: #261406; --bg-1: #6B3C12; --box-a: #96561C; --box-b: #5C310F; --soft: #F7DFB6; }
 [data-theme="congrats"]    { --bg-0: #0C0E2C; --bg-1: #2C2F7A; --box-a: #4347AE; --box-b: #25286F; --soft: #D4D6FB; }
+[data-theme="parents"]     { --bg-0: #1F0F0C; --bg-1: #5E2F25; --box-a: #8C4636; --box-b: #55281E; --soft: #F6D5C4; }
+[data-theme="graduation"]  { --bg-0: #08152A; --bg-1: #173A66; --box-a: #23528C; --box-b: #142F57; --soft: #C9DDF6; }
+[data-theme="miss"]        { --bg-0: #160C2B; --bg-1: #41296F; --box-a: #5D3C99; --box-b: #37225F; --soft: #DCCDF8; }
+[data-theme="getwell"]     { --bg-0: #0A1F1E; --bg-1: #1B5550; --box-a: #277A70; --box-b: #164A44; --soft: #CDEDE4; }
 
 *, *::before, *::after { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }

@@ -24,7 +24,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 from loguru import logger
 
@@ -111,17 +111,27 @@ def _parse_verdict(raw: str) -> Optional[Dict[str, Any]]:
     return data if isinstance(data, dict) and isinstance(data.get("allowed"), bool) else None
 
 
-async def _ask_text_model(direction: str, ai_service: Optional[object]) -> Optional[Dict[str, Any]]:
-    """The text model's verdict, or None if no provider answered usefully."""
+async def call_text_model(
+    prompt: str,
+    system_prompt: str,
+    parse: Callable[[str], Optional[Any]],
+    *,
+    ai_service: Optional[object] = None,
+    max_tokens: int = 200,
+    temperature: float = 0.2,
+    timeout: float = _LLM_TIMEOUT_SECONDS,
+    label: str = "direction",
+) -> Optional[Any]:
+    """Ask the text providers in turn; the first reply ``parse`` accepts
+    (returns non-None for) wins. None if no provider answered usefully."""
     if ai_service is None:
         try:
             from app.services.ai_service import ai_service as _svc  # heavy import, lazy
 
             ai_service = _svc
         except Exception as exc:  # noqa: BLE001 — offline / test environments
-            logger.warning(f"💌 direction: AI service unavailable: {exc}")
+            logger.warning(f"💌 {label}: AI service unavailable: {exc}")
             return None
-    prompt = f"Sender's request for the video:\n{direction}"
     for name in ("_call_deepseek", "_call_glm"):
         call = getattr(ai_service, name, None)
         if call is None:
@@ -130,16 +140,24 @@ async def _ask_text_model(direction: str, ai_service: Optional[object]) -> Optio
             continue
         try:
             raw = await asyncio.wait_for(
-                call(prompt, temperature=0.2, system_prompt=_SYSTEM_PROMPT, max_tokens=200),
-                timeout=_LLM_TIMEOUT_SECONDS,
+                call(prompt, temperature=temperature, system_prompt=system_prompt, max_tokens=max_tokens),
+                timeout=timeout,
             )
         except Exception as exc:  # noqa: BLE001 — provider hiccup, try the next
-            logger.warning(f"💌 direction: {name} failed: {exc}")
+            logger.warning(f"💌 {label}: {name} failed: {exc}")
             continue
-        verdict = _parse_verdict(raw or "")
-        if verdict is not None:
-            return verdict
+        parsed = parse(raw or "")
+        if parsed is not None:
+            return parsed
     return None
+
+
+async def _ask_text_model(direction: str, ai_service: Optional[object]) -> Optional[Dict[str, Any]]:
+    """The text model's verdict, or None if no provider answered usefully."""
+    return await call_text_model(
+        f"Sender's request for the video:\n{direction}", _SYSTEM_PROMPT, _parse_verdict,
+        ai_service=ai_service,
+    )
 
 
 async def prepare_direction(text: Optional[str], ai_service: Optional[object] = None) -> Dict[str, Any]:

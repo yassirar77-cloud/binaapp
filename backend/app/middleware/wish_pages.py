@@ -30,6 +30,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from loguru import logger
 
 from app.services import wishes as W
+from app.services import wish_writer as writer
 from app.services.wish_direction import MAX_DIRECTION_CHARS
 
 _TEMPLATES = Path(__file__).resolve().parent.parent / "templates" / "wishes"
@@ -110,6 +111,18 @@ def render_creator() -> str:
         "default_package": W.PACKAGE_BASE,
         "scene_ideas": W.SCENE_IDEAS,
         "max_direction": MAX_DIRECTION_CHARS,
+        "since_kinds": {k: v["label"] for k, v in W.SINCE_KINDS.items()},
+        "question_ideas": W.QUESTION_IDEAS,
+        "max_question": W.MAX_QUESTION_CHARS,
+        "max_hint": W.MAX_HINT_CHARS,
+        "max_answer": W.MAX_ANSWER_CHARS,
+        "writer": {
+            "relations": {k: v["label"] for k, v in writer.RELATIONS.items()},
+            "tones": {k: v["label"] for k, v in writer.TONES.items()},
+            "default_relation": writer.DEFAULT_RELATION,
+            "default_tone": writer.DEFAULT_TONE,
+            "max_notes": writer.MAX_NOTES_CHARS,
+        },
     }
     return (
         _page("create.html")

@@ -56,6 +56,9 @@
   .pulse.on .ico { background: linear-gradient(180deg, var(--gold-hi), var(--gold)); box-shadow: 0 8px 24px -8px var(--glow); }
   .pulse b { display: block; font: 500 19px/1.25 var(--serif); }
   .pulse small { display: block; margin-top: 2px; font-size: 14px; color: var(--pearl-dim); }
+  .hearts { display: flex; align-items: center; gap: 10px; margin-top: 16px; padding: 12px 14px; border-radius: 14px; background: rgba(255, 143, 174, .12); box-shadow: inset 0 0 0 1px rgba(255, 143, 174, .4); font-size: 15px; }
+  .hearts span { font-size: 22px; line-height: 1; }
+  .hearts b { font-weight: 600; }
   .reply { margin-top: 16px; padding: 18px 18px 16px; border-radius: 16px; background: linear-gradient(180deg, #FFFBF7, #FBEFE6); color: var(--ink); }
   .reply .emoji { font-size: 34px; line-height: 1; }
   .reply blockquote { margin: 10px 0 0; font: 400 18px/1.6 var(--serif); white-space: pre-line; overflow-wrap: anywhere; }
@@ -112,6 +115,7 @@
       <span class="ico" id="pulseIco" aria-hidden="true">🎁</span>
       <span><b id="pulseTitle"></b><small id="pulseNote"></small></span>
     </div>
+    <p class="hearts" id="hearts" hidden><span aria-hidden="true">💗</span><b id="heartsText"></b></p>
     <div class="reply" id="reply" hidden>
       <div class="emoji" id="replyEmoji"></div>
       <blockquote id="replyText"></blockquote>
@@ -212,7 +216,7 @@
     var sealed = !!w.unlock_at;
     $('sealed').hidden = !sealed;
     if (sealed) $('sealedWhen').textContent = 'Dikunci sehingga ' + whenText(w.unlock_at);
-    var text = 'Ada kejutan untuk awak 🎁' + (sealed ? ' Boleh dibuka pada ' + whenText(w.unlock_at) + '.' : '') + ' ' + w.url;
+    var text = 'Ada kejutan untuk awak 🎁' + (w.question ? ' Jawab satu soalan dulu untuk buka 😉' : '') + (sealed ? ' Boleh dibuka pada ' + whenText(w.unlock_at) + '.' : '') + ' ' + w.url;
     $('wa').href = 'https://wa.me/?text=' + encodeURIComponent(text);
     if (navigator.share) {
       $('share').hidden = false;
@@ -254,7 +258,11 @@
     $('pulseTitle').textContent = was ? w.recipient_name + ' dah buka kejutan anda' : 'Belum dibuka lagi';
     $('pulseNote').textContent = was
       ? 'Dibuka pada ' + whenText(w.opened_at) + (w.open_count > 1 ? ' · dilihat ' + w.open_count + ' kali' : '')
-      : 'Halaman ini akan beritahu anda sebaik dia tekan kotak hadiah.';
+      : (w.question
+        ? 'Dia perlu jawab soalan rahsia anda dahulu. Halaman ini akan beritahu anda sebaik kotak dibuka.'
+        : 'Halaman ini akan beritahu anda sebaik dia tekan kotak hadiah.');
+    $('hearts').hidden = !(w.hearts > 0);
+    if (w.hearts > 0) $('heartsText').textContent = w.recipient_name + ' hantar ' + w.hearts.toLocaleString('ms-MY') + ' sayang kepada anda';
     var replied = !!(w.replied_at && (w.reaction || w.reply_text));
     $('reply').hidden = !replied;
     if (replied) {
