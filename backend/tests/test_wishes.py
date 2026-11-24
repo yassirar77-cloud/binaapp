@@ -1032,7 +1032,9 @@ def test_open_reply_and_hearts_need_the_pass(table):
          patch.object(W, "add_hearts", new=AsyncMock(return_value=5)) as hearts:
         for path, body in (("open", None), ("reply", {"reaction": "love"}), ("hearts", {"count": 5})):
             assert client.post(f"/api/v1/wishes/public/aisyah/{path}", json=body).status_code == 423
-        rec.assert_not_awaited(); save.assert_not_awaited(); hearts.assert_not_awaited()
+        rec.assert_not_awaited()
+        save.assert_not_awaited()
+        hearts.assert_not_awaited()
         assert client.post(f"/api/v1/wishes/public/aisyah/open?k={k}").status_code == 200
         assert client.post(f"/api/v1/wishes/public/aisyah/reply?k={k}", json={"reaction": "love"}).status_code == 200
         assert client.post(f"/api/v1/wishes/public/aisyah/hearts?k={k}", json={"count": 5}).json() == {"ok": True, "hearts": 5}
