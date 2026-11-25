@@ -94,8 +94,10 @@ def wish_host_parts(host: str):
     return None
 
 
-def render_creator() -> str:
+def render_creator(promo_left: int = 0) -> str:
     config = {
+        # Launch offer: free base-package wishes still to give away.
+        "promo": {"left": max(0, int(promo_left)), "total": W.promo_limit(), "package": W.PACKAGE_BASE},
         "domain": W.wish_domain(),
         "max_photos": W.MAX_PHOTOS,
         "occasions": {
@@ -178,7 +180,7 @@ async def wish_middleware(request: Request, call_next):
 
         if sub in _CREATOR_SUBS:
             if path == "/":
-                return _html(render_creator())
+                return _html(render_creator(await W.promo_left_cached()))
             if _STATUS_PATH.match(path):
                 return _html(render_status())
             return RedirectResponse("/", status_code=302)

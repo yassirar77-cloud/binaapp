@@ -170,6 +170,7 @@ async def create_wish(
     secret_question: str = Form(""),
     secret_answer: str = Form(""),
     secret_hint: str = Form(""),
+    expect_free: str = Form(""),
     photos: List[UploadFile] = File(...),
 ):
     if _rate_limited(_client_ip(request)):
@@ -204,6 +205,20 @@ async def create_wish(
         raise HTTPException(400, str(exc))
 
     package = W.package_key((package or "").strip().lower())
+
+    # Launch offer: the base package is free while the offer lasts. Settled
+    # here, before any photo is uploaded, and never silently: a sender who
+    # was shown "free" is told why not instead of being sent to a bill.
+    free = email in W.free_emails()
+    promo = False
+    wants_free = expect_free.lower() in ("1", "true", "yes", "on")
+    if not free and package == W.PACKAGE_BASE and W.promo_limit():
+        problem = await W.promo_claim_problem(email, phone)
+        promo = problem is None
+        if problem and wants_free:
+            raise HTTPException(409, problem)
+    elif wants_free and not free:
+        raise HTTPException(409, "Tawaran percuma hanya untuk pakej Ringkas.")
 
     # The extras: a "since" counter and a secret question. Each is all or
     # nothing, so a half-filled one is an error rather than a silent drop.
@@ -279,7 +294,7 @@ async def create_wish(
         raise HTTPException(502, "Gagal memuat naik gambar. Sila cuba lagi.")
 
     token = W.new_token()
-    free = email in W.free_emails()
+    free = free or promo
     new_row = {
         "slug": slug,
         "status": "paid" if free else "awaiting_payment",
@@ -324,7 +339,8 @@ async def create_wish(
 
     status_link = W.status_url(row["id"], token)
     if free:
-        logger.info(f"💌 wish {slug} created FREE for {email}")
+        logger.info(f"💌 wish {slug} created FREE for {email}" + (" (launch offer)" if promo else ""))
+        W._promo_cache["at"] = None
         asyncio.create_task(W._safe_advance(row))
         return {"id": row["id"], "token": token, "status_url": status_link, "payment_url": None}
 

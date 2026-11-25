@@ -23,6 +23,18 @@
   .wrap { max-width: 1120px; margin: 0 auto; padding: 0 20px; }
   @media (min-width: 720px) { .wrap { padding: 0 32px; } }
 
+  /* Launch offer */
+  .promo { display: flex; align-items: center; gap: 12px; margin-top: 22px; padding: 12px 16px; max-width: 460px; border-radius: 16px; background: linear-gradient(180deg, rgba(246, 223, 168, .16), rgba(227, 182, 92, .08)); box-shadow: inset 0 0 0 1px var(--gold-line); }
+  .promo .n { flex: 0 0 auto; min-width: 46px; height: 46px; padding: 0 8px; border-radius: 14px; display: grid; place-items: center; background: linear-gradient(180deg, var(--gold-hi), var(--gold)); color: #2A1030; font: 600 22px/1 var(--serif); }
+  .promo b { display: block; font-weight: 700; color: var(--gold-hi); }
+  .promo span { font-size: 14px; color: var(--pearl-dim); }
+  .promo-card { display: flex; align-items: center; gap: 12px; margin: 0 0 16px; padding: 14px 16px; border-radius: 18px; background: #FFF6DF; box-shadow: 0 0 0 1px #EBCF8D; color: var(--ink); }
+  .promo-card .n { flex: 0 0 auto; min-width: 44px; height: 44px; padding: 0 8px; border-radius: 12px; display: grid; place-items: center; background: #4A1A3F; color: var(--gold); font: 600 20px/1 var(--serif); }
+  .promo-card b { display: block; }
+  .promo-card span { font-size: 14px; color: var(--ink-soft); }
+  .pkg .rm s { margin-right: 6px; font-weight: 400; color: var(--ink-soft); }
+  .pkg .rm strong { color: #1F7A46; }
+
   /* ---------- Hero ---------- */
   .hero { position: relative; overflow: hidden; padding: 18px 0 56px; }
   .topbar { display: flex; align-items: center; justify-content: space-between; }
@@ -332,8 +344,12 @@
         <p class="eyebrow">Kejutan video untuk orang tersayang</p>
         <h1>Gambar dia, jadi <em>video kejutan</em> bermuzik.</h1>
         <p class="lede">Muat naik gambar, tulis apa yang anda mahu berlaku, dan AI hidupkannya. Dia tekan kotak hadiah, video dan ucapan anda terus terbuka.</p>
+        <div class="promo" id="promoHero" hidden>
+          <span class="n" id="promoHeroN"></span>
+          <div><b>Percuma untuk 30 orang pertama</b><span id="promoHeroText"></span></div>
+        </div>
         <div class="cta">
-          <a class="btn btn-gold" href="#buat">Buat kejutan sekarang</a>
+          <a class="btn btn-gold" href="#buat" id="heroCta">Buat kejutan sekarang</a>
         </div>
         <ul class="trust">
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"/></svg>Siap dalam beberapa minit</li>
@@ -392,6 +408,10 @@
     </div>
     <div class="builder">
       <form id="form" novalidate>
+        <div class="promo-card" id="promoCard" hidden>
+          <span class="n" id="promoCardN"></span>
+          <div><b>Kejutan percuma, video 10 saat</b><span id="promoCardText"></span></div>
+        </div>
         <section class="card">
           <h3><span class="n">1</span>Pilih gambar</h3>
           <p class="help">Sehingga 5 gambar. Gambar utama akan dijadikan video, jadi pilih yang wajahnya jelas.</p>
@@ -639,6 +659,40 @@
     for (var i = 0; i < cfg.packages.length; i++) if (cfg.packages[i].key === key) return cfg.packages[i];
     return cfg.packages[0];
   }
+  // ---------- launch offer: the base package is free while it lasts ----------
+  var promo = cfg.promo || { left: 0, total: 0 };
+  function promoOn() { return promo.left > 0; }
+  function isFree() { return promoOn() && pkg().key === promo.package; }
+  function showPromo() {
+    var on = promoOn();
+    $('promoHero').hidden = !on;
+    $('promoCard').hidden = !on;
+    if (on) {
+      var base = cfg.packages.filter(function (p) { return p.key === promo.package; })[0] || cfg.packages[0];
+      $('promoHero').querySelector('b').textContent = 'Percuma untuk ' + promo.total + ' orang pertama';
+      $('promoHeroN').textContent = promo.left;
+      $('promoHeroText').textContent = 'tempat lagi. Video ' + base.seconds + ' saat, tanpa bayaran.';
+      $('promoCardN').textContent = promo.left;
+      $('promoCard').querySelector('b').textContent = 'Kejutan percuma, video ' + base.seconds + ' saat';
+      $('promoCardText').textContent = 'tempat lagi daripada ' + promo.total + '. Pilih pakej ' + base.label + '. Satu untuk setiap emel dan nombor telefon.';
+      $('heroCta').textContent = 'Buat kejutan percuma';
+    } else {
+      $('heroCta').textContent = 'Buat kejutan sekarang';
+    }
+    cfg.packages.forEach(function (p) {
+      var rm = document.querySelector('.pkg input[value="' + p.key + '"] + span .rm');
+      if (!rm) return;
+      rm.textContent = '';
+      if (on && p.key === promo.package) {
+        var was = document.createElement('s'); was.textContent = 'RM' + p.price.toFixed(2);
+        var now = document.createElement('strong'); now.textContent = 'PERCUMA';
+        rm.appendChild(was); rm.appendChild(now);
+      } else {
+        rm.textContent = 'RM' + p.price.toFixed(2);
+      }
+    });
+  }
+
   cfg.packages.forEach(function (p) {
     var label = document.createElement('label');
     label.className = 'pkg';
@@ -659,8 +713,9 @@
   });
   function onPackage() {
     var p = pkg();
-    $('payPrice').textContent = 'RM' + p.price.toFixed(2);
+    $('payPrice').textContent = isFree() ? 'PERCUMA' : 'RM' + p.price.toFixed(2);
     $('payNote').textContent = 'video ' + p.seconds + ' saat';
+    if (!$('pay').disabled) $('pay').textContent = payLabel();
     updatePreview();
     saveDraft();
   }
@@ -1108,6 +1163,8 @@
     if ($('slug').value) queueSlugCheck();
   }
 
+  function payLabel() { return isFree() ? 'Buat kejutan percuma' : 'Bayar & buat kejutan'; }
+
   // ---------- submit ----------
   function fail(msg, focusId) {
     var box = $('formError');
@@ -1164,6 +1221,8 @@
       fd.append('consent', 'true');
       fd.append('package', pkg().key);
       fd.append('video_direction', $('direction').value.trim());
+      // Shown as free: the server says so plainly if it no longer is.
+      if (isFree()) fd.append('expect_free', 'true');
       if (sinceKind) {
         fd.append('since_kind', sinceKind);
         fd.append('since_date', $('sinceDate').value);
@@ -1177,15 +1236,21 @@
       if (unlock) fd.append('unlock_at', unlock.toISOString());
       return fetch('/api/v1/wishes', { method: 'POST', body: fd });
     }).then(function (r) {
-      return r.json().then(function (body) { return { ok: r.ok, body: body }; });
+      return r.json().then(function (body) { return { ok: r.ok, status: r.status, body: body }; });
     }).then(function (res) {
+      if (res.status === 409 && isFree()) {
+        // The offer ran out, or this email / phone already used it.
+        promo.left = 0;
+        showPromo();
+        onPackage();
+      }
       if (!res.ok) throw new Error(res.body && res.body.detail ? res.body.detail : 'Ada masalah. Sila cuba lagi.');
       try { localStorage.removeItem(DRAFT_KEY); } catch (e) {}
       btn.textContent = res.body.payment_url ? 'Membuka pembayaran…' : 'Menyiapkan kejutan…';
       window.location.href = res.body.payment_url || res.body.status_url;
     }).catch(function (err) {
       btn.disabled = false;
-      btn.textContent = 'Bayar & buat kejutan';
+      btn.textContent = payLabel();
       fail(err && err.message ? err.message : 'Ada masalah. Sila cuba lagi.');
     });
   });
@@ -1208,6 +1273,7 @@
   $('count').textContent = $('message').value.length + ' / 600';
   if ($('message').value.trim()) setTab(true, false);
   onDirection();
+  showPromo();
   onPackage();
   onSince();
   onQuestion();
