@@ -8,13 +8,15 @@ import { RevenuePage } from './pages/RevenuePage'
 import { WebsitesPage } from './pages/WebsitesPage'
 import { ErrorsPage } from './pages/ErrorsPage'
 import { ActivityPage } from './pages/ActivityPage'
+import { MysygPage } from './pages/MysygPage'
 
-type Tab = 'home' | 'users' | 'revenue' | 'websites' | 'errors'
+type Tab = 'home' | 'users' | 'revenue' | 'mysyg' | 'websites' | 'errors'
 
 const tabs: { id: Tab; label: string; icon: string }[] = [
   { id: 'home', label: 'Home', icon: 'home' },
   { id: 'users', label: 'Users', icon: 'users' },
   { id: 'revenue', label: 'Money', icon: 'money' },
+  { id: 'mysyg', label: 'mysyg', icon: 'gift' },
   { id: 'websites', label: 'Sites', icon: 'globe' },
   { id: 'errors', label: 'Bugs', icon: 'bug' },
 ]
@@ -43,6 +45,14 @@ function TabIcon({ name, active }: { name: string; active: boolean }) {
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <line x1="12" y1="1" x2="12" y2="23" />
           <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+        </svg>
+      )
+    case 'gift':
+      return (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="8" width="18" height="4" rx="1" />
+          <path d="M12 8v13M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7" />
+          <path d="M7.5 8a2.5 2.5 0 0 1 0-5C11 3 12 8 12 8s1-5 4.5-5a2.5 2.5 0 0 1 0 5" />
         </svg>
       )
     case 'globe':
@@ -143,6 +153,7 @@ export function Dashboard() {
         {activeTab === 'home' && <HomePage />}
         {activeTab === 'users' && <UsersPage />}
         {activeTab === 'revenue' && <RevenuePage />}
+        {activeTab === 'mysyg' && <MysygPage />}
         {activeTab === 'websites' && <WebsitesPage />}
         {activeTab === 'errors' && <ErrorsPage />}
       </main>
@@ -154,7 +165,7 @@ export function Dashboard() {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex flex-col items-center gap-0.5 py-1 px-3 rounded-xl transition-colors min-w-[56px] ${
+              className={`flex flex-col items-center gap-0.5 py-1 px-3 rounded-xl transition-colors min-w-[48px] ${
                 activeTab === tab.id ? 'text-brand-orange' : 'text-gray-500'
               }`}
             >
