@@ -153,7 +153,7 @@ function WishDetail({ w }: { w: Wish }) {
         <Row label="Sender email">{w.payer_email}</Row>
         <Row label="Sender phone">{w.payer_phone}</Row>
         <Row label="Package">{PACKAGES[w.package] || w.package}{w.video_seconds ? ` · ${w.video_seconds}s` : ''}</Row>
-        <Row label="Paid">{w.amount > 0 ? formatCurrency(w.amount) : 'Free (test email)'}{w.paid_at ? ` · ${formatDateTime(w.paid_at)}` : ''}</Row>
+        <Row label="Paid">{w.amount > 0 ? formatCurrency(w.amount) : 'Free (launch offer or test email)'}{w.paid_at ? ` · ${formatDateTime(w.paid_at)}` : ''}</Row>
         {w.bill_code && <Row label="ToyyibPay bill">{w.bill_code}</Row>}
         <Row label="Created">{formatDateTime(w.created_at)}</Row>
         <Row label="Page views">{w.view_count}</Row>

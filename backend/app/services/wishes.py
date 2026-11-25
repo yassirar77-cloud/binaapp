@@ -196,6 +196,87 @@ def free_emails() -> List[str]:
     return [e.strip().lower() for e in raw.split(",") if e.strip()]
 
 
+# ---------------------------------------------------------------------------
+# Launch offer: the first N wishes on the base package are free
+# ---------------------------------------------------------------------------
+#
+# WISH_FREE_PROMO_LIMIT (default 30; 0 switches the offer off) is how many
+# base-package wishes are given away. There is no promo column: a promo wish
+# is simply a live wish that cost RM0 and was not made by one of the owner's
+# test emails, so the count below is the whole bookkeeping. One per email
+# and one per phone number.
+
+
+def promo_limit() -> int:
+    try:
+        value = int(os.getenv("WISH_FREE_PROMO_LIMIT", "30"))
+    except ValueError:
+        value = 30
+    return max(0, min(value, 1000))
+
+
+def _promo_params() -> Dict[str, str]:
+    params = {
+        "select": "id",
+        "amount_rm": "eq.0",
+        "status": f"in.({','.join(LIVE_STATUSES)})",
+    }
+    testers = [e for e in free_emails() if '"' not in e and "\\" not in e]
+    if testers:
+        params["payer_email"] = "not.in.(" + ",".join(f'"{e}"' for e in testers) + ")"
+    return params
+
+
+async def _promo_count(extra: Optional[Dict[str, str]] = None, limit: int = 1001) -> Optional[int]:
+    """How many promo wishes match, or None if the database did not answer."""
+    params = {**_promo_params(), **(extra or {}), "limit": str(limit)}
+    try:
+        async with supabase_service._client() as client:
+            resp = await client.get(_url(), headers=supabase_service.headers, params=params)
+        if resp.status_code == 200:
+            return len(resp.json())
+        logger.warning(f"💌 promo count failed: {resp.status_code} {resp.text[:200]}")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"💌 promo count error: {exc}")
+    return None
+
+
+async def promo_left() -> int:
+    """Free wishes still to give away. 0 when the offer is off, used up, or
+    the count could not be read (never give away what cannot be counted)."""
+    limit = promo_limit()
+    if not limit:
+        return 0
+    used = await _promo_count()
+    return 0 if used is None else max(0, limit - used)
+
+
+_promo_cache: Dict[str, Any] = {"at": None, "left": 0}
+
+
+async def promo_left_cached(max_age: timedelta = timedelta(seconds=20)) -> int:
+    """``promo_left`` for the creator page: every visitor loads that page,
+    so the count is reused for a few seconds. Creation always counts afresh."""
+    now = _utcnow()
+    if _promo_cache["at"] is None or now - _promo_cache["at"] > max_age:
+        _promo_cache["left"] = await promo_left()
+        _promo_cache["at"] = now
+    return int(_promo_cache["left"])
+
+
+async def promo_claim_problem(email: str, phone: str) -> Optional[str]:
+    """Why this sender cannot have a free wish, in Malay, or None if they can."""
+    if await promo_left() <= 0:
+        return "Maaf, kejutan percuma sudah habis ditebus. Anda masih boleh buat kejutan dengan harga biasa."
+    for column, value in (("payer_email", email), ("payer_phone", phone)):
+        used = await _promo_count({column: f"eq.{value}"}, limit=1)
+        if used is None:
+            return "Tawaran percuma tidak dapat disemak sekarang. Cuba sebentar lagi."
+        if used:
+            return "Emel atau nombor telefon ini sudah menebus kejutan percuma. Anda masih boleh buat kejutan dengan harga biasa."
+    return None
+
+
 MAX_PHOTOS = 5
 MAX_PHOTO_BYTES = 8 * 1024 * 1024
 MAX_MESSAGE_CHARS = 600

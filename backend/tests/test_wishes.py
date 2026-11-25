@@ -60,6 +60,13 @@ class FakeTable:
         return dict(row)
 
 
+@pytest.fixture(autouse=True)
+def _no_launch_offer(monkeypatch):
+    """The free launch offer is off unless a test turns it on."""
+    monkeypatch.setenv("WISH_FREE_PROMO_LIMIT", "0")
+    W._promo_cache["at"] = None
+
+
 @pytest.fixture
 def table():
     t = FakeTable()
@@ -1218,3 +1225,113 @@ def test_suggest_endpoint(table):
         E._public_hits.clear()
         codes = [client.post("/api/v1/wishes/suggest", json={}).status_code for _ in range(E._SUGGEST_LIMIT + 1)]
     assert codes[:-1] == [200] * E._SUGGEST_LIMIT and codes[-1] == 429
+
+
+# ---------------------------------------------------------------------------
+# Launch offer: the first N base-package wishes are free
+# ---------------------------------------------------------------------------
+
+
+def _promo_db(rows):
+    """supabase_service stand-in that answers the promo count queries."""
+    calls = []
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def get(self, _url, headers=None, params=None):
+            calls.append(dict(params))
+            found = [r for r in rows if all(
+                r.get(col) == val[3:] for col, val in params.items() if col in ("payer_email", "payer_phone") and val.startswith("eq.")
+            )]
+            return _Resp(200, found[: int(params["limit"])])
+
+    return SimpleNamespace(url="https://db", headers={}, _client=lambda: _Client()), calls
+
+
+def test_promo_limit_env(monkeypatch):
+    monkeypatch.delenv("WISH_FREE_PROMO_LIMIT", raising=False)
+    assert W.promo_limit() == 30
+    for raw, want in (("0", 0), ("5", 5), ("-3", 0), ("banyak", 30)):
+        monkeypatch.setenv("WISH_FREE_PROMO_LIMIT", raw)
+        assert W.promo_limit() == want
+
+
+def test_promo_counts_live_free_wishes_but_not_the_owners_tests(monkeypatch):
+    monkeypatch.setenv("WISH_FREE_PROMO_LIMIT", "30")
+    monkeypatch.setenv("WISH_FREE_EMAILS", "owner@x.com, dua@x.com")
+    fake, calls = _promo_db([{"id": i} for i in range(12)])
+    with patch.object(W, "supabase_service", fake):
+        assert asyncio.run(W.promo_left()) == 18
+    q = calls[0]
+    assert q["amount_rm"] == "eq.0" and "awaiting_payment" not in q["status"] and "cancelled" not in q["status"]
+    assert q["payer_email"] == 'not.in.("owner@x.com","dua@x.com")'
+
+
+def test_promo_is_off_at_zero_and_closed_when_it_cannot_be_counted(monkeypatch):
+    monkeypatch.setenv("WISH_FREE_PROMO_LIMIT", "0")
+    assert asyncio.run(W.promo_left()) == 0  # no database call at all
+    monkeypatch.setenv("WISH_FREE_PROMO_LIMIT", "30")
+    with patch.object(W, "_promo_count", new=AsyncMock(return_value=None)):
+        assert asyncio.run(W.promo_left()) == 0
+        assert "tidak dapat disemak" in asyncio.run(W.promo_claim_problem("a@b.com", "0123456789")) or \
+            "habis" in asyncio.run(W.promo_claim_problem("a@b.com", "0123456789"))
+    with patch.object(W, "_promo_count", new=AsyncMock(return_value=31)):
+        assert asyncio.run(W.promo_left()) == 0
+
+
+def test_promo_is_one_per_email_and_one_per_phone(monkeypatch):
+    monkeypatch.setenv("WISH_FREE_PROMO_LIMIT", "30")
+    monkeypatch.delenv("WISH_FREE_EMAILS", raising=False)
+    fake, _ = _promo_db([{"id": 1, "payer_email": "dah@guna.com", "payer_phone": "0111111111"}])
+    with patch.object(W, "supabase_service", fake):
+        assert asyncio.run(W.promo_claim_problem("baru@x.com", "0122222222")) is None
+        assert "sudah menebus" in asyncio.run(W.promo_claim_problem("dah@guna.com", "0122222222"))
+        assert "sudah menebus" in asyncio.run(W.promo_claim_problem("baru@x.com", "0111111111"))
+
+
+def _promo_create(table, monkeypatch, form, problem):
+    monkeypatch.setenv("WISH_FREE_PROMO_LIMIT", "30")
+    with patch.object(W, "promo_claim_problem", new=AsyncMock(return_value=problem)) as claim:
+        resp, inserted = _create(table, monkeypatch, form)
+    return resp, inserted, claim
+
+
+def test_create_is_free_on_the_base_package_while_the_offer_lasts(table, monkeypatch):
+    resp, inserted, _ = _promo_create(table, monkeypatch, _form(expect_free="true"), None)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["payment_url"] is None
+    row = inserted[0]
+    assert row["status"] == "paid" and row["amount_rm"] == 0 and row["package"] == "ringkas" and row["video_seconds"] == 10
+
+
+def test_longer_packages_are_never_free(table, monkeypatch):
+    resp, inserted, claim = _promo_create(table, monkeypatch, _form(package="sinematik"), None)
+    assert resp.status_code == 200 and inserted[0]["amount_rm"] == 24.90 and inserted[0]["status"] == "awaiting_payment"
+    claim.assert_not_awaited()
+    resp, inserted, _ = _promo_create(table, monkeypatch, _form(slug="lain", package="manis", expect_free="true"), None)
+    assert resp.status_code == 409 and "Ringkas" in resp.json()["detail"] and inserted == []
+
+
+def test_a_sender_shown_free_is_told_when_it_is_not(table, monkeypatch):
+    resp, inserted, _ = _promo_create(table, monkeypatch, _form(expect_free="true"), "Maaf, kejutan percuma sudah habis ditebus.")
+    assert resp.status_code == 409 and "habis" in resp.json()["detail"] and inserted == []
+    # ...and one who never saw the offer simply pays the normal price.
+    resp, inserted, _ = _promo_create(table, monkeypatch, _form(), "Maaf, kejutan percuma sudah habis ditebus.")
+    assert resp.status_code == 200 and inserted[0]["amount_rm"] == 9.90 and resp.json()["payment_url"]
+
+
+def test_creator_page_carries_the_offer(table, monkeypatch):
+    monkeypatch.setenv("WISH_FREE_PROMO_LIMIT", "30")
+    W._promo_cache["at"] = None
+    with patch.object(W, "promo_left", new=AsyncMock(return_value=17)) as left:
+        page = asyncio.run(P.wish_middleware(_req("buat.mysyg.com"), _next))
+        asyncio.run(P.wish_middleware(_req("buat.mysyg.com"), _next))
+    assert left.await_count == 1  # counted once, reused for the next visitor
+    W._promo_cache["at"] = None
+    config = json.loads(page.body.decode().split('<script id="config" type="application/json">')[1].split("</script>")[0])
+    assert config["promo"] == {"left": 17, "total": 30, "package": "ringkas"}
