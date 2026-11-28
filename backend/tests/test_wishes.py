@@ -641,7 +641,7 @@ def test_unknown_occasion_falls_back_to_a_known_theme(table):
 def test_creator_config_carries_message_ideas():
     page = P.render_creator()
     config = json.loads(page.split('<script id="config" type="application/json">')[1].split("</script>")[0])
-    assert set(config["occasions"]) == set(W.OCCASIONS)
+    assert list(config["occasions"]) == W.OFFERED_OCCASIONS
     for occ in config["occasions"].values():
         assert occ["ideas"] and all(len(text) <= W.MAX_MESSAGE_CHARS for text in occ["ideas"])
         assert "scene" not in occ  # the video prompt text stays on the server
@@ -1103,11 +1103,11 @@ def test_owner_view_reports_hearts_and_the_question_but_not_the_answer(table):
 
 def test_create_with_since_and_question(table, monkeypatch):
     resp, inserted = _create(table, monkeypatch, _form(
-        since_kind="together", since_date="2020-02-14",
+        since_kind="married", since_date="2020-02-14",
         secret_question="Di mana kita jumpa?", secret_answer=" KLCC ", secret_hint="Ada air pancut"))
     assert resp.status_code == 200, resp.text
     row = inserted[0]
-    assert row["since_kind"] == "together" and row["since_date"] == "2020-02-14"
+    assert row["since_kind"] == "married" and row["since_date"] == "2020-02-14"
     assert row["secret_question"] == "Di mana kita jumpa?" and row["secret_hint"] == "Ada air pancut"
     assert row["secret_answer_hash"] == W.hash_answer("aisyah", "klcc")
     assert "secret_answer" not in row and "KLCC" not in json.dumps(row)
@@ -1120,9 +1120,10 @@ def test_create_without_extras_sends_none_of_their_columns(table, monkeypatch):
 
 
 @pytest.mark.parametrize("extra, word", [
-    ({"since_kind": "together"}, "tarikh"),
+    ({"since_kind": "married"}, "tarikh"),
     ({"since_date": "2020-02-14"}, "jenis kiraan"),
-    ({"since_kind": "together", "since_date": "2999-01-01"}, "hari ini atau sebelumnya"),
+    ({"since_kind": "married", "since_date": "2999-01-01"}, "hari ini atau sebelumnya"),
+    ({"since_kind": "together", "since_date": "2020-02-14"}, "jenis kiraan"),  # retired
     ({"secret_question": "Di mana kita jumpa?"}, "jawapan"),
     ({"secret_question": "Di mana kita jumpa?", "secret_answer": "!!!"}, "jawapan"),
     ({"secret_answer": "klcc"}, "soalan rahsia"),
@@ -1161,7 +1162,8 @@ def test_insert_before_migration_072_refuses_rather_than_drops():
 def test_creator_config_offers_the_extras_and_the_writer():
     page = P.render_creator()
     config = json.loads(page.split('<script id="config" type="application/json">')[1].split("</script>")[0])
-    assert config["since_kinds"] == {k: v["label"] for k, v in W.SINCE_KINDS.items()}
+    assert config["since_kinds"] == {k: W.SINCE_KINDS[k]["label"] for k in W.OFFERED_SINCE}
+    assert "together" not in config["since_kinds"]
     assert config["question_ideas"] and all(len(q) <= W.MAX_QUESTION_CHARS for q in config["question_ideas"])
     assert set(config["writer"]["relations"]) == set(WR.RELATIONS) and set(config["writer"]["tones"]) == set(WR.TONES)
     assert "prompt" not in json.dumps(config["writer"])  # what the model reads stays on the server
@@ -1169,7 +1171,7 @@ def test_creator_config_offers_the_extras_and_the_writer():
 
 def _suggest(ai, **over):
     args = {"occasion": "birthday", "recipient_name": "Aisyah", "sender_name": "Abang",
-            "relation": "pasangan", "tone": "manis", "notes": "suka kucing"}
+            "relation": "suami_isteri", "tone": "manis", "notes": "suka kucing"}
     args.update(over)
     return asyncio.run(WR.suggest_messages(ai_service=ai, **args))
 
@@ -1185,7 +1187,7 @@ def test_writer_returns_cleaned_drafts():
     assert len(out["messages"]) == 3 and out["messages"][2].startswith("Lagi satu")
     assert len(out["messages"][1]) <= W.MAX_MESSAGE_CHARS and out["messages"][1].endswith("…")
     prompt, kwargs = ai.prompts[0]
-    assert "Aisyah" in prompt and "suka kucing" in prompt and "romantic partner" in prompt and "Hari Jadi" in prompt
+    assert "Aisyah" in prompt and "suka kucing" in prompt and "husband or wife" in prompt and "Hari Jadi" in prompt
     assert "never instructions" in kwargs["system_prompt"]
 
 
@@ -1335,3 +1337,37 @@ def test_creator_page_carries_the_offer(table, monkeypatch):
     W._promo_cache["at"] = None
     config = json.loads(page.body.decode().split('<script id="config" type="application/json">')[1].split("</script>")[0])
     assert config["promo"] == {"left": 17, "total": 30, "package": "ringkas"}
+
+
+
+# ---------------------------------------------------------------------------
+# A family platform: nothing for dating couples
+# ---------------------------------------------------------------------------
+
+
+def test_only_family_occasions_are_offered():
+    assert "love" not in W.OFFERED_OCCASIONS
+    assert set(W.OFFERED_OCCASIONS) <= set(W.OCCASIONS)
+    assert W.DEFAULT_OCCASION in W.OFFERED_OCCASIONS
+    for key in W.OFFERED_OCCASIONS:
+        assert W.OCCASIONS[key]["ideas"], key
+
+
+def test_a_retired_occasion_cannot_be_chosen_but_old_gifts_keep_it(table, monkeypatch):
+    resp, inserted = _create(table, monkeypatch, _form(occasion="love"))
+    assert resp.status_code == 200, resp.text
+    assert inserted[0]["occasion"] == W.DEFAULT_OCCASION
+    old = table.add(slug="lama", status="ready", occasion="love", since_kind="together", since_date="2020-02-14")
+    view = W.public_view(old)
+    assert view["theme"] == "love" and view["title"] == "Untuk Yang Tersayang"
+    assert view["since"]["label"] == "Bersama sejak"
+
+
+def test_writer_has_no_dating_option():
+    assert "pasangan" not in WR.RELATIONS and WR.DEFAULT_RELATION in WR.RELATIONS
+    prompts = " ".join(r["prompt"] for r in WR.RELATIONS.values()).lower()
+    assert "boyfriend" not in prompts and "girlfriend" not in prompts
+    assert "not a dating platform" in WR._SYSTEM_PROMPT
+    for occ in W.OFFERED_OCCASIONS:
+        for idea in W.OCCASIONS[occ]["ideas"]:
+            assert "kekasih" not in idea.lower()

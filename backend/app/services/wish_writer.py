@@ -32,11 +32,13 @@ MAX_DRAFTS = 3
 _TIMEOUT_SECONDS = 25.0
 
 #: Who the gift is for. Keys travel; the English is what the model reads.
+#: mysyg is a family platform: there is deliberately no option for a
+#: boyfriend or girlfriend.
 RELATIONS: Dict[str, Dict[str, str]] = {
-    "pasangan": {"label": "Kekasih", "prompt": "their romantic partner (boyfriend or girlfriend)"},
-    "suami_isteri": {"label": "Suami / isteri", "prompt": "their husband or wife"},
     "mak_ayah": {"label": "Mak / ayah", "prompt": "their mother or father"},
-    "anak": {"label": "Anak", "prompt": "their child"},
+    "suami_isteri": {"label": "Suami / isteri", "prompt": "their husband or wife"},
+    "atuk_nenek": {"label": "Atuk / nenek", "prompt": "their grandfather or grandmother"},
+    "anak": {"label": "Anak / cucu", "prompt": "their child or grandchild"},
     "adik_beradik": {"label": "Adik-beradik", "prompt": "their brother or sister"},
     "kawan": {"label": "Kawan baik", "prompt": "a close friend"},
     "rakan_kerja": {"label": "Rakan kerja / guru", "prompt": "a respected colleague, boss or teacher"},
@@ -44,19 +46,22 @@ RELATIONS: Dict[str, Dict[str, str]] = {
 
 TONES: Dict[str, Dict[str, str]] = {
     "ikhlas": {"label": "Ikhlas & menyentuh hati", "prompt": "sincere and heartfelt"},
-    "manis": {"label": "Manis & romantik", "prompt": "sweet and romantic"},
+    "manis": {"label": "Manis & mesra", "prompt": "warm, sweet and affectionate (romantic only between husband and wife)"},
     "lucu": {"label": "Lucu & santai", "prompt": "playful, casual and lightly funny, never mocking"},
     "puitis": {"label": "Puitis", "prompt": "poetic, with one gentle image or metaphor"},
 }
 
-DEFAULT_RELATION = "pasangan"
+DEFAULT_RELATION = "mak_ayah"
 DEFAULT_TONE = "ikhlas"
 
 REFUSAL = "Catatan ini tidak dapat digunakan. Tulis sesuatu yang sopan tentang dia."
 UNAVAILABLE = "Penulis AI sedang sibuk. Cuba sebentar lagi, atau guna salah satu cadangan sedia ada."
 
 _SYSTEM_PROMPT = (
-    "You write short personal greeting messages for a Malaysian gift page. Write in natural, "
+    "You write short personal greeting messages for a Malaysian family gift page: messages "
+    "between parents and children, grandparents and grandchildren, husband and wife, siblings, "
+    "friends and colleagues. It is not a dating platform: never write flirting or courtship "
+    "messages, and keep any affection between spouses warm and modest. Write in natural, "
     "warm, everyday Bahasa Melayu as spoken in Malaysia (not Indonesian, not formal textbook "
     "Malay). The sender will sign the message themselves, so do not add a signature.\n\n"
     "Reply with ONE JSON object and nothing else: {\"messages\": [\"...\", \"...\", \"...\"]}\n\n"
