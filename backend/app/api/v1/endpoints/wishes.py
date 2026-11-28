@@ -180,7 +180,7 @@ async def create_wish(
     problem = W.slug_problem(slug)
     if problem:
         raise HTTPException(400, problem)
-    if occasion not in W.OCCASIONS:
+    if occasion not in W.OFFERED_OCCASIONS:
         occasion = W.DEFAULT_OCCASION
     if music_style not in W.MUSIC_STYLES:
         music_style = W.DEFAULT_MUSIC
@@ -225,7 +225,7 @@ async def create_wish(
     since_kind = (since_kind or "").strip().lower()
     since = None
     if since_kind or (since_date or "").strip():
-        if since_kind not in W.SINCE_KINDS:
+        if since_kind not in W.OFFERED_SINCE:
             raise HTTPException(400, "Pilih jenis kiraan kenangan.")
         try:
             since = W.parse_since_date(since_date)

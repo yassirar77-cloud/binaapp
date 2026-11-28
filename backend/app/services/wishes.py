@@ -328,9 +328,9 @@ OCCASIONS: Dict[str, Dict[str, Any]] = {
         "emoji": "🎂",
         "scene": "colorful confetti and a few soft balloons drift gently through the air, warm festive golden light",
         "ideas": [
-            "Selamat hari jadi, sayang. Terima kasih sebab sentiasa ada, masa senang dan masa susah. Semoga tahun ini lebih manis daripada semalam, dan semua doa sayang dimakbulkan.",
-            "Hari ini hari awak. Saya cuma nak awak tahu: dunia saya lebih cerah sejak ada awak. Selamat hari jadi, semoga panjang umur dan murah rezeki.",
-            "Satu tahun lagi bertambah, dan awak masih orang yang paling saya sayang. Selamat hari jadi. Jom sambut sama-sama malam ni.",
+            "Selamat hari jadi, mak. Terima kasih untuk setiap doa, setiap masakan dan setiap nasihat. Semoga mak sentiasa sihat, panjang umur dan murah rezeki.",
+            "Selamat hari jadi, ayah. Ayah tak banyak bercakap, tapi kami nampak semua pengorbanan ayah. Semoga Allah panjangkan umur ayah dalam keadaan sihat.",
+            "Selamat hari jadi, anakku. Melihat kamu membesar adalah nikmat terbesar dalam hidup kami. Semoga kamu jadi insan yang baik dan berjaya dunia akhirat.",
         ],
     },
     "anniversary": {
@@ -344,16 +344,14 @@ OCCASIONS: Dict[str, Dict[str, Any]] = {
             "Kalau diberi peluang pilih semula, saya tetap pilih awak. Selamat ulang tahun, sayang.",
         ],
     },
+    # Retired: no longer offered on the creator page (mysyg is for families),
+    # kept so gift pages made with it still render. See OFFERED_OCCASIONS.
     "love": {
         "label": "Saja Nak Cakap Sayang",
-        "title": "Untuk Sayangku",
+        "title": "Untuk Yang Tersayang",
         "emoji": "💖",
         "scene": "soft glowing heart-shaped bokeh lights float around, warm dreamy pink and golden light",
-        "ideas": [
-            "Tak ada sebab khas hari ini. Saya cuma nak awak tahu, awak orang paling penting dalam hidup saya. Sayang awak, hari ini dan selamanya.",
-            "Terima kasih sebab jadi rumah saya. Penat macam mana pun, balik pada awak, semua jadi ringan.",
-            "Saja nak ingatkan: awak cantik, awak cukup, dan awak sangat disayangi.",
-        ],
+        "ideas": [],
     },
     "raya": {
         "label": "Hari Raya",
@@ -372,9 +370,9 @@ OCCASIONS: Dict[str, Dict[str, Any]] = {
         "emoji": "🌷",
         "scene": "soft morning sunlight, a few flower petals drift gently, calm and tender atmosphere",
         "ideas": [
-            "Saya minta maaf. Saya tahu saya dah lukakan hati awak, dan saya menyesal. Beri saya peluang untuk baiki semuanya.",
-            "Maafkan saya atas kata-kata yang tak sepatutnya. Awak terlalu berharga untuk saya sakiti. Saya akan cuba jadi lebih baik.",
-            "Ego saya kalah dengan rindu. Maafkan saya, sayang. Jom kita mula semula.",
+            "Mak, ayah, maafkan segala salah silap saya, yang sengaja dan tidak sengaja. Doakan saya jadi anak yang lebih baik.",
+            "Maafkan saya atas kata-kata yang tak sepatutnya. Keluarga kita terlalu berharga untuk saya sakiti. Saya akan cuba jadi lebih baik.",
+            "Abang minta maaf, sayang. Rumah kita tak sama bila kita bermasam muka. Jom kita mula semula, demi kita dan anak-anak.",
         ],
     },
     "thanks": {
@@ -422,14 +420,14 @@ OCCASIONS: Dict[str, Dict[str, Any]] = {
         ],
     },
     "miss": {
-        "label": "Rindu",
-        "title": "Rindu Awak",
+        "label": "Rindu Keluarga",
+        "title": "Rindu Sangat",
         "emoji": "💌",
         "scene": "soft twilight sky with slowly drifting clouds and a few gentle floating lights, tender wistful atmosphere",
         "ideas": [
-            "Jauh macam mana pun kita, awak tetap orang pertama yang saya ingat setiap pagi. Rindu awak, jaga diri baik-baik.",
-            "Kira hari sampai kita jumpa lagi. Sementara itu, ini sedikit kejutan supaya awak tahu saya sentiasa teringat.",
-            "Rindu gelak awak, rindu bebel awak, rindu semuanya. Cepat-cepatlah kita jumpa.",
+            "Mak, ayah, anak di rantau ni rindu sangat. Jaga kesihatan ya, insya-Allah cuti nanti kami balik kampung.",
+            "Atuk, nenek, cucu rindu nak makan masakan nenek dan dengar cerita atuk. Tunggu kami balik ya.",
+            "Jauh di mata, dekat di hati. Walaupun kita berjauhan, doa kami sentiasa untuk keluarga di sana.",
         ],
     },
     "getwell": {
@@ -445,21 +443,33 @@ OCCASIONS: Dict[str, Dict[str, Any]] = {
     },
 }
 
+#: What the creator page offers, in order. Occasions missing here stay in
+#: OCCASIONS so existing gift pages keep their theme, but no new wish can
+#: pick them.
+OFFERED_OCCASIONS: List[str] = [
+    "birthday", "parents", "anniversary", "raya", "thanks", "graduation",
+    "congrats", "getwell", "miss", "sorry",
+]
+
 #: "Since" counters the sender can put on the gift page. Keys are stored;
 #: the labels are ours, so nothing the sender typed is involved.
 SINCE_KINDS: Dict[str, Dict[str, str]] = {
-    "together": {"label": "Bersama sejak", "unit": "hari bersama"},
     "married": {"label": "Berkahwin sejak", "unit": "hari sebagai suami isteri"},
-    "friends": {"label": "Berkawan sejak", "unit": "hari bersahabat"},
-    "born": {"label": "Lahir pada", "unit": "hari menceriakan dunia"},
+    "parents": {"label": "Bergelar ibu bapa sejak", "unit": "hari menjadi ibu bapa"},
+    "born": {"label": "Lahir pada", "unit": "hari menceriakan keluarga"},
+    "friends": {"label": "Bersahabat sejak", "unit": "hari bersahabat"},
+    # Retired from the creator page (see OFFERED_SINCE); old wishes keep it.
+    "together": {"label": "Bersama sejak", "unit": "hari bersama"},
 }
+
+OFFERED_SINCE: List[str] = ["married", "parents", "born", "friends"]
 
 #: Starting points for the secret question.
 QUESTION_IDEAS: List[str] = [
-    "Di mana kita mula-mula berjumpa?",
-    "Apa nama panggilan manja saya untuk awak?",
-    "Makanan apa yang kita selalu order sama-sama?",
-    "Bulan berapa kita mula kenal?",
+    "Apa lauk kegemaran keluarga kita?",
+    "Apa nama panggilan saya masa kecil?",
+    "Di mana kita bercuti sekeluarga tahun lepas?",
+    "Apa nama kampung atuk dan nenek?",
 ]
 
 #: What the recipient can send back. Keys are stored; emoji are display only.

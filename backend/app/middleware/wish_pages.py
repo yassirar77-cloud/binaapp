@@ -101,8 +101,11 @@ def render_creator(promo_left: int = 0) -> str:
         "domain": W.wish_domain(),
         "max_photos": W.MAX_PHOTOS,
         "occasions": {
-            k: {"label": v["label"], "title": v["title"], "emoji": v["emoji"], "ideas": v["ideas"]}
-            for k, v in W.OCCASIONS.items()
+            k: {
+                "label": W.OCCASIONS[k]["label"], "title": W.OCCASIONS[k]["title"],
+                "emoji": W.OCCASIONS[k]["emoji"], "ideas": W.OCCASIONS[k]["ideas"],
+            }
+            for k in W.OFFERED_OCCASIONS
         },
         "music": {k: v["label"] for k, v in W.MUSIC_STYLES.items()},
         "default_occasion": W.DEFAULT_OCCASION,
@@ -113,7 +116,7 @@ def render_creator(promo_left: int = 0) -> str:
         "default_package": W.PACKAGE_BASE,
         "scene_ideas": W.SCENE_IDEAS,
         "max_direction": MAX_DIRECTION_CHARS,
-        "since_kinds": {k: v["label"] for k, v in W.SINCE_KINDS.items()},
+        "since_kinds": {k: W.SINCE_KINDS[k]["label"] for k in W.OFFERED_SINCE},
         "question_ideas": W.QUESTION_IDEAS,
         "max_question": W.MAX_QUESTION_CHARS,
         "max_hint": W.MAX_HINT_CHARS,
